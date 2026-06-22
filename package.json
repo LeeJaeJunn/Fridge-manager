@@ -1,24 +1,17 @@
 {
   "name": "companion",
-  "version": "1.0.0",
   "private": true,
-  "description": "",
-  "main": "index.js",
+  "packageManager": "pnpm@11.8.0",
+  "type": "module",
   "scripts": {
+    "dev:api": "pnpm --filter @companion/api start:dev",
+    "dev:mobile": "pnpm --filter @companion/mobile start",
+    "build": "pnpm -r --if-present build",
+    "lint": "pnpm -r --if-present lint",
+    "test": "pnpm -r --if-present test",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "devEngines": {
-    "packageManager": {
-      "name": "pnpm",
-      "version": "^11.8.0",
-      "onFail": "download"
-    }
-  },
-  "type": "module",
   "devDependencies": {
     "prettier": "3.8.4",
     "prettier-plugin-tailwindcss": "0.8.0"

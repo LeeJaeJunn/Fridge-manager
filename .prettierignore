@@ -4,9 +4,12 @@ build
 coverage
 
 .expo
+.expo-shared
 .next
+.pnpm-store
 .turbo
 .cache
+web-build
 
 pnpm-lock.yaml
 package-lock.json
