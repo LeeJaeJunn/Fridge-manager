@@ -3,3 +3,4 @@ packages:
   - 'packages/*'
 allowBuilds:
   unrs-resolver: true
+nodeLinker: hoisted

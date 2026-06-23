@@ -13,7 +13,7 @@ companion/
 └─ (root)                 # 워크스페이스 오케스트레이터: prettier, vscode, ci
 ```
 
-- 패키지 매니저: **pnpm** (`node-linker` 관련은 Expo 호환 위해 주의)
+- 패키지 매니저: **pnpm**. Expo/Metro 호환을 위해 **`pnpm-workspace.yaml` 에 `nodeLinker: hoisted`** 필수 (없으면 `react-native-css-interop` 등 transitive 의존성을 Metro 가 못 찾음). pnpm 11 은 이 설정을 `.npmrc` 가 아니라 `pnpm-workspace.yaml` 에서 읽는다.
 - 포매팅: 루트 `prettier` + `prettier-plugin-tailwindcss` (루트에서 `pnpm format`)
 - 에디터 설정: 루트 `.vscode/` (워크스페이스 전체 공통)
 
