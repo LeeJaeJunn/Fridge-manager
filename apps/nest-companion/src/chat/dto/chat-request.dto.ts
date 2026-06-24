@@ -7,7 +7,7 @@ import {
   IsString,
   ValidateNested,
 } from 'class-validator';
-import type { ChatMessageType, ChatRequestType, ChatRoleType } from '../../contracts/chat.contract';
+import type { ChatMessageType, ChatRequestType, ChatRoleType } from '@companion/types';
 
 /**
  * 공유 계약(ChatMessageType)을 implements 하고, 검증 데코레이터만 더한다.

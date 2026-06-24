@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import type { ChatMessageType, ChatResType } from '@companion/types';
 import OpenAI from 'openai';
 import { OPENAI_CLIENT } from './llm.constants';
-import { ChatMessageType, ChatResType } from '../contracts/chat.contract';
 
 /**
  * 앱 전체가 사용하는 LLM 진입점.
@@ -49,17 +49,17 @@ export class LlmService {
   }
 
   /** 답변을 토큰 단위로 흘려보냄 (SSE 타이핑 효과용) */
-  async *stream(messages: ChatMessageType[], model: string): AsyncGenerator<string> {
-    const stream = await this.client.responses.create({
-      model,
-      input: messages,
-      stream: true,
-    });
-    // Responses API는 의미 단위 이벤트를 흘려보냄 — 텍스트 조각만 골라낸다
-    for await (const event of stream) {
-      if (event.type === 'response.output_text.delta') {
-        yield event.delta;
-      }
-    }
-  }
+  // async *stream(messages: ChatMessageType[], model: string): AsyncGenerator<string> {
+  //   const stream = await this.client.responses.create({
+  //     model,
+  //     input: messages,
+  //     stream: true,
+  //   });
+  //   // Responses API는 의미 단위 이벤트를 흘려보냄 — 텍스트 조각만 골라낸다
+  //   for await (const event of stream) {
+  //     if (event.type === 'response.output_text.delta') {
+  //       yield event.delta;
+  //     }
+  //   }
+  // }
 }

@@ -1,10 +1,10 @@
 import { ENV } from '@/config/env';
-import type { CharacterSummaryType, ChatMessageType, ChatResType } from '@/types/chat';
-
-interface ChatEnvelopeType {
-  ok: boolean;
-  result: ChatResType;
-}
+import type {
+  CharacterSummaryType,
+  ChatMessageType,
+  ChatResponseEnvelopeType,
+  ChatResType,
+} from '@companion/types';
 
 /** 선택 가능한 캐릭터 목록 */
 export async function fetchCharacters(): Promise<CharacterSummaryType[]> {
@@ -29,6 +29,6 @@ export async function sendChat(
     const body = (await res.json().catch(() => null)) as { message?: string } | null;
     throw new Error(body?.message ?? '메시지 전송에 실패했습니다');
   }
-  const data = (await res.json()) as ChatEnvelopeType;
+  const data = (await res.json()) as ChatResponseEnvelopeType;
   return data.result;
 }

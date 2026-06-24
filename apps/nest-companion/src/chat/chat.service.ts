@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import type { ChatMessageType, ChatResType } from '@companion/types';
 import { LlmService } from '../llm/llm.service';
-import { ChatMessageType, ChatResType } from '../contracts/chat.contract';
 import { CHARACTERS, findCharacter } from './characters';
 
 @Injectable()
@@ -21,6 +21,6 @@ export class ChatService {
     if (!character) {
       throw new NotFoundException(`존재하지 않는 캐릭터입니다: ${characterId}`);
     }
-    return this.llm.chat(character.instruction, messages, character.model);
+    return await this.llm.chat(character.instruction, messages, character.model);
   }
 }

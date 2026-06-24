@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { fetchCharacters, sendChat } from '@/api/chat';
-import type { CharacterSummaryType, ChatMessageType } from '@/types/chat';
+import type { CharacterSummaryType, ChatMessageType } from '@companion/types';
 
 export default function ChatScreen() {
   const [characters, setCharacters] = useState<CharacterSummaryType[]>([]);
@@ -88,7 +88,9 @@ export default function ChatScreen() {
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
         >
           {messages.length === 0 && (
-            <Text className="mt-8 text-center text-neutral-500">메시지를 보내 대화를 시작하세요</Text>
+            <Text className="mt-8 text-center text-neutral-500">
+              메시지를 보내 대화를 시작하세요
+            </Text>
           )}
           {messages.map((m, i) => (
             <View
