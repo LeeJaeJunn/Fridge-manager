@@ -1,0 +1,95 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma" // src 안에 둬야 nest build 의 dist 구조가 안 깨짐
+  moduleFormat = "cjs" // NestJS는 CommonJS — 기본 ESM(import.meta) 출력은 컴파일 깨짐
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// 메시지 역할 — @companion/types 의 ChatRoleType('user'|'assistant')과 일치
+enum Role {
+  user
+  assistant
+}
+
+// 로그인 사용자 (loginId/passwordHash 기반 인증)
+model User {
+  id           String   @id @default(cuid())
+  loginId      String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  character     Character? // 1:1 — 유저당 캐릭터 하나
+  conversations Conversation[]
+  memories      Memory[]
+}
+
+// 유저의 단 하나뿐인 컴패니언 (선택 목록이 아님)
+// model(LLM)은 캐릭터 데이터가 아님 — 관리자 소유로 env(LLM_MODEL)에서 온다.
+model Character {
+  id          String   @id @default(cuid())
+  userId      String   @unique // @unique 가 1:1 + 인덱스를 함께 보장
+  name        String // 사용자가 짓고 수정 가능
+  instruction String // 최초엔 preset에서 복사, 이후 사용자 수정 가능
+  presetId    String? // 어떤 프리셋에서 시작했는지 (참고용)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+}
+
+// 대화 세션.
+// 유저↔캐릭터가 1:1이라 characterId는 userId로 결정되는 중복이지만, 멀티 캐릭터 확장 대비로 유지.
+// (DB가 "그 캐릭터가 그 유저 것"임을 강제하진 않으므로, 앱이 항상 유저의 캐릭터로 채워야 한다.)
+model Conversation {
+  id          String   @id @default(cuid())
+  userId      String
+  characterId String
+  title       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@index([userId])
+  @@index([characterId])
+}
+
+// 대화 속 개별 메시지
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           Role
+  content        String
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt]) // 대화별 메시지를 시간순으로 조회
+}
+
+// 대화에서 추출한 장기 메모리 (MVP1: ~5개, 벡터 검색 아직 불필요)
+model Memory {
+  id         String   @id @default(cuid())
+  userId     String
+  content    String // 예: "사용자는 러닝을 좋아한다"
+  importance Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}

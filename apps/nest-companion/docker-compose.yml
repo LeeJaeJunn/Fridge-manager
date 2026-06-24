@@ -1,0 +1,32 @@
+# 로컬 개발용 Postgres (pgvector 포함).
+# 프로덕션은 이 파일을 쓰지 않는다 — AWS RDS / Neon 등 관리형 DB로 가고,
+# 앱은 DATABASE_URL 만 바꿔 붙으면 된다 (표준 Postgres 연결이라 이식성 유지).
+#
+# 사용:
+#   docker compose up -d      # 백그라운드 기동
+#   docker compose down       # 중지 (데이터는 볼륨에 유지)
+#   docker compose down -v    # 중지 + 데이터 삭제
+
+services:
+  db:
+    image: pgvector/pgvector:0.8.3-pg18 # pgvector 0.8.3 + Postgres 18 고정
+    container_name: companion-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: companion
+      POSTGRES_PASSWORD: companion
+      POSTGRES_DB: companion
+    ports:
+      - '5432:5432'
+    volumes:
+      # PG18+ 는 /var/lib/postgresql (상위 경로)에 마운트한다.
+      # (PG17 이하의 /var/lib/postgresql/data 와 다름 — 18부터 버전별 하위 디렉터리 구조)
+      - companion-pgdata:/var/lib/postgresql
+    healthcheck: # DB가 실제로 연결 가능해질 때까지 상태 체크
+      test: ['CMD-SHELL', 'pg_isready -U companion -d companion']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  companion-pgdata:
