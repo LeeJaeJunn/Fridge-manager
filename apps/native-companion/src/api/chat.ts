@@ -1,4 +1,4 @@
-import { ENV } from '@/config/env';
+import { apiFetch } from '@/api/client';
 import type {
   CharacterSummaryType,
   ChatMessageType,
@@ -6,13 +6,12 @@ import type {
   ChatResType,
 } from '@companion/types';
 
-/** 선택 가능한 캐릭터 목록 */
-export async function fetchCharacters(): Promise<CharacterSummaryType[]> {
-  const res = await fetch(`${ENV.apiUrl}/chat/characters`);
-  if (!res.ok) {
-    throw new Error('캐릭터 목록을 불러오지 못했습니다');
-  }
-  return (await res.json()) as CharacterSummaryType[];
+/**
+ * @deprecated 프리셋 목록은 api/character.ts 의 fetchPresets 로 이동.
+ * 채팅 화면이 "내 캐릭터" 기준으로 바뀌면(Step C) 제거 예정.
+ */
+export function fetchCharacters(): Promise<CharacterSummaryType[]> {
+  return apiFetch<CharacterSummaryType[]>('/chat/characters');
 }
 
 /** 캐릭터와 대화 (stateless — 히스토리를 통째로 보냄) */
@@ -20,15 +19,9 @@ export async function sendChat(
   characterId: string,
   messages: ChatMessageType[],
 ): Promise<ChatResType> {
-  const res = await fetch(`${ENV.apiUrl}/chat`, {
+  const data = await apiFetch<ChatResponseEnvelopeType>('/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ characterId, messages }),
   });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { message?: string } | null;
-    throw new Error(body?.message ?? '메시지 전송에 실패했습니다');
-  }
-  const data = (await res.json()) as ChatResponseEnvelopeType;
   return data.result;
 }

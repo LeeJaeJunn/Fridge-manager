@@ -6,3 +6,10 @@ export type {
   ChatResType,
   ChatRoleType,
 } from './chat';
+
+export type {
+  CharacterType,
+  CreateCharacterRequestType,
+  PresetSummaryType,
+  UpdateCharacterRequestType,
+} from './character';

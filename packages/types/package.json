@@ -9,6 +9,9 @@
     },
     "./chat": {
       "types": "./src/chat.ts"
+    },
+    "./character": {
+      "types": "./src/character.ts"
     }
   }
 }

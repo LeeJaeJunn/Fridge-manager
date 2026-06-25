@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
+import { CharacterModule } from './character/character.module';
 import { ChatModule } from './chat/chat.module';
 import { LlmModule } from './llm/llm.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -11,6 +13,8 @@ import { PrismaModule } from './prisma/prisma.module';
     // .env 를 읽어 ConfigService 로 노출. isGlobal: 어디서든 주입 가능
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    AuthModule,
+    CharacterModule,
     LlmModule,
     ChatModule,
   ],

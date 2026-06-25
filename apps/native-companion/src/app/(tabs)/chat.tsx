@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchCharacters, sendChat } from '@/api/chat';
 import type { CharacterSummaryType, ChatMessageType } from '@companion/types';
 
+// ⚠️ Step C 에서 픽커 제거 → 내 캐릭터(presetId) 기준으로 정리 예정.
 export default function ChatScreen() {
   const [characters, setCharacters] = useState<CharacterSummaryType[]>([]);
   const [characterId, setCharacterId] = useState<string | null>(null);
@@ -23,7 +24,6 @@ export default function ChatScreen() {
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
-  // 진입 시 캐릭터 목록을 불러와 첫 캐릭터를 선택
   useEffect(() => {
     fetchCharacters()
       .then((list) => {
@@ -52,7 +52,6 @@ export default function ChatScreen() {
     }
   }
 
-  // 캐릭터를 바꾸면 대화 초기화 (stateless 단계)
   function selectCharacter(id: string) {
     setCharacterId(id);
     setMessages([]);
@@ -60,27 +59,27 @@ export default function ChatScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-neutral-950" edges={['top', 'bottom']}>
+    <SafeAreaView className="flex-1 bg-white" edges={['top']}>
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {/* 캐릭터 선택 */}
-        <View className="flex-row gap-2 border-b border-neutral-800 px-4 py-3">
+        <View className="flex-row gap-2 border-b border-neutral-200 px-4 py-3">
           {characters.map((c) => (
             <Pressable
               key={c.id}
               onPress={() => selectCharacter(c.id)}
               className={`rounded-full px-4 py-2 ${
-                characterId === c.id ? 'bg-indigo-500' : 'bg-neutral-800'
+                characterId === c.id ? 'bg-indigo-500' : 'bg-neutral-100'
               }`}
             >
-              <Text className="text-white">{c.name}</Text>
+              <Text className={characterId === c.id ? 'text-white' : 'text-neutral-900'}>
+                {c.name}
+              </Text>
             </Pressable>
           ))}
         </View>
 
-        {/* 메시지 목록 */}
         <ScrollView
           ref={scrollRef}
           className="flex-1 px-4"
@@ -88,7 +87,7 @@ export default function ChatScreen() {
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
         >
           {messages.length === 0 && (
-            <Text className="mt-8 text-center text-neutral-500">
+            <Text className="mt-8 text-center text-neutral-400">
               메시지를 보내 대화를 시작하세요
             </Text>
           )}
@@ -96,27 +95,30 @@ export default function ChatScreen() {
             <View
               key={i}
               className={`max-w-[80%] rounded-2xl px-4 py-2 ${
-                m.role === 'user' ? 'self-end bg-indigo-500' : 'self-start bg-neutral-800'
+                m.role === 'user' ? 'self-end bg-indigo-500' : 'self-start bg-neutral-100'
               }`}
             >
-              <Text className="text-base text-white">{m.content}</Text>
+              <Text
+                className={`text-base ${m.role === 'user' ? 'text-white' : 'text-neutral-900'}`}
+              >
+                {m.content}
+              </Text>
             </View>
           ))}
           {loading && (
-            <View className="self-start rounded-2xl bg-neutral-800 px-4 py-3">
-              <ActivityIndicator color="#fff" />
+            <View className="self-start rounded-2xl bg-neutral-100 px-4 py-3">
+              <ActivityIndicator color="#6366f1" />
             </View>
           )}
         </ScrollView>
 
-        {error && <Text className="px-4 pb-1 text-sm text-red-400">{error}</Text>}
+        {error && <Text className="px-4 pb-1 text-sm text-red-500">{error}</Text>}
 
-        {/* 입력 */}
-        <View className="flex-row items-center gap-2 border-t border-neutral-800 px-4 py-3">
+        <View className="flex-row items-center gap-2 border-t border-neutral-200 px-4 py-3">
           <TextInput
-            className="flex-1 rounded-full bg-neutral-800 px-4 py-2 text-white"
+            className="flex-1 rounded-full bg-neutral-100 px-4 py-2 text-neutral-900"
             placeholder="메시지를 입력하세요"
-            placeholderTextColor="#888"
+            placeholderTextColor="#9ca3af"
             value={input}
             onChangeText={setInput}
             onSubmitEditing={handleSend}
@@ -127,7 +129,7 @@ export default function ChatScreen() {
             onPress={handleSend}
             disabled={loading || !input.trim()}
             className={`rounded-full px-5 py-2 ${
-              loading || !input.trim() ? 'bg-neutral-700' : 'bg-indigo-500'
+              loading || !input.trim() ? 'bg-indigo-300' : 'bg-indigo-500'
             }`}
           >
             <Text className="font-semibold text-white">전송</Text>
