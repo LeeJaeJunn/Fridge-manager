@@ -1,3 +1,5 @@
+export type { CurrentUserType } from './auth';
+
 export type { ChatMessageType, ChatResType, ChatRoleType } from './chat';
 
 export type {

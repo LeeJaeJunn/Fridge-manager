@@ -6,6 +6,7 @@ import {
   type PropsWithChildren,
 } from 'react';
 import { fetchMyCharacter } from '@/api/character';
+import { useAuth } from '@/context/auth';
 import type { CharacterType } from '@companion/types';
 
 type CharacterContextValue = {
@@ -26,6 +27,7 @@ const CharacterContext = createContext<CharacterContextValue | null>(null);
  * 앱 시작 시 한 번 불러오고, 온보딩/프로필에서 갱신한다.
  */
 export function CharacterProvider({ children }: PropsWithChildren) {
+  const { status } = useAuth();
   const [character, setCharacter] = useState<CharacterType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -39,11 +41,24 @@ export function CharacterProvider({ children }: PropsWithChildren) {
     }
   };
 
+  const reset = () => {
+    setCharacter(null);
+    setIsLoading(false);
+  };
+
   useEffect(() => {
-    // 마운트 시 1회 조회. refresh 의 setState 는 await 이후(비동기)라 cascading render 가 아님.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void refresh();
-  }, []);
+    if (status === 'loading') {
+      return;
+    }
+
+    if (status === 'unauthenticated') {
+      void Promise.resolve().then(reset);
+      return;
+    }
+
+    // 인증된 뒤에만 내 캐릭터를 조회한다.
+    void Promise.resolve().then(refresh);
+  }, [status]);
 
   return (
     <CharacterContext.Provider
