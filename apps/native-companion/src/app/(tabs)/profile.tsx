@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, Text, TextInput, View } from 'react-native';
 
 import { deleteMyCharacter, updateCharacterName } from '@/api/character';
+import { Button, Screen } from '@/components';
 import { useCharacter } from '@/context/character';
 
 export default function ProfileScreen() {
@@ -61,75 +61,63 @@ export default function ProfileScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={['top']}>
-      <View className="flex-1 gap-6 px-6 py-8">
-        <Text className="text-xl font-bold text-neutral-900">프로필</Text>
+    <Screen contentClassName="gap-6 px-6 py-8">
+      <Text className="text-xl font-bold text-ink">프로필</Text>
 
-        <View className="gap-2">
-          <Text className="text-neutral-500">내 캐릭터</Text>
+      <View className="gap-2">
+        <Text className="text-ink-soft">내 캐릭터</Text>
 
-          {editing ? (
-            <View className="gap-2">
-              <TextInput
-                className="rounded-xl bg-neutral-100 px-4 py-3 text-lg text-neutral-900"
-                value={nameInput}
-                onChangeText={setNameInput}
-                maxLength={30}
-                autoFocus
-                placeholder="이름"
-                placeholderTextColor="#9ca3af"
-                editable={!saving}
-                returnKeyType="done"
-                onSubmitEditing={handleSaveName}
+        {editing ? (
+          <View className="gap-2">
+            <TextInput
+              className="rounded-xl bg-sand px-4 py-3 text-lg text-ink"
+              value={nameInput}
+              onChangeText={setNameInput}
+              maxLength={30}
+              autoFocus
+              placeholder="이름"
+              placeholderTextColor="#A8A2B8"
+              editable={!saving}
+              returnKeyType="done"
+              onSubmitEditing={handleSaveName}
+            />
+            <View className="flex-row gap-2">
+              <Button
+                label="저장"
+                size="sm"
+                className="flex-1"
+                onPress={handleSaveName}
+                disabled={!nameInput.trim()}
+                loading={saving}
               />
-              <View className="flex-row gap-2">
-                <Pressable
-                  onPress={handleSaveName}
-                  disabled={saving || !nameInput.trim()}
-                  className={`flex-1 items-center rounded-full px-4 py-2 ${
-                    saving || !nameInput.trim() ? 'bg-indigo-300' : 'bg-indigo-500'
-                  }`}
-                >
-                  {saving ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text className="font-semibold text-white">저장</Text>
-                  )}
-                </Pressable>
-                <Pressable
-                  onPress={() => setEditing(false)}
-                  disabled={saving}
-                  className="flex-1 items-center rounded-full border border-neutral-200 px-4 py-2"
-                >
-                  <Text className="font-semibold text-neutral-700">취소</Text>
-                </Pressable>
-              </View>
+              <Button
+                label="취소"
+                size="sm"
+                variant="secondary"
+                className="flex-1"
+                onPress={() => setEditing(false)}
+                disabled={saving}
+              />
             </View>
-          ) : (
-            <View className="flex-row items-center justify-between">
-              <Text className="text-lg text-neutral-900">{character?.name ?? '-'}</Text>
-              <Pressable onPress={startEdit} className="rounded-full bg-neutral-100 px-4 py-2">
-                <Text className="font-medium text-neutral-700">수정</Text>
-              </Pressable>
-            </View>
-          )}
+          </View>
+        ) : (
+          <View className="flex-row items-center justify-between">
+            <Text className="text-lg text-ink">{character?.name ?? '-'}</Text>
+            <Button label="수정" size="sm" variant="secondary" onPress={startEdit} />
+          </View>
+        )}
 
-          {error && <Text className="text-sm text-red-500">{error}</Text>}
-        </View>
-
-        {/* ⚠️ 테스트용: 캐릭터를 지워 온보딩을 다시 보기 위함 */}
-        <Pressable
-          onPress={confirmDelete}
-          disabled={deleting}
-          className="mt-auto items-center rounded-full border border-red-500/50 px-6 py-3"
-        >
-          {deleting ? (
-            <ActivityIndicator color="#f87171" />
-          ) : (
-            <Text className="font-semibold text-red-500">캐릭터 삭제 (테스트용)</Text>
-          )}
-        </Pressable>
+        {error && <Text className="text-sm text-red-500">{error}</Text>}
       </View>
-    </SafeAreaView>
+
+      {/* ⚠️ 테스트용: 캐릭터를 지워 온보딩을 다시 보기 위함 */}
+      <Button
+        label="캐릭터 삭제 (테스트용)"
+        variant="danger"
+        className="mt-auto"
+        onPress={confirmDelete}
+        loading={deleting}
+      />
+    </Screen>
   );
 }

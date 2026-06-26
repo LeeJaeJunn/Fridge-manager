@@ -148,9 +148,6 @@ export class ConversationService {
       content: m.content,
     }));
 
-    console.log(JSON.stringify(messages));
-    console.log(instruction);
-
     const res = await this.llm.chat(instruction, messages, this.model);
 
     // 답변 저장 + 대화 갱신을 한 번의 nested write 로 처리.

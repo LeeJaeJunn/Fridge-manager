@@ -5,9 +5,9 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#6366f1',
-        tabBarInactiveTintColor: '#9ca3af',
-        tabBarStyle: { backgroundColor: '#ffffff', borderTopColor: '#e5e5e5' },
+        tabBarActiveTintColor: '#8B6FE8',
+        tabBarInactiveTintColor: '#A8A2B8',
+        tabBarStyle: { backgroundColor: '#FBF8F4', borderTopColor: '#F3ECE3' },
       }}
     >
       <Tabs.Screen name="index" options={{ title: '홈' }} />

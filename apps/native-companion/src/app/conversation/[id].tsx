@@ -10,13 +10,13 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   fetchConversation,
   sendMessage,
   startConversation,
 } from '@/api/conversation';
+import { Bubble, Button, Screen } from '@/components';
 import type { MessageType } from '@companion/types';
 
 export default function ConversationScreen() {
@@ -80,22 +80,22 @@ export default function ConversationScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={['top', 'bottom']}>
+    <Screen edges={['top', 'bottom']}>
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         {/* 헤더 (전역 headerShown:false 라 직접 둠) */}
-        <View className="flex-row items-center gap-3 border-b border-neutral-200 px-4 py-3">
+        <View className="flex-row items-center gap-3 border-b border-sand px-4 py-3">
           <Pressable onPress={() => router.back()} hitSlop={8}>
-            <Text className="text-2xl leading-6 text-neutral-700">‹</Text>
+            <Text className="text-2xl leading-6 text-ink-soft">‹</Text>
           </Pressable>
-          <Text className="text-lg font-semibold text-neutral-900">대화</Text>
+          <Text className="text-lg font-semibold text-ink">대화</Text>
         </View>
 
         {loading ? (
           <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color="#6366f1" />
+            <ActivityIndicator color="#A78BFA" />
           </View>
         ) : (
           <ScrollView
@@ -107,58 +107,39 @@ export default function ConversationScreen() {
             }
           >
             {messages.length === 0 && (
-              <Text className="mt-8 text-center text-neutral-400">
+              <Text className="mt-8 text-center text-ink-faint">
                 메시지를 보내 대화를 시작하세요
               </Text>
             )}
             {messages.map((m) => (
-              <View
-                key={m.id}
-                className={`max-w-[80%] rounded-2xl px-4 py-2 ${
-                  m.role === 'user'
-                    ? 'self-end bg-indigo-500'
-                    : 'self-start bg-neutral-100'
-                }`}
-              >
-                <Text
-                  className={`text-base ${m.role === 'user' ? 'text-white' : 'text-neutral-900'}`}
-                >
-                  {m.content}
-                </Text>
-              </View>
+              <Bubble key={m.id} role={m.role} content={m.content} />
             ))}
-            {sending && (
-              <View className="self-start rounded-2xl bg-neutral-100 px-4 py-3">
-                <ActivityIndicator color="#6366f1" />
-              </View>
-            )}
+            {sending && <Bubble role="assistant" pending />}
           </ScrollView>
         )}
 
         {error && <Text className="px-4 pb-1 text-sm text-red-500">{error}</Text>}
 
-        <View className="flex-row items-center gap-2 border-t border-neutral-200 px-4 py-3">
+        <View className="flex-row items-center gap-2 border-t border-sand px-4 py-3">
           <TextInput
-            className="flex-1 rounded-full bg-neutral-100 px-4 py-2 text-neutral-900"
+            className="flex-1 rounded-full bg-sand px-4 py-2 text-ink"
             placeholder="메시지를 입력하세요"
-            placeholderTextColor="#9ca3af"
+            placeholderTextColor="#A8A2B8"
             value={input}
             onChangeText={setInput}
             onSubmitEditing={handleSend}
             editable={!sending}
             returnKeyType="send"
           />
-          <Pressable
+          <Button
+            label="전송"
+            size="sm"
+            className="px-5"
             onPress={handleSend}
             disabled={sending || !input.trim()}
-            className={`rounded-full px-5 py-2 ${
-              sending || !input.trim() ? 'bg-indigo-300' : 'bg-indigo-500'
-            }`}
-          >
-            <Text className="font-semibold text-white">전송</Text>
-          </Pressable>
+          />
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </Screen>
   );
 }

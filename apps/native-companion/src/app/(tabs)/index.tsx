@@ -1,27 +1,64 @@
 import { Link } from 'expo-router';
-import { Pressable, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Text, View } from 'react-native';
 
+import { Avatar, Button, Card, Screen } from '@/components';
 import { useCharacter } from '@/context/character';
+
+/** 시간대에 맞춘 인사 */
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 6) return '늦은 밤이네요';
+  if (h < 12) return '좋은 아침이에요';
+  if (h < 18) return '좋은 오후예요';
+  return '좋은 저녁이에요';
+}
+
+// 홈에서 바로 대화를 시작할 수 있는 가벼운 시작 문구들
+const PROMPTS = ['오늘 하루 어땠어?', '고민이 있어', '뭐 추천해줘'];
 
 export default function HomeScreen() {
   const { character } = useCharacter();
+  const name = character?.name ?? '컴패니언';
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={['top']}>
-      <View className="flex-1 items-center justify-center gap-6 px-6">
-        <Text className="text-2xl font-bold text-neutral-900">
-          {character?.name ?? '컴패니언'}와 함께해요
-        </Text>
-        <Text className="text-center text-neutral-500">
-          오늘 하루는 어땠어요? 이야기를 들려주세요.
-        </Text>
-        <Link href="/chat" asChild>
-          <Pressable className="rounded-full bg-indigo-500 px-6 py-3">
-            <Text className="font-semibold text-white">대화하기</Text>
-          </Pressable>
-        </Link>
+    <Screen scroll contentClassName="gap-7 px-6 pb-10 pt-4">
+      {/* 인사 */}
+      <View className="gap-1">
+        <Text className="text-base text-ink-soft">{greeting()}</Text>
+        <Text className="text-3xl font-bold text-ink">{name}와 함께해요</Text>
       </View>
-    </SafeAreaView>
+
+      {/* 컴패니언 히어로 카드 */}
+      <Card elevated className="items-center gap-4 px-6 py-8">
+        <Avatar name={name} />
+
+        <View className="items-center gap-1">
+          <Text className="text-xl font-bold text-ink">{name}</Text>
+          <View className="flex-row items-center gap-1.5">
+            <View className="h-2 w-2 rounded-full bg-peach" />
+            <Text className="text-sm text-ink-soft">당신을 기억하고 있어요</Text>
+          </View>
+        </View>
+
+        <Link href="/chat" asChild>
+          <Button label="대화하기" className="mt-1 w-full" />
+        </Link>
+      </Card>
+
+      {/* 빠른 대화 시작 */}
+      <View className="gap-3">
+        <Text className="text-sm font-medium text-ink-soft">이런 얘기 어때요?</Text>
+        <View className="gap-2.5">
+          {PROMPTS.map((p) => (
+            <Link key={p} href="/chat" asChild>
+              <Card onPress={() => {}} className="flex-row items-center justify-between rounded-2xl px-5 py-4">
+                <Text className="text-base text-ink">{p}</Text>
+                <Text className="text-lg text-lavender">›</Text>
+              </Card>
+            </Link>
+          ))}
+        </View>
+      </View>
+    </Screen>
   );
 }

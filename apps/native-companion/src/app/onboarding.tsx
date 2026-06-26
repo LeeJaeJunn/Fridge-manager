@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Pressable, Text, View } from 'react-native';
 
 import { createCharacter, fetchPresets } from '@/api/character';
+import { Button, Screen } from '@/components';
 import { useCharacter } from '@/context/character';
 import type { PresetSummaryType } from '@companion/types';
 
@@ -34,46 +34,37 @@ export default function OnboardingScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={['top', 'bottom']}>
-      <View className="flex-1 justify-center gap-8 px-6">
-        <View className="gap-2">
-          <Text className="text-2xl font-bold text-neutral-900">컴패니언 만들기</Text>
-          <Text className="text-neutral-500">함께할 친구를 골라주세요.</Text>
-        </View>
-
-        <View className="gap-3">
-          {presets.map((p) => (
-            <Pressable
-              key={p.id}
-              onPress={() => setPresetId(p.id)}
-              className={`gap-1 rounded-2xl border px-4 py-4 ${
-                presetId === p.id
-                  ? 'border-indigo-500 bg-indigo-50'
-                  : 'border-neutral-200 bg-neutral-50'
-              }`}
-            >
-              <Text className="text-lg font-semibold text-neutral-900">{p.name}</Text>
-              <Text className="text-sm text-neutral-500">{p.description}</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {error && <Text className="text-sm text-red-500">{error}</Text>}
-
-        <Pressable
-          onPress={handleCreate}
-          disabled={!presetId || submitting}
-          className={`items-center rounded-full px-6 py-3 ${
-            !presetId || submitting ? 'bg-indigo-300' : 'bg-indigo-500'
-          }`}
-        >
-          {submitting ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text className="font-semibold text-white">시작하기</Text>
-          )}
-        </Pressable>
+    <Screen edges={['top', 'bottom']} contentClassName="justify-center gap-8 px-6">
+      <View className="gap-2">
+        <Text className="text-2xl font-bold text-ink">컴패니언 만들기</Text>
+        <Text className="text-ink-soft">함께할 친구를 골라주세요.</Text>
       </View>
-    </SafeAreaView>
+
+      <View className="gap-3">
+        {presets.map((p) => (
+          <Pressable
+            key={p.id}
+            onPress={() => setPresetId(p.id)}
+            className={`gap-1 rounded-2xl border px-4 py-4 ${
+              presetId === p.id
+                ? 'border-lavender bg-lavender-soft'
+                : 'border-sand bg-white'
+            }`}
+          >
+            <Text className="text-lg font-semibold text-ink">{p.name}</Text>
+            <Text className="text-sm text-ink-soft">{p.description}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {error && <Text className="text-sm text-red-500">{error}</Text>}
+
+      <Button
+        label="시작하기"
+        onPress={handleCreate}
+        disabled={!presetId}
+        loading={submitting}
+      />
+    </Screen>
   );
 }

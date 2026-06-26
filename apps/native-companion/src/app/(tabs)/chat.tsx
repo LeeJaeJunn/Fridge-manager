@@ -1,16 +1,9 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Alert, ScrollView, Text, View } from 'react-native';
 
 import { deleteConversation, fetchConversations } from '@/api/conversation';
+import { Button, Card, Screen } from '@/components';
 import type { ConversationSummaryType } from '@companion/types';
 
 export default function ConversationListScreen() {
@@ -47,49 +40,47 @@ export default function ConversationListScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={['top']}>
+    <Screen>
       <View className="flex-row items-center justify-between px-6 py-4">
-        <Text className="text-xl font-bold text-neutral-900">대화</Text>
-        <Pressable
+        <Text className="text-xl font-bold text-ink">대화</Text>
+        <Button
+          label="새 채팅"
+          size="sm"
           onPress={() => router.push('/conversation/new')}
-          className="rounded-full bg-indigo-500 px-4 py-2"
-        >
-          <Text className="font-semibold text-white">새 채팅</Text>
-        </Pressable>
+        />
       </View>
 
       {loading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#6366f1" />
+          <ActivityIndicator color="#A78BFA" />
         </View>
       ) : conversations.length === 0 ? (
         <View className="flex-1 items-center justify-center gap-4 px-6">
-          <Text className="text-neutral-400">아직 대화가 없어요.</Text>
-          <Pressable
+          <Text className="text-ink-faint">아직 대화가 없어요.</Text>
+          <Button
+            label="새 채팅 시작"
             onPress={() => router.push('/conversation/new')}
-            className="rounded-full bg-indigo-500 px-6 py-3"
-          >
-            <Text className="font-semibold text-white">새 채팅 시작</Text>
-          </Pressable>
+          />
         </View>
       ) : (
         <ScrollView contentContainerClassName="gap-2 px-4 pb-6">
           {conversations.map((c) => (
-            <Pressable
+            <Card
               key={c.id}
+              radius="2xl"
               onPress={() => router.push(`/conversation/${c.id}`)}
               onLongPress={() => confirmDelete(c.id)}
-              className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3"
+              className="px-4 py-3.5"
             >
-              <Text numberOfLines={1} className="text-neutral-900">
+              <Text numberOfLines={1} className="text-ink">
                 {c.preview ?? '새 대화'}
               </Text>
-            </Pressable>
+            </Card>
           ))}
         </ScrollView>
       )}
 
       {error && <Text className="px-6 pb-2 text-sm text-red-500">{error}</Text>}
-    </SafeAreaView>
+    </Screen>
   );
 }
