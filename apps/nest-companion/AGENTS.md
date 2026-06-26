@@ -26,14 +26,13 @@
 - **유저당 캐릭터는 하나다** (여러 개 중 선택이 아님). DB에서 `User` ↔ `Character` 1:1 (`Character.userId @unique`).
 - 캐릭터의 `name` 은 **사용자가 설정·수정** 한다. `instruction`/`description` 은 최초 생성 시 프리셋의 값을 복사해 시작한다(현재 UI에선 instruction 직접 수정은 미노출).
 - `description` 은 캐릭터 카드용 한 줄 소개(표시용). `instruction`(시스템 프롬프트)과 별개다.
-- `src/chat/characters.ts` 는 "선택 가능한 캐릭터 목록"이 아니라 **페르소나 프리셋(시드 템플릿)** 이다. 소수·정적이라 코드에 둔다 (새 캐릭터 생성 시 instruction/description/기본 이름의 출처).
+- `src/character/characters.ts` 는 "선택 가능한 캐릭터 목록"이 아니라 **페르소나 프리셋(시드 템플릿)** 이다. 소수·정적이라 코드에 둔다 (새 캐릭터 생성 시 instruction/description/기본 이름의 출처).
 - `model` 은 캐릭터 데이터가 아니다 — 관리자 소유로 env(`LLM_MODEL`)에서 온다 (위 "신뢰 경계" 참고).
 - API는 `src/character/` (`CharacterModule`): `GET presets`(프리셋 목록), `GET me`, `POST`(presetId로 생성), `PATCH me`(name 수정), `DELETE me`. 표시용 필드만 내려주고 `instruction`/`model` 은 노출하지 않는다.
 
 ## 대화 저장 (Conversation)
 
-- 채팅은 **DB에 저장되는 대화**다. `src/conversation/` (`ConversationModule`)가 담당하며, MVP1 채팅의 정식 경로다.
-- `src/chat/`(stateless `/chat`)는 **레거시**로 아직 남겨둠 — native는 더 이상 쓰지 않는다. native 마이그레이션이 끝나면 제거 예정.
+- 채팅은 **DB에 저장되는 대화**다. `src/conversation/` (`ConversationModule`)가 담당하며, MVP1 채팅의 정식 경로다. (구 stateless `src/chat/` 모듈은 제거됨 — conversation이 유일한 채팅 경로다.)
 - 데이터: `Conversation`(유저당 N개) ↔ `Message`(role `user|assistant`). 대화 목록은 `updatedAt desc` 정렬 + 마지막 메시지 preview.
 - API는 전부 **현재 유저 기준**이고 소유권 격리가 핵심 — 조회/수정/삭제는 항상 `where: { ..., userId }` 로 본인 것만 만진다 (남의 대화 접근 시 `NotFoundException`, 삭제는 `deleteMany`로 멱등).
   - `GET /conversations`(목록), `GET /conversations/:id`(상세+메시지), `POST /conversations`(첫 메시지로 **지연 생성**), `POST /conversations/:id/messages`(이어가기), `DELETE /conversations/:id`, `DELETE /conversations/:id/messages/:messageId`.

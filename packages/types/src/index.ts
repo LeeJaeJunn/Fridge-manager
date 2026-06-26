@@ -1,11 +1,4 @@
-export type {
-  CharacterSummaryType,
-  ChatMessageType,
-  ChatRequestType,
-  ChatResponseEnvelopeType,
-  ChatResType,
-  ChatRoleType,
-} from './chat';
+export type { ChatMessageType, ChatResType, ChatRoleType } from './chat';
 
 export type {
   CharacterType,

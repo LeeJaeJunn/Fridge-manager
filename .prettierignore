@@ -16,3 +16,5 @@ package-lock.json
 yarn.lock
 
 *.log
+
+apps/nest-companion/src/generated/prisma

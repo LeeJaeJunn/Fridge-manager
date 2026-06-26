@@ -1,6 +1,6 @@
 import type { CharacterType, PresetSummaryType } from '@companion/types';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { CHARACTERS, findCharacter } from '../chat/characters';
+import { CHARACTERS, findCharacter } from './characters';
 import { PrismaService } from '../prisma/prisma.service';
 
 /** Prisma row → 클라이언트 계약(CharacterType) 변환. instruction 등 내부 필드는 제외. */
