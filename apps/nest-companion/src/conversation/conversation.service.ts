@@ -23,6 +23,15 @@ type MessageRow = {
   content: string;
   createdAt: Date;
 };
+
+type CharacterPromptSource = {
+  id: string;
+  name: string;
+  instruction: string;
+  /** 캐릭터 소유 유저 — 이름을 프롬프트에 넣어 "나를 아는" 느낌을 준다 (name 은 nullable) */
+  user: { name: string | null };
+};
+
 const toMessage = (m: MessageRow): MessageType => ({
   id: m.id,
   role: m.role,
@@ -89,12 +98,12 @@ export class ConversationService {
 
   /** 새 대화 시작 (지연 생성): 첫 메시지로 대화를 만들고 첫 교환까지 수행 */
   async start(userId: string, content: string): Promise<ConversationDetailType> {
-    const character = await this.getCharacter(userId);
+    const ctx = await this.getPromptContext(userId);
     const convo = await this.prisma.conversation.create({
-      data: { userId, characterId: character.id },
+      data: { userId, characterId: ctx.id },
       select: { id: true },
     });
-    await this.exchange(convo.id, character.instruction, content);
+    await this.exchange(convo.id, this.buildInstruction(ctx), content);
     return this.get(userId, convo.id);
   }
 
@@ -107,8 +116,8 @@ export class ConversationService {
     if (!convo) {
       throw new NotFoundException('대화를 찾을 수 없습니다.');
     }
-    const character = await this.getCharacter(userId);
-    return this.exchange(convo.id, character.instruction, content);
+    const ctx = await this.getPromptContext(userId);
+    return this.exchange(convo.id, this.buildInstruction(ctx), content);
   }
 
   /** 대화 삭제 (본인 것만, 메시지는 cascade 로 함께 삭제). 멱등. */
@@ -138,6 +147,8 @@ export class ConversationService {
       data: { conversationId, role: 'user', content },
     });
 
+    console.log(instruction);
+
     const history = await this.prisma.message.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'asc' },
@@ -165,15 +176,33 @@ export class ConversationService {
     return toMessage(updated.messages[0]);
   }
 
-  /** 내 캐릭터(instruction 포함) — 없으면 에러 */
-  private async getCharacter(userId: string) {
+  /**
+   * 프롬프트 조립에 필요한 컨텍스트(내 캐릭터 + 소유 유저 이름)를 한 번에 읽는다.
+   * 1:1 관계라 user 를 nested select 로 끌어와 라운드트립 1번으로 끝낸다. 없으면 에러.
+   */
+  private async getPromptContext(userId: string): Promise<CharacterPromptSource> {
     const character = await this.prisma.character.findUnique({
       where: { userId },
-      select: { id: true, instruction: true },
+      select: {
+        id: true,
+        name: true,
+        instruction: true,
+        user: { select: { name: true } },
+      },
     });
     if (!character) {
       throw new BadRequestException('먼저 캐릭터를 만들어 주세요.');
     }
     return character;
+  }
+
+  /** LLM 에 넘길 최종 캐릭터 instruction 을 조립한다. */
+  private buildInstruction(c: CharacterPromptSource): string {
+    const lines = [`너의 이름은 ${c.name}이야.`];
+    if (c.user.name) {
+      lines.push(`대화 상대(사용자)의 이름은 ${c.user.name}이야.`);
+    }
+    lines.push(c.instruction);
+    return lines.join('\n');
   }
 }
