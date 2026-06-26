@@ -24,9 +24,31 @@
 ## 캐릭터 데이터
 
 - **유저당 캐릭터는 하나다** (여러 개 중 선택이 아님). DB에서 `User` ↔ `Character` 1:1 (`Character.userId @unique`).
-- 캐릭터의 `name` / `instruction` 은 **사용자가 설정·수정** 한다. 최초 생성 시 프리셋의 값을 복사해 시작한다.
-- `src/chat/characters.ts` 는 "선택 가능한 캐릭터 목록"이 아니라 **페르소나 프리셋(시드 템플릿)** 이다. 소수·정적이라 코드에 둔다 (새 캐릭터 생성 시 instruction/기본 이름의 출처).
+- 캐릭터의 `name` 은 **사용자가 설정·수정** 한다. `instruction`/`description` 은 최초 생성 시 프리셋의 값을 복사해 시작한다(현재 UI에선 instruction 직접 수정은 미노출).
+- `description` 은 캐릭터 카드용 한 줄 소개(표시용). `instruction`(시스템 프롬프트)과 별개다.
+- `src/chat/characters.ts` 는 "선택 가능한 캐릭터 목록"이 아니라 **페르소나 프리셋(시드 템플릿)** 이다. 소수·정적이라 코드에 둔다 (새 캐릭터 생성 시 instruction/description/기본 이름의 출처).
 - `model` 은 캐릭터 데이터가 아니다 — 관리자 소유로 env(`LLM_MODEL`)에서 온다 (위 "신뢰 경계" 참고).
+- API는 `src/character/` (`CharacterModule`): `GET presets`(프리셋 목록), `GET me`, `POST`(presetId로 생성), `PATCH me`(name 수정), `DELETE me`. 표시용 필드만 내려주고 `instruction`/`model` 은 노출하지 않는다.
+
+## 대화 저장 (Conversation)
+
+- 채팅은 **DB에 저장되는 대화**다. `src/conversation/` (`ConversationModule`)가 담당하며, MVP1 채팅의 정식 경로다.
+- `src/chat/`(stateless `/chat`)는 **레거시**로 아직 남겨둠 — native는 더 이상 쓰지 않는다. native 마이그레이션이 끝나면 제거 예정.
+- 데이터: `Conversation`(유저당 N개) ↔ `Message`(role `user|assistant`). 대화 목록은 `updatedAt desc` 정렬 + 마지막 메시지 preview.
+- API는 전부 **현재 유저 기준**이고 소유권 격리가 핵심 — 조회/수정/삭제는 항상 `where: { ..., userId }` 로 본인 것만 만진다 (남의 대화 접근 시 `NotFoundException`, 삭제는 `deleteMany`로 멱등).
+  - `GET /conversations`(목록), `GET /conversations/:id`(상세+메시지), `POST /conversations`(첫 메시지로 **지연 생성**), `POST /conversations/:id/messages`(이어가기), `DELETE /conversations/:id`, `DELETE /conversations/:id/messages/:messageId`.
+- **지연 생성(lazy)**: "새 채팅" 버튼은 빈 화면만 열고, 첫 메시지를 보낼 때 비로소 `Conversation` 을 만든다 (빈 대화가 DB에 안 쌓이게).
+- 매 교환마다 서버가 DB에서 **해당 대화의 전체 히스토리를 읽어** LLM에 넘긴다. 히스토리·instruction을 클라이언트가 보내지 않는다(신뢰 경계). instruction은 유저의 Character에서, model은 env에서 해석.
+- nested write 만 하면 `@updatedAt` 이 안 올라가므로 답변 저장 시 `updatedAt: new Date()` 를 명시 갱신한다(목록 최근순 정렬용).
+
+## 인증 — dev-auth 시드 (로그인은 나중)
+
+- 실제 로그인(Passport/JWT)은 뒤로 미루고, 테스트 시 매번 로그인하지 않도록 **개발용 인증 시드**를 둔다. `src/auth/`.
+- `DevAuthGuard`: `DEV_AUTH !== 'true'` 면 401. 그 외에는 `x-user-id` 헤더(없으면 `DEV_USER_ID`)를 `req.userId` 로 세팅.
+- `@CurrentUser()` 데코레이터로 컨트롤러에서 `req.userId` 를 꺼낸다. 모든 유저 스코프 라우트는 이 값 기준.
+- 부팅 시 `DEV_AUTH` 면 `DEV_USER_ID` 유저를 upsert 시드(`dev-user.seed.ts`).
+- env: `DEV_AUTH=true`, `DEV_USER_ID=dev-user`. **프로덕션에선 `DEV_AUTH` 를 끄고 실제 인증으로 교체** — 이 가드/시드가 트러스트 경계 우회로가 되지 않게.
+- 로그인 붙일 때 바꾸는 건 가드 한 곳 + `@CurrentUser()` 해석부뿐이고, 컨트롤러/서비스는 그대로다(같은 `userId` 계약).
 
 ## DB / Prisma
 
@@ -42,3 +64,10 @@
   - 클라이언트 `output` 은 `src/generated/prisma` (= `src/` 안), 그리고 `prisma.config.ts` 는 `tsconfig.build.json` 의 `exclude` 에 둔다. 안 그러면 빌드 산출물이 밀려 `dist/main.js` 가 `dist/src/...` 로 이동한다.
   - `migrate dev` 는 generate를 자동 실행하지 않는다. 그래서 `build` 스크립트가 `prisma generate && nest build` 로 generate를 먼저 돌린다.
   - env 로딩: 런타임은 `@nestjs/config`, Prisma CLI는 `prisma.config.ts` 의 `dotenv` 로 각각 `DATABASE_URL` 을 읽는다 (Prisma 7은 `.env` 자동 로드 안 함).
+
+## 개발 워크플로우 주의
+
+- 개발 서버는 `pnpm start:dev`(`nest start --watch`). 끄면 4000 포트가 닫혀 native가 `ERR_CONNECTION_REFUSED` 를 받는다 — 권한 문제가 아니라 백엔드가 안 떠 있는 것.
+- 가끔 `Cannot find module './app.module'` 로 죽었다 살아나는 건 **watch 재빌드 도중의 빈 창** 때문이다: `deleteOutDir`(nest-cli) 가 dist를 통째로 비우고 다시 컴파일하는 사이 `main.js` 는 있는데 `app.module.js` 가 아직 없는 타이밍에 재시작되면 크래시 → 빌드 끝나면 복구. **배포(한 번 build → `node dist/main`)에는 없는 문제**다.
+  - 특히 watch가 도는 중 `prisma generate`/`pnpm db:migrate` 를 돌리면 `src/generated/prisma` 무더기 변경으로 재빌드 폭풍이 나서 잘 터진다 → **watch를 끈 상태에서** generate/migrate 하는 걸 권장.
+  - 정 거슬리면 `nest-cli.json` 의 `deleteOutDir: false`(제자리 덮어쓰기로 빈 창 제거) 옵션도 가능. 필수는 아님.

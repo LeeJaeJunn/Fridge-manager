@@ -39,6 +39,7 @@ model Character {
   id          String   @id @default(cuid())
   userId      String   @unique // @unique 가 1:1 + 인덱스를 함께 보장
   name        String // 사용자가 짓고 수정 가능
+  description String? // 사람이 읽는 소개 (클라이언트 노출 OK). 생성 시 프리셋에서 복사
   instruction String // 최초엔 preset에서 복사, 이후 사용자 수정 가능
   presetId    String? // 어떤 프리셋에서 시작했는지 (참고용)
   createdAt   DateTime @default(now())

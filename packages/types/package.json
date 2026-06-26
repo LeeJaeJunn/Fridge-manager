@@ -12,6 +12,9 @@
     },
     "./character": {
       "types": "./src/character.ts"
+    },
+    "./conversation": {
+      "types": "./src/conversation.ts"
     }
   }
 }

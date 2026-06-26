@@ -1,7 +1,9 @@
 {
   "editor.codeActionsOnSave": {
-    "source.fixAll": "explicit",
-    "source.organizeImports": "explicit",
+    // ESLint 자동수정만 (TS의 "도달 불가능 코드 제거"가 return 아래 코드를 지우는 걸 방지)
+    "source.fixAll.eslint": "explicit",
+    // 정렬만 (organizeImports와 달리 안 쓰는 import를 지우지 않음 — 개발 테스트 편의)
+    "source.sortImports": "explicit",
     "source.sortMembers": "explicit"
   }
 }

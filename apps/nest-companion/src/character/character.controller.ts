@@ -1,13 +1,4 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  Patch,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Patch, Post, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { DevAuthGuard } from '../auth/dev-auth.guard';
 import { CharacterService } from './character.service';
@@ -35,7 +26,7 @@ export class CharacterController {
   /** POST /characters — 프리셋 선택해 내 캐릭터 생성 */
   @Post()
   create(@CurrentUser() userId: string, @Body() body: CreateCharacterDto) {
-    return this.characters.create(userId, body.presetId, body.name);
+    return this.characters.create(userId, body.presetId);
   }
 
   /** PATCH /characters/me — 이름 수정 */

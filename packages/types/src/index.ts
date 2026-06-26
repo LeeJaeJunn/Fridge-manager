@@ -13,3 +13,10 @@ export type {
   PresetSummaryType,
   UpdateCharacterRequestType,
 } from './character';
+
+export type {
+  ConversationDetailType,
+  ConversationSummaryType,
+  MessageType,
+  SendMessageRequestType,
+} from './conversation';

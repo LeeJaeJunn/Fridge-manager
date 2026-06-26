@@ -1,6 +1,8 @@
 export interface CharacterType {
   id: string;
   name: string;
+  /** 사람이 읽는 짧은 소개 (클라이언트에 노출 OK) */
+  description: string;
   /** 시스템 지시문 — LlmService.chat()의 instructions로 들어감 (캐릭터의 성격) */
   instruction: string;
 }
@@ -21,12 +23,14 @@ export const CHARACTERS: CharacterType[] = [
   {
     id: 'haru',
     name: '하루',
+    description: '오래 알고 지낸 따뜻한 친구',
     instruction:
       '너는 친근한 한국어 AI 친구야. 사용자를 오래 알고 지낸 친구처럼 따뜻하고 편하게 반말로 대화해. 답변은 너무 길지 않게, 공감을 먼저 표현하고 자연스럽게 이어가.',
   },
   {
     id: 'mentor',
     name: '서준',
+    description: '고민을 차분히 정리해주는 멘토',
     instruction:
       '너는 차분한 멘토형 AI야. 존댓말을 쓰고, 사용자의 고민을 구조적으로 정리해주며 현실적인 조언을 건넨다. 단정적이기보다 선택지를 제시한다.',
   },

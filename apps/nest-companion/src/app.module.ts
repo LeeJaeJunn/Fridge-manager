@@ -5,6 +5,7 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { CharacterModule } from './character/character.module';
 import { ChatModule } from './chat/chat.module';
+import { ConversationModule } from './conversation/conversation.module';
 import { LlmModule } from './llm/llm.module';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -17,6 +18,7 @@ import { PrismaModule } from './prisma/prisma.module';
     CharacterModule,
     LlmModule,
     ChatModule,
+    ConversationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,14 +1,9 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsString, MinLength } from 'class-validator';
 import type { CreateCharacterRequestType } from '@companion/types';
 
-/** POST /characters 요청 본문 — 공유 계약(CreateCharacterRequestType)을 implements */
+/** POST /characters 요청 본문 — 프리셋만 선택 (이름은 프리셋 기본값, 수정은 PATCH로 나중) */
 export class CreateCharacterDto implements CreateCharacterRequestType {
   @IsString()
   @MinLength(1)
   presetId!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(30)
-  name?: string;
 }

@@ -23,6 +23,7 @@ function RootNavigator() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Protected guard={!!character}>
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="conversation/[id]" />
       </Stack.Protected>
       <Stack.Protected guard={!character}>
         <Stack.Screen name="onboarding" />
