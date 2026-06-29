@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { CharacterModule } from './character/character.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { LlmModule } from './llm/llm.module';
+import { MemoryModule } from './memory/memory.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -16,6 +17,7 @@ import { PrismaModule } from './prisma/prisma.module';
     AuthModule,
     CharacterModule,
     LlmModule,
+    MemoryModule,
     ConversationModule,
   ],
   controllers: [AppController],

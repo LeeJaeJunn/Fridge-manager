@@ -81,14 +81,27 @@ model Message {
   @@index([conversationId, createdAt]) // 대화별 메시지를 시간순으로 조회
 }
 
+// 장기 메모리 분류 — "AI가 기억하는 나" 페이지에서 카테고리별로 묶어 보여준다.
+// 추출 LLM이 각 사실에 대해 가장 잘 맞는 하나를 고른다 (ETC는 fallback).
+enum MemoryCategory {
+  INTEREST // 관심사·취향 (좋아함/싫어함/취미)
+  WORK // 학습·업무 (전공·직무·프로젝트·업무 방식)
+  GOAL // 목표·계획 (이루려는 것·진행 중인 계획)
+  LIFESTYLE // 생활·건강 (루틴·수면·운동·생활습관)
+  RELATIONSHIP // 인간관계 (가족·친구·동료)
+  TRAIT // 개인 특성 (성격·가치관·의사결정 스타일)
+  ETC // 기타
+}
+
 // 대화에서 추출한 장기 메모리 (MVP1: ~5개, 벡터 검색 아직 불필요)
 model Memory {
-  id         String   @id @default(cuid())
+  id         String         @id @default(cuid())
   userId     String
-  content    String // 예: "사용자는 러닝을 좋아한다"
-  importance Int      @default(1)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  category   MemoryCategory @default(ETC)
+  content    String // 짧고 읽을 수 있는 사실 1개. 주입(프롬프트)+표시 겸용. 예: "밤에 공부하는 편"
+  importance Int            @default(1)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

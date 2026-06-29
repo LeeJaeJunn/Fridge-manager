@@ -12,14 +12,35 @@ export interface ChatMessageType {
   content: string;
 }
 
+export type LlmStatusType =
+  | 'completed'
+  | 'failed'
+  | 'in_progress'
+  | 'cancelled'
+  | 'queued'
+  | 'incomplete';
+
+/** 토큰 사용량 — 나중에 어드민 사용량 표시 / 구독 쿼터에 쓰려고 모든 LLM 호출에서 수집 */
+export interface LlmUsageType {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+/** chat() 결과 — 자유 텍스트 응답 */
 export interface ChatResType {
   id: string;
   model: string;
-  status: 'completed' | 'failed' | 'in_progress' | 'cancelled' | 'queued' | 'incomplete';
+  status: LlmStatusType;
   text: string;
-  usage?: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  };
+  usage?: LlmUsageType;
+}
+
+/** structured() 결과 — 스키마로 검증된 파싱 객체(parsed) + 사용량 */
+export interface StructuredResType<T> {
+  id: string;
+  model: string;
+  status: LlmStatusType;
+  parsed: T;
+  usage?: LlmUsageType;
 }

@@ -1,6 +1,8 @@
+import type { ChatMessageType, ChatResType, StructuredResType } from '@companion/types';
 import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import type { ChatMessageType, ChatResType } from '@companion/types';
 import OpenAI from 'openai';
+import { zodTextFormat } from 'openai/helpers/zod';
+import type { ZodType } from 'zod';
 import { OPENAI_CLIENT } from './llm.constants';
 
 /**
@@ -45,6 +47,48 @@ export class LlmService {
     } catch (err) {
       this.logger.error(`LLM 호출 실패 (model=${model})`, err as Error);
       throw new ServiceUnavailableException('AI 응답 생성에 실패했습니다.');
+    }
+  }
+
+  /**
+   * 구조화(JSON) 출력 호출 — Structured Outputs 로 스키마에 맞는 객체를 강제한다.
+   * 메모리 추출처럼 "정해진 모양의 데이터"가 필요한 작업에서 chat() 대신 쓴다.
+   * 벤더(OpenAI) 세부는 여기 안에만 둔다.
+   */
+  async structured<T>(
+    instructions: string,
+    input: string,
+    schema: ZodType<T>,
+    schemaName: string,
+    model: string,
+  ): Promise<StructuredResType<T>> {
+    try {
+      const res = await this.client.responses.parse({
+        model,
+        instructions,
+        input,
+        text: { format: zodTextFormat(schema, schemaName) },
+      });
+      if (!res.output_parsed) {
+        // 모델 거절·미완성 등으로 파싱 결과가 없는 경우
+        throw new Error('구조화 출력이 비어 있습니다.');
+      }
+      return {
+        id: res.id,
+        model: res.model,
+        status: res.status ?? 'failed',
+        parsed: res.output_parsed, // zod 로 검증된 T (캐스팅 없음)
+        usage: res.usage
+          ? {
+              inputTokens: res.usage.input_tokens,
+              outputTokens: res.usage.output_tokens,
+              totalTokens: res.usage.total_tokens,
+            }
+          : undefined,
+      };
+    } catch (err) {
+      this.logger.error(`구조화 LLM 호출 실패 (model=${model})`, err as Error);
+      throw new ServiceUnavailableException('AI 처리에 실패했습니다.');
     }
   }
 

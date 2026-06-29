@@ -1,6 +1,13 @@
 export type { CurrentUserType } from './auth';
 
-export type { ChatMessageType, ChatResType, ChatRoleType } from './chat';
+export type {
+  ChatMessageType,
+  ChatResType,
+  ChatRoleType,
+  LlmStatusType,
+  LlmUsageType,
+  StructuredResType,
+} from './chat';
 
 export type {
   CharacterType,
@@ -15,3 +22,5 @@ export type {
   MessageType,
   SendMessageRequestType,
 } from './conversation';
+
+export type { MemoryCategoryType, MemoryType } from './memory';
