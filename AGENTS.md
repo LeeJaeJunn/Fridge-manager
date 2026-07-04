@@ -9,7 +9,8 @@ companion/
 ├─ apps/
 │  ├─ native-companion/   # 모바일 앱 (React Native + Expo + TS)
 │  └─ nest-companion/     # 메인 백엔드 (NestJS + TS)
-├─ packages/              # 앱 간 공유 패키지 (타입/유틸 등) — 예정
+├─ packages/
+│  └─ types/              # 앱 간 공유 타입 (@companion/types) — 클라이언트↔서버 API 계약
 └─ (root)                 # 워크스페이스 오케스트레이터: prettier, vscode, ci
 ```
 

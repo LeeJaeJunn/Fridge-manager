@@ -11,6 +11,15 @@ import { CharacterProvider, useCharacter } from '@/context/character';
 // auth/캐릭터 로딩이 끝날 때까지 스플래시 유지 → 온보딩/홈 깜빡임 방지
 void SplashScreen.preventAutoHideAsync();
 
+// 프로필 하위 페이지용 파스텔 테마 헤더 (뒤로가기 버튼은 자동 제공)
+const THEMED_HEADER = {
+  headerShown: true,
+  headerStyle: { backgroundColor: '#FBF8F4' },
+  headerShadowVisible: false,
+  headerTintColor: '#3D3A4E',
+  headerTitleStyle: { color: '#3D3A4E' },
+} as const;
+
 function SplashScreenController() {
   const { isLoading: isAuthLoading } = useAuth();
   const { isLoading: isCharacterLoading } = useCharacter();
@@ -33,6 +42,14 @@ function RootNavigator() {
       <Stack.Protected guard={isAuthed && !!character}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="conversation/[id]" />
+        <Stack.Screen
+          name="settings/character"
+          options={{ ...THEMED_HEADER, title: '캐릭터 설정' }}
+        />
+        <Stack.Screen
+          name="settings/memory"
+          options={{ ...THEMED_HEADER, title: 'AI가 기억하는 나' }}
+        />
       </Stack.Protected>
 
       <Stack.Protected guard={isAuthed && !character}>
