@@ -48,7 +48,7 @@ export default function OnboardingScreen() {
             className={`gap-1 rounded-2xl border px-4 py-4 ${
               presetId === p.id
                 ? 'border-lavender bg-lavender-soft'
-                : 'border-sand bg-white'
+                : 'border-line bg-white'
             }`}
           >
             <Text className="text-lg font-semibold text-ink">{p.name}</Text>

@@ -22,7 +22,7 @@ src/
 
 - 상태관리는 **React Context** (zustand 아님). `context/auth.tsx`(`AuthProvider`/`useAuth`), `context/character.tsx`(`CharacterProvider`/`useCharacter`). **Provider 중첩: AuthProvider > CharacterProvider** (인증 먼저 → 캐릭터). 캐릭터는 로그인 이후에만 의미가 있다.
 - 화면 분기는 `_layout.tsx` 의 `Stack.Protected guard={...}` **3단**으로 한다: 미인증 → `login`, 인증+캐릭터 없음 → `onboarding`, 인증+캐릭터 → `(tabs)`(+하위 stack). 화면 안에서 `router.replace` 로 수동 리다이렉트하지 않는다.
-- 스타일은 **NativeWind**(`className`) + **따뜻한 파스텔 디자인 토큰**(`tailwind.config.js` theme.extend: `cream`/`sand`/`ink`/`lavender`/`peach`/`blush`). 배경 기본 `bg-cream`, 상태바는 `style="dark"`. **색을 하드코딩하지 말고 토큰**을 쓰고, 반복 UI는 `src/components/` 공통 컴포넌트(`Screen`/`Button`/`Card`/`Avatar`/`Bubble`)로 뽑는다 — 디자인 변경은 토큰·컴포넌트 한 곳만 고치면 전 화면 반영.
+- 스타일은 **NativeWind**(`className`) + **클린 중립 디자인 토큰**(`tailwind.config.js` theme.extend): 배경 `cream`(=흰색, 토큰명 유지) · 들어간 표면 `sand`(쿨 그레이: 입력·회색 말풍선·비선택 칩) · 보더/구분선 `line` · 텍스트 `ink`(쿨 뉴트럴) · 포인트 `lavender` · 보조 `peach`/`blush` · 카테고리 틴트 `mint`/`sky`/`amber`. 배경 기본 `bg-cream`, 상태바는 `style="dark"`. **흰 배경이라 카드는 `Card` 가 기본 `border-line` 로 표면을 구분**한다(흰 위 흰 카드 방지). **색을 하드코딩하지 말고 토큰**을 쓰고, 반복 UI는 `src/components/` 공통 컴포넌트(`Screen`/`Button`/`Card`/`Avatar`/`Bubble`)로 뽑는다 — 디자인 변경은 토큰·컴포넌트 한 곳만 고치면 전 화면 반영.
 - 프로필 탭은 **허브**다: 상단 내 정보 + 섹션 행(캐릭터 설정 → `settings/character`, AI 메모리 관리 → `settings/memory`). 하위 페이지는 캐릭터 가드 블록의 `Stack.Screen`(파스텔 테마 네이티브 헤더 = 뒤로가기 자동). 새 라우트 추가 시 typedRoutes 재생성 필요(`expo start` 가 `.expo/types` 갱신).
 - 모든 백엔드 호출은 `api/client.ts` 의 `apiFetch` 를 거친다. dev 동안 `x-user-id` 헤더(= `ENV.devUserId`)로 dev-auth 시드 유저를 식별한다 (백엔드 AGENTS.md "dev-auth" 참고).
 - **신뢰 경계**: instruction/model/대화 히스토리를 클라이언트가 만들지 않는다. 메시지 `content` 만 보내고 서버가 나머지를 해석한다.

@@ -14,10 +14,10 @@ void SplashScreen.preventAutoHideAsync();
 // 프로필 하위 페이지용 파스텔 테마 헤더 (뒤로가기 버튼은 자동 제공)
 const THEMED_HEADER = {
   headerShown: true,
-  headerStyle: { backgroundColor: '#FBF8F4' },
+  headerStyle: { backgroundColor: '#FFFFFF' },
   headerShadowVisible: false,
-  headerTintColor: '#3D3A4E',
-  headerTitleStyle: { color: '#3D3A4E' },
+  headerTintColor: '#27272A',
+  headerTitleStyle: { color: '#27272A' },
 } as const;
 
 function SplashScreenController() {

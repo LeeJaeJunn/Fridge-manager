@@ -24,11 +24,11 @@ const RADIUS = {
 
 // 그림자는 className 으로 표현이 어려워 style 로 한 곳에 모아둔다.
 const SHADOW = {
-  shadowColor: '#A78BFA',
-  shadowOpacity: 0.18,
-  shadowRadius: 24,
-  shadowOffset: { width: 0, height: 12 },
-  elevation: 6,
+  shadowColor: '#27272A',
+  shadowOpacity: 0.07,
+  shadowRadius: 20,
+  shadowOffset: { width: 0, height: 8 },
+  elevation: 4,
 } as const;
 
 /**
@@ -39,7 +39,7 @@ export const Card = forwardRef<View, Props>(function Card(
   { children, elevated = false, radius = '4xl', onPress, className = '', style, ...rest },
   ref,
 ) {
-  const cls = `${RADIUS[radius]} bg-white ${className}`;
+  const cls = `${RADIUS[radius]} border border-line bg-white ${className}`;
   const mergedStyle = elevated ? [SHADOW, style] : style;
 
   if (onPress) {

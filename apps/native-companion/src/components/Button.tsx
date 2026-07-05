@@ -30,10 +30,10 @@ const VARIANTS: Record<
     spinner: '#ffffff',
   },
   secondary: {
-    box: 'bg-white border border-sand active:bg-sand',
+    box: 'bg-white border border-line active:bg-sand',
     boxOff: 'opacity-50',
     text: 'text-ink',
-    spinner: '#6F6A82',
+    spinner: '#6E6E78',
   },
   danger: {
     box: 'border border-blush active:bg-blush-soft',

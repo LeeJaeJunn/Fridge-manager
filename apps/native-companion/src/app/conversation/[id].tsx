@@ -86,7 +86,7 @@ export default function ConversationScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         {/* 헤더 (전역 headerShown:false 라 직접 둠) */}
-        <View className="flex-row items-center gap-3 border-b border-sand px-4 py-3">
+        <View className="flex-row items-center gap-3 border-b border-line px-4 py-3">
           <Pressable onPress={() => router.back()} hitSlop={8}>
             <Text className="text-2xl leading-6 text-ink-soft">‹</Text>
           </Pressable>
@@ -120,11 +120,11 @@ export default function ConversationScreen() {
 
         {error && <Text className="px-4 pb-1 text-sm text-red-500">{error}</Text>}
 
-        <View className="flex-row items-center gap-2 border-t border-sand px-4 py-3">
+        <View className="flex-row items-center gap-2 border-t border-line px-4 py-3">
           <TextInput
             className="flex-1 rounded-full bg-sand px-4 py-2 text-ink"
             placeholder="메시지를 입력하세요"
-            placeholderTextColor="#A8A2B8"
+            placeholderTextColor="#A1A1AA"
             value={input}
             onChangeText={setInput}
             onSubmitEditing={handleSend}

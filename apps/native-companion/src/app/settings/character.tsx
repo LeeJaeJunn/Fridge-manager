@@ -66,7 +66,7 @@ export default function CharacterSettingsScreen() {
               maxLength={30}
               autoFocus
               placeholder="이름"
-              placeholderTextColor="#A8A2B8"
+              placeholderTextColor="#A1A1AA"
               editable={!saving}
               returnKeyType="done"
               onSubmitEditing={handleSaveName}
