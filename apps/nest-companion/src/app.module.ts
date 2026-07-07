@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { CharacterModule } from './character/character.module';
+import { CommerceModule } from './commerce/commerce.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { LlmModule } from './llm/llm.module';
 import { MemoryModule } from './memory/memory.module';
@@ -19,6 +20,7 @@ import { PrismaModule } from './prisma/prisma.module';
     LlmModule,
     MemoryModule,
     ConversationModule,
+    CommerceModule,
   ],
   controllers: [AppController],
   providers: [AppService],

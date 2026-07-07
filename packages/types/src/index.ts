@@ -24,3 +24,10 @@ export type {
 } from './conversation';
 
 export type { MemoryCategoryType, MemoryType } from './memory';
+
+export type {
+  CommerceProviderType,
+  ProductSearchCriteriaType,
+  ProductSearchResultType,
+  ProductType,
+} from './product';
