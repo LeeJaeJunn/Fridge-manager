@@ -7,9 +7,30 @@ import type {
 } from '@companion/types';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { LlmService } from '../llm/llm.service';
+import { CommerceService } from '../commerce/commerce.service';
+import { LlmService, type LlmTool, type LlmToolExecutor } from '../llm/llm.service';
 import { MemoryService, type RecalledMemory } from '../memory/memory.service';
 import { PrismaService } from '../prisma/prisma.service';
+
+/**
+ * 채팅 중 상품추천용 툴. 모델이 "쇼핑/추천이 필요하다" 판단할 때만 부른다(description 이 그 판단 근거).
+ * 실행기는 exchangeWithTools 에서 commerce.search 로 연결한다.
+ */
+const SEARCH_PRODUCTS_TOOL: LlmTool = {
+  name: 'search_products',
+  description:
+    '사용자가 상품 추천·구매·쇼핑을 원할 때만 상품을 검색한다. 일반 잡담이나 상품과 무관한 대화에서는 호출하지 않는다.',
+  parameters: {
+    type: 'object',
+    properties: {
+      keywords: { type: 'string', description: '검색어 (예: "책상 조명", "무선 이어폰")' },
+      priceMin: { type: 'number', description: '최소 가격, 원 (선택)' },
+      priceMax: { type: 'number', description: '최대 가격, 원 (선택)' },
+    },
+    required: ['keywords'],
+    additionalProperties: false,
+  },
+};
 
 const MESSAGE_SELECT = {
   id: true,
@@ -52,6 +73,7 @@ export class ConversationService {
     private readonly prisma: PrismaService,
     private readonly llm: LlmService,
     private readonly memory: MemoryService,
+    private readonly commerce: CommerceService,
     config: ConfigService,
   ) {
     this.model = config.getOrThrow<string>('LLM_MODEL');
@@ -109,7 +131,7 @@ export class ConversationService {
       data: { userId, characterId: character.id },
       select: { id: true },
     });
-    const { messageCount } = await this.exchange(
+    const { messageCount } = await this.exchangeWithTools(
       convo.id,
       this.buildInstruction(character, memories),
       content,
@@ -128,7 +150,7 @@ export class ConversationService {
       throw new NotFoundException('대화를 찾을 수 없습니다.');
     }
     const { character, memories } = await this.getPromptContext(userId);
-    const { reply, messageCount } = await this.exchange(
+    const { reply, messageCount } = await this.exchangeWithTools(
       convo.id,
       this.buildInstruction(character, memories),
       content,
@@ -194,6 +216,68 @@ export class ConversationService {
     });
     // history 는 방금 저장한 유저 메시지까지 포함하므로, assistant 저장 후 총 개수 = history.length + 1.
     // 추출 트리거가 별도 count 쿼리 없이 이 값을 쓴다.
+    return { reply: toMessage(updated.messages[0]), messageCount: history.length + 1 };
+  }
+
+  /**
+   * exchange 의 툴 버전 — search_products 툴을 붙여 대화한다.
+   * 모델이 상품추천이 필요하다 판단하면 툴을 부르고, 실행기가 commerce.search 로 후보를 가져와
+   * 재주입 → 모델이 그 결과로 이유 있는 답을 쓴다. (기본 exchange 는 재사용 위해 그대로 둔다)
+   * 지금은 (i) 텍스트 답변만 — 검색된 상품 카드 첨부는 다음 단계.
+   */
+  private async exchangeWithTools(
+    conversationId: string,
+    instruction: string,
+    content: string,
+  ): Promise<{ reply: MessageType; messageCount: number }> {
+    console.log('1');
+    await this.prisma.message.create({
+      data: { conversationId, role: 'user', content },
+    });
+
+    const history = await this.prisma.message.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'asc' },
+      select: { role: true, content: true },
+    });
+    const messages: ChatMessageType[] = history.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    // 툴 실행기: 모델이 준 인자를 검색조건으로 변환해 commerce.search 호출 (limit 은 서버 고정)
+    const executors: Record<string, LlmToolExecutor> = {
+      search_products: async (args) => {
+        const result = await this.commerce.search({
+          keywords: String(args.keywords ?? ''),
+          category: typeof args.category === 'string' ? args.category : undefined,
+          priceMin: typeof args.priceMin === 'number' ? args.priceMin : undefined,
+          priceMax: typeof args.priceMax === 'number' ? args.priceMax : undefined,
+          limit: 8,
+        });
+        return result.products; // 모델엔 상품 배열을 넘김 → 모델이 이유 써서 답변
+      },
+    };
+
+    const res = await this.llm.chatWithTools(
+      instruction,
+      messages,
+      [SEARCH_PRODUCTS_TOOL],
+      executors,
+      this.model,
+    );
+    console.log(JSON.stringify(res));
+
+    const updated = await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        updatedAt: new Date(),
+        messages: { create: { role: 'assistant', content: res.text } },
+      },
+      select: {
+        messages: { orderBy: { createdAt: 'desc' }, take: 1, select: MESSAGE_SELECT },
+      },
+    });
     return { reply: toMessage(updated.messages[0]), messageCount: history.length + 1 };
   }
 

@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { LlmController } from './llm.controller';
 import { LlmService } from './llm.service';
 import { OpenAiProvider } from './openai.provider';
 
@@ -8,6 +9,7 @@ import { OpenAiProvider } from './openai.provider';
  */
 @Global()
 @Module({
+  controllers: [LlmController],
   providers: [OpenAiProvider, LlmService],
   exports: [LlmService],
 })
