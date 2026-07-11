@@ -4,6 +4,7 @@
  */
 
 import type { ChatRoleType } from './chat';
+import type { ProductType } from './product';
 
 /** 저장된 메시지 한 건 */
 export interface MessageType {
@@ -11,6 +12,8 @@ export interface MessageType {
   role: ChatRoleType; // 'user' | 'assistant'
   content: string;
   createdAt: string;
+  /** 상품추천 답변일 때 첨부된 상품 스냅샷 (카드 렌더용). 그 외엔 없음. */
+  products?: ProductType[];
 }
 
 /** 대화 목록 항목 (GET /conversations) */

@@ -44,7 +44,7 @@
 - 최종 instruction 은 `buildInstruction` 이 조립한다: 캐릭터 이름 + **유저 이름** + **장기 메모리(`MemoryService.recall`)** + 캐릭터 `instruction`. 메모리 선택은 반드시 `recall()` 만 거친다(아래 "장기 메모리" 참고). model은 env에서 해석.
 - 매 교환 후 **N메시지마다 백그라운드로 메모리를 추출**한다(`MEMORY_EXTRACT_EVERY_N`). 판단은 `exchange` 가 반환하는 `messageCount`(= 이미 읽은 히스토리 길이 + 1)로 하며 **별도 count 쿼리를 하지 않는다**.
 - nested write 만 하면 `@updatedAt` 이 안 올라가므로 답변 저장 시 `updatedAt: new Date()` 를 명시 갱신한다(목록 최근순 정렬용).
-- **상품추천(대화 중)**: `exchangeWithTools` 가 `search_products` 툴을 붙여(`chatWithTools`) 대화한다. 모델이 쇼핑 의도로 판단하면 툴을 부르고(인자=검색조건), 실행기가 `CommerceService.search` 로 후보를 가져와 재주입 → **같은 채팅 LLM이 이유 있는 답**을 쓴다 (별도 추천 서비스·구조화 없음 — 검색조건 도출·이유 생성 모두 채팅 LLM이 함). 툴 없는 순수 대화용 기본 `exchange` 는 재사용 위해 보존. 검색 상품을 카드로 내려주는 첨부(`Message` 에 `ProductType` 스냅샷)는 다음 단계(미구현).
+- **상품추천(대화 중)**: `exchangeWithTools` 가 `search_products` 툴을 붙여(`chatWithTools`) 대화한다. 모델이 쇼핑 의도로 판단하면 툴을 부르고(인자=검색조건), 실행기가 `CommerceService.search` 로 후보를 가져와 재주입 → **같은 채팅 LLM이 이유 있는 답**을 쓴다 (별도 추천 서비스·구조화 없음 — 검색조건 도출·이유 생성 모두 채팅 LLM이 함). 툴 없는 순수 대화용 기본 `exchange` 는 재사용 위해 보존. 검색된 상품은 실행기 클로저로 붙잡아 `Message.products`(`Json?`)에 **`ProductType[]` 스냅샷**으로 저장한다 — 그 시점 가격·정보를 박제해 새로고침에도 카드가 유지되고 대화와 일관(참조·재조회 아님). 클라는 이 스냅샷을 버블 아래 카드로 렌더. **"다음/다른 상품"** 은 `search_products(more:true)` + `Conversation.lastSearch`(페이징 커서)로 이어 검색한다 — tool 결과는 턴 사이 DB 히스토리에 안 남아 모델이 `nextStart` 를 기억 못 하므로, 서버가 대화 단위로 커서를 저장·재사용한다(소진 시 `exhausted` 반환).
 
 ## 장기 메모리 (Memory)
 

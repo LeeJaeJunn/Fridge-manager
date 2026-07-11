@@ -16,7 +16,7 @@ import {
   sendMessage,
   startConversation,
 } from '@/api/conversation';
-import { Bubble, Button, Screen } from '@/components';
+import { Bubble, Button, ProductCard, Screen } from '@/components';
 import type { MessageType } from '@companion/types';
 
 export default function ConversationScreen() {
@@ -112,7 +112,16 @@ export default function ConversationScreen() {
               </Text>
             )}
             {messages.map((m) => (
-              <Bubble key={m.id} role={m.role} content={m.content} />
+              <View key={m.id} className="gap-2">
+                <Bubble role={m.role} content={m.content} />
+                {m.products && m.products.length > 0 && (
+                  <View className="gap-2">
+                    {m.products.map((p) => (
+                      <ProductCard key={p.id} product={p} />
+                    ))}
+                  </View>
+                )}
+              </View>
             ))}
             {sending && <Bubble role="assistant" pending />}
           </ScrollView>

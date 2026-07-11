@@ -57,6 +57,9 @@ model Conversation {
   userId      String
   characterId String
   title       String?
+  // 상품 검색 페이징 커서(대화 단위) — "다음/다른 상품" 요청 시 이어서 검색하기 위한 상태.
+  // { keywords, category?, priceMin?, priceMax?, nextStart, hasMore }. 없으면 아직 검색 안 함.
+  lastSearch  Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -74,6 +77,8 @@ model Message {
   conversationId String
   role           Role
   content        String
+  // 상품추천 답변일 때 검색된 ProductType[] 스냅샷 (그 시점 가격·정보 박제, 카드 렌더용). 없으면 null.
+  products       Json?
   createdAt      DateTime @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)

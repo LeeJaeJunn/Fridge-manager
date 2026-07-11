@@ -4,10 +4,13 @@ import type {
   ConversationDetailType,
   ConversationSummaryType,
   MessageType,
+  ProductSearchCriteriaType,
+  ProductType,
 } from '@companion/types';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CommerceService } from '../commerce/commerce.service';
+import { Prisma } from '../generated/prisma/client';
 import { LlmService, type LlmTool, type LlmToolExecutor } from '../llm/llm.service';
 import { MemoryService, type RecalledMemory } from '../memory/memory.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -26,16 +29,46 @@ const SEARCH_PRODUCTS_TOOL: LlmTool = {
       keywords: { type: 'string', description: '검색어 (예: "책상 조명", "무선 이어폰")' },
       priceMin: { type: 'number', description: '최소 가격, 원 (선택)' },
       priceMax: { type: 'number', description: '최대 가격, 원 (선택)' },
+      more: {
+        type: 'boolean',
+        description:
+          '직전과 같은 요청의 "다음/다른 상품"을 원할 때 true (예: "다른 거 보여줘", "이건 별로야"). 이때 keywords 는 직전과 같게 넣는다.',
+      },
     },
     required: ['keywords'],
     additionalProperties: false,
   },
 };
 
+/**
+ * 상품 추천 답변 지침 — 툴 경로에서만 instruction 에 덧붙인다.
+ * 카드가 이미 사진·가격·링크를 보여주므로, LLM 텍스트는 그걸 반복하지 않고 이유만 간결히.
+ */
+const PRODUCT_RECO_GUIDANCE = [
+  '[상품을 추천할 때]',
+  '- 추천 상품은 이미 카드(사진·상품명·가격·구매 링크)로 사용자에게 함께 보여진다.',
+  '- 상품명·가격·URL·이미지 주소·상세 스펙을 텍스트로 다시 나열하지 마라. 링크나 이미지 주소는 문장에 절대 넣지 마라.',
+  '- 대신 짧고 다정하게: 사용자의 취향·상황에 왜 맞는지 한두 문장 + 특히 추천하는 하나를 자연스럽게 짚어라.',
+  '- "아래 카드를 확인해보고, 다른 것도 보고 싶으면 말해줘" 같은 안내로 가볍게 마무리해도 좋다.',
+  '- 전체 2~3문장 이내로 간결하게.',
+  '- 사용자가 "다른 거/다음 거"를 원하거나 추천이 맘에 안 든다고 하면, search_products 를 more:true 로 다시 불러 다음 상품을 보여줘라.',
+  '- 도구 결과가 비어 있거나 exhausted 면 "더 찾은 게 없어요"처럼 솔직히 알려라.',
+].join('\n');
+
+/** 상품 검색 페이징 커서 (Conversation.lastSearch 에 저장) — "다음/다른 상품"을 이어 검색하기 위한 상태. */
+type LastSearch = {
+  keywords: string;
+  priceMin?: number;
+  priceMax?: number;
+  nextStart: number;
+  hasMore: boolean;
+};
+
 const MESSAGE_SELECT = {
   id: true,
   role: true,
   content: true,
+  products: true,
   createdAt: true,
 } as const;
 
@@ -43,6 +76,7 @@ type MessageRow = {
   id: string;
   role: ChatRoleType;
   content: string;
+  products: Prisma.JsonValue | null;
   createdAt: Date;
 };
 
@@ -59,6 +93,8 @@ const toMessage = (m: MessageRow): MessageType => ({
   role: m.role,
   content: m.content,
   createdAt: m.createdAt.toISOString(),
+  // 저장은 Json 이지만 우리가 넣는 건 항상 ProductType[] (없으면 null → 카드 없음)
+  products: (m.products as unknown as ProductType[] | null) ?? undefined,
 });
 
 @Injectable()
@@ -245,34 +281,78 @@ export class ConversationService {
       content: m.content,
     }));
 
-    // 툴 실행기: 모델이 준 인자를 검색조건으로 변환해 commerce.search 호출 (limit 은 서버 고정)
+    // 이전 검색 페이징 커서 (다음/다른 상품 요청 시 이어 검색)
+    const convo = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { lastSearch: true },
+    });
+    let cursor: LastSearch | null = (convo?.lastSearch as LastSearch | null) ?? null;
+    let searched = false;
+
+    // 검색된 상품을 클로저로 캡처 (모델 답변과 별개로, 카드 스냅샷 저장용)
+    const foundProducts: ProductType[] = [];
+
+    // 툴 실행기: more 면 저장된 커서에서 이어 검색, 아니면 새 검색(첫 페이지). 검색 후 커서 갱신.
     const executors: Record<string, LlmToolExecutor> = {
       search_products: async (args) => {
-        const result = await this.commerce.search({
-          keywords: String(args.keywords ?? ''),
-          category: typeof args.category === 'string' ? args.category : undefined,
-          priceMin: typeof args.priceMin === 'number' ? args.priceMin : undefined,
-          priceMax: typeof args.priceMax === 'number' ? args.priceMax : undefined,
-          limit: 8,
-        });
-        return result.products; // 모델엔 상품 배열을 넘김 → 모델이 이유 써서 답변
+        const more = args.more === true;
+        let criteria: ProductSearchCriteriaType;
+        if (more && cursor) {
+          if (!cursor.hasMore) return { products: [], exhausted: true }; // 더 없음
+          criteria = {
+            keywords: cursor.keywords,
+            priceMin: cursor.priceMin,
+            priceMax: cursor.priceMax,
+            start: cursor.nextStart,
+            limit: 6,
+          };
+        } else {
+          criteria = {
+            keywords: String(args.keywords ?? ''),
+            priceMin: typeof args.priceMin === 'number' ? args.priceMin : undefined,
+            priceMax: typeof args.priceMax === 'number' ? args.priceMax : undefined,
+            start: 1,
+            limit: 6,
+          };
+        }
+        const result = await this.commerce.search(criteria);
+        searched = true;
+        cursor = {
+          keywords: criteria.keywords,
+          priceMin: criteria.priceMin,
+          priceMax: criteria.priceMax,
+          nextStart: result.nextStart,
+          hasMore: result.hasMore,
+        };
+        foundProducts.push(...result.products); // 카드 스냅샷용
+        return { products: result.products, hasMore: result.hasMore }; // 모델엔 상품+더있음 여부
       },
     };
 
     const res = await this.llm.chatWithTools(
-      instruction,
+      `${instruction}\n\n${PRODUCT_RECO_GUIDANCE}`,
       messages,
       [SEARCH_PRODUCTS_TOOL],
       executors,
       this.model,
     );
-    console.log(JSON.stringify(res));
 
     const updated = await this.prisma.conversation.update({
       where: { id: conversationId },
       data: {
         updatedAt: new Date(),
-        messages: { create: { role: 'assistant', content: res.text } },
+        // 이번 턴에 검색했으면 페이징 커서 갱신 (다음 "더 보여줘" 이어가기용)
+        lastSearch: searched ? (cursor as unknown as Prisma.InputJsonValue) : undefined,
+        messages: {
+          create: {
+            role: 'assistant',
+            content: res.text,
+            // 검색이 있었으면 그 시점 상품 스냅샷을 함께 저장 (없으면 null)
+            products: foundProducts.length
+              ? (foundProducts as unknown as Prisma.InputJsonValue)
+              : undefined,
+          },
+        },
       },
       select: {
         messages: { orderBy: { createdAt: 'desc' }, take: 1, select: MESSAGE_SELECT },

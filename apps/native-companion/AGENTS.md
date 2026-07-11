@@ -13,7 +13,7 @@ src/
 │  ├─ (tabs)/                # 홈 / 채팅(대화 목록) / 프로필(허브)
 │  ├─ settings/             # 프로필 하위 페이지: character(설정) · memory(AI가 기억하는 나)
 │  └─ conversation/[id].tsx  # 채팅 창 (id="new" 면 새 대화)
-├─ components/               # 공통 UI (Screen/Button/Card/Avatar/Bubble) — NativeWind
+├─ components/               # 공통 UI (Screen/Button/Card/Avatar/Bubble/ProductCard) — NativeWind
 ├─ api/                      # 백엔드 호출 (client.ts = apiFetch 래퍼)
 └─ context/                  # 전역 상태 (auth, character)
 ```
