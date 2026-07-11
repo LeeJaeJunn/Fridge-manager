@@ -6,8 +6,9 @@
 
 - 모든 LLM 호출은 `LlmService` 를 통한다. 다른 모듈(Conversation/Memory 등)은 `LlmService` 의 메서드만 쓰고 벤더(OpenAI)를 직접 알지 못한다.
 - `openai` import(및 `openai/helpers/zod`)는 `src/llm/` 폴더 안에서만 한다. 벤더 응답(`res`)은 `llm/` 안에서 벤더 중립 타입(`ChatResType`/`StructuredResType<T>`)으로 변환해 반환한다.
-- 두 메서드: `chat()` = 자유 텍스트, `structured<T>()` = 스키마 강제(JSON). 구조화는 **zod 스키마**를 받아 `responses.parse` + `zodTextFormat` 로 **검증된** 객체를 돌려준다(`JSON.parse`/`as T` 캐스팅 없음). zod 스키마 자체는 openai 무관이라 도메인 모듈(예: `memory.prompt.ts`)에 둔다.
-- 두 메서드 모두 반환에 **`usage`(토큰)** 를 담는다 — 지금은 소비처 없지만 나중에 어드민 사용량 표시/구독 쿼터용으로 수집.
+- 세 메서드: `chat()` = 자유 텍스트, `structured<T>()` = 스키마 강제(JSON), `chatWithTools()` = 함수 호출(tool use). 구조화는 **zod 스키마**를 받아 `responses.parse` + `zodTextFormat` 로 **검증된** 객체를 돌려준다(`JSON.parse`/`as T` 캐스팅 없음). zod 스키마 자체는 openai 무관이라 도메인 모듈(예: `memory.prompt.ts`)에 둔다.
+- `chatWithTools()`: 툴 정의(`LlmTool`, `parameters`는 JSON Schema)와 실행기(`LlmToolExecutor`)를 **호출자가 만들어 넘기면**, openai tool-call 루프(모델이 `tool_call` → 실행기 실행 → 결과 `function_call_output` 재주입 → 재호출)를 **`llm/` 안에서** 돈다. 툴 정의·실행기는 벤더 중립 타입이라 도메인(Conversation 등)이 소유하고 openai를 모른다. usage는 **모든 왕복 누적**, `maxRounds` 마지막 라운드는 `tool_choice:'none'`으로 텍스트 답을 강제(툴만 내다 빈 답 나가는 것 방지).
+- 세 메서드 모두 반환에 **`usage`(토큰)** 를 담는다 — 지금은 소비처 없지만 나중에 어드민 사용량 표시/구독 쿼터용으로 수집.
 - 모델명은 호출하는 쪽에서 파라미터로 넘긴다 (호출별로 다른 모델 사용 가능).
 - 단, 채팅에 쓰는 모델은 **사용자/캐릭터가 정하지 않고 관리자 소유**다. `ConversationService` 가 `LLM_MODEL`(env)을 읽어 넘긴다. (나중에 Settings 테이블 + 관리자 페이지로 이전 예정)
 
@@ -43,6 +44,7 @@
 - 최종 instruction 은 `buildInstruction` 이 조립한다: 캐릭터 이름 + **유저 이름** + **장기 메모리(`MemoryService.recall`)** + 캐릭터 `instruction`. 메모리 선택은 반드시 `recall()` 만 거친다(아래 "장기 메모리" 참고). model은 env에서 해석.
 - 매 교환 후 **N메시지마다 백그라운드로 메모리를 추출**한다(`MEMORY_EXTRACT_EVERY_N`). 판단은 `exchange` 가 반환하는 `messageCount`(= 이미 읽은 히스토리 길이 + 1)로 하며 **별도 count 쿼리를 하지 않는다**.
 - nested write 만 하면 `@updatedAt` 이 안 올라가므로 답변 저장 시 `updatedAt: new Date()` 를 명시 갱신한다(목록 최근순 정렬용).
+- **상품추천(대화 중)**: `exchangeWithTools` 가 `search_products` 툴을 붙여(`chatWithTools`) 대화한다. 모델이 쇼핑 의도로 판단하면 툴을 부르고(인자=검색조건), 실행기가 `CommerceService.search` 로 후보를 가져와 재주입 → **같은 채팅 LLM이 이유 있는 답**을 쓴다 (별도 추천 서비스·구조화 없음 — 검색조건 도출·이유 생성 모두 채팅 LLM이 함). 툴 없는 순수 대화용 기본 `exchange` 는 재사용 위해 보존. 검색 상품을 카드로 내려주는 첨부(`Message` 에 `ProductType` 스냅샷)는 다음 단계(미구현).
 
 ## 장기 메모리 (Memory)
 
@@ -58,6 +60,16 @@
 - **벡터는 지금 안 넣는다**: 메모리 소수라 전부 주입이 더 싸고 정확. recall seam + 루트 AGENTS.md 방침 덕에 나중에 컬럼 추가 + recall 내부 교체로 붙는다.
 - 튜닝 env(나중에 Settings 테이블로 이전): `MEMORY_EXTRACT_WINDOW`, `MEMORY_EXTRACT_EVERY_N`, `MEMORY_EXTRACT_MODEL`(비우면 `LLM_MODEL`). 읽는 곳은 서비스 생성자 **1곳**(env→DB 전환 seam).
 - API(`MemoryModule`): `GET /memories`(내 전체), `DELETE /memories/:id`(교정용, 본인 것만 멱등). 전부 현재 유저 기준.
+
+## 커머스 — 상품 검색 (Commerce)
+
+- MVP2 상품추천의 **검색 계층**. `src/commerce/`(`CommerceModule`). `CommerceService.search(criteria)` 가 **네이버 쇼핑검색 API**를 호출해 **정규화된 `ProductType[]`**(packages/types) 로 반환한다.
+- **벤더(네이버) 격리**: 네이버 원본(HTML `<b>` title, 문자열 `lprice`, `category1~4`)과 호출 에러는 이 서비스 안에서 흡수해 `ProductType` 으로 변환한다 — `openai` 가 `llm/`에 갇히듯 **naver는 `commerce/`에만** 안다. 소비처(Conversation)는 `ProductType` 만 본다.
+- **catalog 아니라 search seam**: 실제 커머스 API는 "우리 소유 카탈로그"가 아니라 검색 엔드포인트다. 그래서 `search(criteria)` 형태로 모델링. 프로바이더가 **2개 이상(쿠팡/아마존)** 되면 그때 인터페이스+DI토큰으로 분리한다 — 지금은 단일이라 안 만든다(과한 추상화 지양).
+- **정규화 타입은 공통분모 + 옵셔널 신호**: `ProductType` 은 세 API 공통분모(id·title·price·currency·imageUrl·productUrl·mall·brand·category). `rating?`/`reviewCount?`/`isRocket?` 는 옵셔널 — 프로바이더별로 있는 것만 채우고 소비처는 present 필드만 쓴다.
+- **필터·페이징**: 네이버는 `sort`(정확도/가격/날짜)만 있고 가격·카테고리 필터 파라미터가 없어 **후처리**한다. `start`(1~1000)·`display`(≤100)는 **독립 제약**(합계 제한 없음). `search` 는 raw 를 스캔하며 필터 통과분을 `limit` 까지 모으고 **커서(`nextStart`)를 실제 스캔한 raw 개수만큼만 전진**(slice 유실·중복 방지). `ProductSearchResultType`(products·nextStart·hasMore) 반환, 클라는 `nextStart` 를 opaque 커서로 에코백(무상태).
+- **호출량**: 네이버 쿼터는 호출 1회 = 1카운트(개수 무관). 페이징 절약이 필요하면 나중에 **배치 캐싱**(한 번에 받아 캐시에서 페이지 서빙) — 지금은 무상태라 잉여분 재사용 안 됨.
+- `GET /products` 는 **임시 테스트용**(LLM 없음). 정식 소비 경로는 채팅 tool-use(위 Conversation "상품추천").
 
 ## 인증 — dev-auth 시드 (로그인은 나중)
 
