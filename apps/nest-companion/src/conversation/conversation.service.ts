@@ -222,8 +222,6 @@ export class ConversationService {
       data: { conversationId, role: 'user', content },
     });
 
-    console.log('1: ', instruction);
-
     const history = await this.prisma.message.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'asc' },
@@ -235,8 +233,6 @@ export class ConversationService {
     }));
 
     const res = await this.llm.chat(instruction, messages, this.model);
-
-    console.log('22..:', JSON.stringify(res));
 
     // 답변 저장 + 대화 갱신을 한 번의 nested write 로 처리.
     // nested write 만 있으면 @updatedAt 이 안 올라가므로 updatedAt 을 명시적으로 갱신(목록 최근순 정렬용).
@@ -266,7 +262,6 @@ export class ConversationService {
     instruction: string,
     content: string,
   ): Promise<{ reply: MessageType; messageCount: number }> {
-    console.log('1');
     await this.prisma.message.create({
       data: { conversationId, role: 'user', content },
     });

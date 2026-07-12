@@ -26,8 +26,8 @@ export default function HomeScreen() {
     <Screen scroll contentClassName="gap-7 px-6 pb-10 pt-4">
       {/* 인사 */}
       <View className="gap-1">
-        <Text className="text-ink text-3xl font-bold">안녕하세요, {user?.name}님!</Text>
-        <Text className="text-ink-soft text-base">{greeting()}</Text>
+        <Text className="text-3xl font-bold text-ink">안녕하세요, {user?.name}님!</Text>
+        <Text className="text-base text-ink-soft">{greeting()}</Text>
       </View>
 
       {/* 컴패니언 히어로 카드 */}
@@ -35,10 +35,10 @@ export default function HomeScreen() {
         <Avatar name={characterName} />
 
         <View className="items-center gap-1">
-          <Text className="text-ink text-xl font-bold">{characterName}</Text>
+          <Text className="text-xl font-bold text-ink">{characterName}</Text>
           <View className="flex-row items-center gap-1.5">
-            <View className="bg-peach h-2 w-2 rounded-full" />
-            <Text className="text-ink-soft text-sm">당신을 기억하고 있어요</Text>
+            <View className="h-2 w-2 rounded-full bg-peach" />
+            <Text className="text-sm text-ink-soft">당신을 기억하고 있어요</Text>
           </View>
         </View>
 
@@ -49,7 +49,7 @@ export default function HomeScreen() {
 
       {/* 빠른 대화 시작 */}
       <View className="gap-3">
-        <Text className="text-ink-soft text-sm font-medium">이런 얘기 어때요?</Text>
+        <Text className="text-sm font-medium text-ink-soft">이런 얘기 어때요?</Text>
         <View className="gap-2.5">
           {PROMPTS.map((p) => (
             <Link key={p} href="/chat" asChild>
@@ -57,8 +57,8 @@ export default function HomeScreen() {
                 onPress={() => {}}
                 className="flex-row items-center justify-between rounded-2xl px-5 py-4"
               >
-                <Text className="text-ink text-base">{p}</Text>
-                <Text className="text-lavender text-lg">›</Text>
+                <Text className="text-base text-ink">{p}</Text>
+                <Text className="text-lg text-lavender">›</Text>
               </Card>
             </Link>
           ))}

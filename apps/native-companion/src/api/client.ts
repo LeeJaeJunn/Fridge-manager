@@ -22,9 +22,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     const body = (await res.json().catch(() => null)) as {
       message?: string | string[];
     } | null;
-    const msg = Array.isArray(body?.message)
-      ? body?.message.join(', ')
-      : body?.message;
+    const msg = Array.isArray(body?.message) ? body?.message.join(', ') : body?.message;
     throw new Error(msg ?? `요청 실패 (${res.status})`);
   }
 

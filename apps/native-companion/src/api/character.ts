@@ -17,9 +17,7 @@ export function fetchMyCharacter(): Promise<CharacterType | null> {
 }
 
 /** 프리셋 선택 + (선택)이름으로 내 캐릭터 생성 */
-export function createCharacter(
-  body: CreateCharacterRequestType,
-): Promise<CharacterType> {
+export function createCharacter(body: CreateCharacterRequestType): Promise<CharacterType> {
   return apiFetch<CharacterType>('/characters', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -27,9 +25,7 @@ export function createCharacter(
 }
 
 /** 캐릭터 이름 수정 */
-export function updateCharacterName(
-  body: UpdateCharacterRequestType,
-): Promise<CharacterType> {
+export function updateCharacterName(body: UpdateCharacterRequestType): Promise<CharacterType> {
   return apiFetch<CharacterType>('/characters/me', {
     method: 'PATCH',
     body: JSON.stringify(body),

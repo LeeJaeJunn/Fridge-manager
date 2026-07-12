@@ -9,6 +9,8 @@
     "build": "pnpm -r --if-present build",
     "lint": "pnpm -r --if-present lint",
     "test": "pnpm -r --if-present test",
+    "test:e2e": "pnpm --filter @companion/api test:e2e --runInBand",
+    "verify": "pnpm format:check && pnpm lint && pnpm test && pnpm test:e2e && pnpm build",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

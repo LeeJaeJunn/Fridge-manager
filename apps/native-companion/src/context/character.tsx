@@ -1,10 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type PropsWithChildren,
-} from 'react';
+import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
 import { fetchMyCharacter } from '@/api/character';
 import { useAuth } from '@/context/auth';
 import type { CharacterType } from '@companion/types';
@@ -61,9 +55,7 @@ export function CharacterProvider({ children }: PropsWithChildren) {
   }, [status]);
 
   return (
-    <CharacterContext.Provider
-      value={{ character, isLoading, refresh, setCharacter }}
-    >
+    <CharacterContext.Provider value={{ character, isLoading, refresh, setCharacter }}>
       {children}
     </CharacterContext.Provider>
   );

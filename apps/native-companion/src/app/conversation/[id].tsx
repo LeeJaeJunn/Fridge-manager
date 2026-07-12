@@ -11,11 +11,7 @@ import {
   View,
 } from 'react-native';
 
-import {
-  fetchConversation,
-  sendMessage,
-  startConversation,
-} from '@/api/conversation';
+import { fetchConversation, sendMessage, startConversation } from '@/api/conversation';
 import { Bubble, Button, ProductCard, Screen } from '@/components';
 import type { MessageType } from '@companion/types';
 
@@ -24,9 +20,7 @@ export default function ConversationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const isNew = id === 'new';
 
-  const [conversationId, setConversationId] = useState<string | null>(
-    isNew ? null : id,
-  );
+  const [conversationId, setConversationId] = useState<string | null>(isNew ? null : id);
   const [messages, setMessages] = useState<MessageType[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(!isNew);
@@ -102,9 +96,7 @@ export default function ConversationScreen() {
             ref={scrollRef}
             className="flex-1 px-4"
             contentContainerClassName="gap-3 py-4"
-            onContentSizeChange={() =>
-              scrollRef.current?.scrollToEnd({ animated: true })
-            }
+            onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
           >
             {messages.length === 0 && (
               <Text className="mt-8 text-center text-ink-faint">

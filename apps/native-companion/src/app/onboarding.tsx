@@ -46,9 +46,7 @@ export default function OnboardingScreen() {
             key={p.id}
             onPress={() => setPresetId(p.id)}
             className={`gap-1 rounded-2xl border px-4 py-4 ${
-              presetId === p.id
-                ? 'border-lavender bg-lavender-soft'
-                : 'border-line bg-white'
+              presetId === p.id ? 'border-lavender bg-lavender-soft' : 'border-line bg-white'
             }`}
           >
             <Text className="text-lg font-semibold text-ink">{p.name}</Text>
@@ -59,12 +57,7 @@ export default function OnboardingScreen() {
 
       {error && <Text className="text-sm text-red-500">{error}</Text>}
 
-      <Button
-        label="시작하기"
-        onPress={handleCreate}
-        disabled={!presetId}
-        loading={submitting}
-      />
+      <Button label="시작하기" onPress={handleCreate} disabled={!presetId} loading={submitting} />
     </Screen>
   );
 }

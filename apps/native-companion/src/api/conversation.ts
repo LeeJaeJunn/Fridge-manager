@@ -17,9 +17,7 @@ export function fetchConversation(id: string): Promise<ConversationDetailType> {
 }
 
 /** 새 대화 시작 (첫 메시지) → 생성된 대화(+첫 교환) 반환 */
-export function startConversation(
-  body: SendMessageRequestType,
-): Promise<ConversationDetailType> {
+export function startConversation(body: SendMessageRequestType): Promise<ConversationDetailType> {
   return apiFetch<ConversationDetailType>('/conversations', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -27,10 +25,7 @@ export function startConversation(
 }
 
 /** 기존 대화에 메시지 전송 → 답변 메시지 반환 */
-export function sendMessage(
-  id: string,
-  body: SendMessageRequestType,
-): Promise<MessageType> {
+export function sendMessage(id: string, body: SendMessageRequestType): Promise<MessageType> {
   return apiFetch<MessageType>(`/conversations/${id}/messages`, {
     method: 'POST',
     body: JSON.stringify(body),
@@ -43,10 +38,7 @@ export function deleteConversation(id: string): Promise<void> {
 }
 
 /** 대화 속 개별 메시지 삭제 */
-export function deleteMessage(
-  conversationId: string,
-  messageId: string,
-): Promise<void> {
+export function deleteMessage(conversationId: string, messageId: string): Promise<void> {
   return apiFetch<void>(`/conversations/${conversationId}/messages/${messageId}`, {
     method: 'DELETE',
   });

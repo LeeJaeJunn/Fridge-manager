@@ -1,10 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type PropsWithChildren,
-} from 'react';
+import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
 import { fetchMe } from '@/api/auth';
 import type { CurrentUserType } from '@companion/types';
 
@@ -47,9 +41,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, []);
 
   return (
-    <AuthContext.Provider
-      value={{ user, status, isLoading: status === 'loading', refreshMe }}
-    >
+    <AuthContext.Provider value={{ user, status, isLoading: status === 'loading', refreshMe }}>
       {children}
     </AuthContext.Provider>
   );

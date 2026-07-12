@@ -15,10 +15,7 @@ export function Avatar({ name, size = 96 }: Props) {
       className="items-center justify-center rounded-full bg-lavender-soft"
       style={{ width: size, height: size }}
     >
-      <Text
-        className="font-bold text-lavender-deep"
-        style={{ fontSize: size * 0.42 }}
-      >
+      <Text className="font-bold text-lavender-deep" style={{ fontSize: size * 0.42 }}>
         {initial}
       </Text>
     </View>

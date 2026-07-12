@@ -19,10 +19,7 @@ const SIZES: Record<Size, { box: string; text: string }> = {
 };
 
 // 변종별 스타일 — 색을 바꿀 땐 여기 + tailwind 토큰만 고치면 된다.
-const VARIANTS: Record<
-  Variant,
-  { box: string; boxOff: string; text: string; spinner: string }
-> = {
+const VARIANTS: Record<Variant, { box: string; boxOff: string; text: string; spinner: string }> = {
   primary: {
     box: 'bg-lavender active:bg-lavender-deep',
     boxOff: 'bg-lavender/40',
@@ -48,15 +45,7 @@ const VARIANTS: Record<
  * 그대로 Pressable 로 넘긴다.
  */
 export const Button = forwardRef<View, Props>(function Button(
-  {
-    label,
-    variant = 'primary',
-    size = 'md',
-    loading = false,
-    disabled,
-    className = '',
-    ...rest
-  },
+  { label, variant = 'primary', size = 'md', loading = false, disabled, className = '', ...rest },
   ref,
 ) {
   const v = VARIANTS[variant];

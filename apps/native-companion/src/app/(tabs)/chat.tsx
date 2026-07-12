@@ -43,11 +43,7 @@ export default function ConversationListScreen() {
     <Screen>
       <View className="flex-row items-center justify-between px-6 py-4">
         <Text className="text-xl font-bold text-ink">대화</Text>
-        <Button
-          label="새 채팅"
-          size="sm"
-          onPress={() => router.push('/conversation/new')}
-        />
+        <Button label="새 채팅" size="sm" onPress={() => router.push('/conversation/new')} />
       </View>
 
       {loading ? (
@@ -57,10 +53,7 @@ export default function ConversationListScreen() {
       ) : conversations.length === 0 ? (
         <View className="flex-1 items-center justify-center gap-4 px-6">
           <Text className="text-ink-faint">아직 대화가 없어요.</Text>
-          <Button
-            label="새 채팅 시작"
-            onPress={() => router.push('/conversation/new')}
-          />
+          <Button label="새 채팅 시작" onPress={() => router.push('/conversation/new')} />
         </View>
       ) : (
         <ScrollView contentContainerClassName="gap-2 px-4 pb-6">

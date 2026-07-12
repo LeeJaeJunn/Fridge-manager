@@ -1,11 +1,5 @@
 import { forwardRef, type ReactNode } from 'react';
-import {
-  Pressable,
-  type PressableProps,
-  type StyleProp,
-  View,
-  type ViewStyle,
-} from 'react-native';
+import { Pressable, type PressableProps, type StyleProp, View, type ViewStyle } from 'react-native';
 
 type Props = Omit<PressableProps, 'style'> & {
   children: ReactNode;
