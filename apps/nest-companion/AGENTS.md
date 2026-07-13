@@ -75,14 +75,18 @@
 
 - `src/auth/`(`AuthModule`, `@Global`). loginId/password 로그인 + JWT 기반 세션.
 - **토큰 2종**:
-  - **access token** = JWT(서명, `{ sub: userId }`), 짧은 수명(`JWT_ACCESS_TTL`, 기본 15분). 모든 API 요청의 `Authorization: Bearer` 로 사용. `JwtAuthGuard` 가 서명·만료를 검증해 `req.userId` 에 심는다.
-  - **refresh token** = 랜덤 문자열, 긴 수명(`REFRESH_TTL_DAYS`, 기본 30일). access 재발급(`POST /auth/refresh`)에만 쓰고 일반 API엔 안 쓴다. 원문은 저장하지 않고 **sha256 해시만** `RefreshSession` 에 저장(DB 유출 시 원문 복원 방지).
+  - **access token** = JWT(서명, payload `{ sub: userId, type:'access', iss:'companion' }`), 짧은 수명(`JWT_ACCESS_TTL`, 기본 15분). 모든 API 요청의 `Authorization: Bearer` 로 사용. `JwtAuthGuard` 가 서명·만료·`issuer` 를 검증하고 **payload 형태도 런타임 확인**(`sub` 가 비어있지 않은 문자열 + `type==='access'`)한 뒤 `req.userId` 에 심는다. (서명만 통과한 이상 토큰이 `req.userId=undefined` 로 흘러 소유권 쿼리를 오작동시키는 것 방지)
+  - **refresh token** = 랜덤 문자열(hex 64자), 긴 수명(`REFRESH_TTL_DAYS`, 기본 30일). access 재발급(`POST /auth/refresh`)에만 쓰고 일반 API엔 안 쓴다. 원문은 저장하지 않고 **sha256 해시만** `RefreshSession` 에 저장(DB 유출 시 원문 복원 방지).
 - `@CurrentUser()` 데코레이터로 컨트롤러에서 `req.userId` 를 꺼낸다. 모든 유저 스코프 라우트는 이 값 기준. (가드가 `DevAuthGuard`→`JwtAuthGuard` 로 바뀌었지만 `req.userId` 계약이 같아 컨트롤러/서비스는 무변경.)
-- **회전(rotation)**: `refresh` 는 옛 세션을 폐기하고 새 access+refresh 를 발급한다 → 탈취된 옛 refresh 재사용은 401. **로그아웃**(`POST /auth/logout`)은 해당 refresh 세션을 삭제(멱등)한다.
-- **AuthService**: `signup`(loginId 중복→`ConflictException`, bcrypt 해시), `login`(불일치→`UnauthorizedException`, 계정 존재 여부 비노출 위해 동일 메시지), `refresh`, `logout`. bcrypt 는 순수 JS `bcryptjs`.
+- **회전(rotation)은 원자적**: `refresh` 는 옛 세션 삭제+새 세션 생성을 **`$transaction` 으로 묶고 `deleteMany` 의 count가 정확히 1일 때만** 성공시킨다 → 같은 refresh 로 동시 요청이 와도 진 쪽은 count 0 → 재사용 401(500 아님). 탈취된 옛 refresh 재사용도 401. **로그아웃**(`POST /auth/logout`)은 해당 refresh 세션을 삭제(멱등).
+- **AuthService**:
+  - `signup` — 유저 생성 + 최초 세션을 **한 트랜잭션**으로(반쪽 가입 방지). 중복은 사전조회 없이 **unique 제약(P2002)→`ConflictException`** (동시 가입 경합도 안전).
+  - `login` — 유저가 없어도 **더미 해시로 `bcrypt.compare` 를 수행**(계정 열거 타이밍 공격 방지), 실패 메시지도 동일. 성공 시 만료된 세션을 기회적으로 정리.
+  - `getCurrentUser`(=`GET /auth/me` 로직), `refresh`, `logout`. bcrypt 는 순수 JS `bcryptjs`.
 - API: `POST /auth/signup|login|refresh|logout`(가드 없음), `GET /auth/me`(`JwtAuthGuard`). signup/login 은 `{ accessToken, refreshToken, user }` 반환.
-- env: `JWT_SECRET`(프로덕션은 길고 무작위로 교체 필수), `JWT_ACCESS_TTL`, `REFRESH_TTL_DAYS`. `JwtModule` 은 `global: true` 로 등록해 각 모듈의 `@UseGuards(JwtAuthGuard)` 가 `JwtService` 를 주입받게 한다.
+- env: `JWT_SECRET`(≥16자, 프로덕션은 무작위로 교체 필수), `JWT_ACCESS_TTL`, `REFRESH_TTL_DAYS`. **시작 시 `config/env.validation.ts`(zod, `ConfigModule.validate`)로 검증** — 빈 secret·NaN TTL·프로덕션의 `change-me` 면 부팅을 차단한다. `JwtModule` 은 `global: true` 로 등록해 각 모듈의 `@UseGuards(JwtAuthGuard)` 가 `JwtService` 를 주입받게 한다.
 - 데이터: `RefreshSession`(userId, `tokenHash` @unique, expiresAt). `User` 에 이미 `loginId`/`passwordHash` 존재.
+- **미구현(배포 전)**: 로그인/회원가입 rate limit(`@nestjs/throttler`) — 브루트포스·bcrypt CPU 소모 방어.
 
 ## DB / Prisma
 
@@ -98,6 +102,14 @@
   - 클라이언트 `output` 은 `src/generated/prisma` (= `src/` 안), 그리고 `prisma.config.ts` 는 `tsconfig.build.json` 의 `exclude` 에 둔다. 안 그러면 빌드 산출물이 밀려 `dist/main.js` 가 `dist/src/...` 로 이동한다.
   - `migrate dev` 는 generate를 자동 실행하지 않는다. 그래서 `build` 스크립트가 `prisma generate && nest build` 로 generate를 먼저 돌린다.
   - env 로딩: 런타임은 `@nestjs/config`, Prisma CLI는 `prisma.config.ts` 의 `dotenv` 로 각각 `DATABASE_URL` 을 읽는다 (Prisma 7은 `.env` 자동 로드 안 함).
+  - **Jest + Prisma 7**: 생성된 클라이언트가 `.ts` 안에서 `./internal/class.js` 처럼 **명시적 `.js` 확장자**로 import 해서, ts-jest 가 해석을 못 한다. 두 jest 설정(유닛=`package.json` 의 `jest`, e2e=`test/jest-e2e.json`) 모두에 `moduleNameMapper: { "^(\\.{1,2}/.*)\\.js$": "$1" }` 가 있어야 `PrismaService` 를 import 하는 테스트가 돈다(없으면 테스트 0 실행). e2e 는 `PrismaService` 를 `overrideProvider` 로 mock 하므로 실제 DB 없이 부팅만 검증한다.
+
+## 테스트 / CI
+
+- 유닛 테스트는 `*.spec.ts`(예: `auth.service.spec.ts`) — 서비스 로직만 떼어 Prisma/JWT 를 mock 해 검증(런타임 코드 아님, 빌드 산출물 미포함). e2e 는 `test/*.e2e-spec.ts`.
+- `lint` 는 **검사만**(`--fix` 없음), 자동수정은 `lint:fix`. CI 가 위반을 잡아야 하므로 둘을 분리한다.
+- 레포 루트 `pnpm verify` = `format:check → lint → test → test:e2e → build`. **push 전에 이걸 돌린다.** CI(`.github/workflows/ci.yml`)도 동일 체인 + 더미 env(로컬 `.env` 없이 부팅되도록)로 실행한다.
+- 테스트에서 `expect(p).rejects.toBeInstanceOf(X)` 쓸 때 `X`(예외 클래스)를 **반드시 import** — 안 하면 `toBeInstanceOf(undefined)` 가 동기 throw → 미처리 rejection 으로 Node 가 워커를 죽인다.
 
 ## 개발 워크플로우 주의
 
