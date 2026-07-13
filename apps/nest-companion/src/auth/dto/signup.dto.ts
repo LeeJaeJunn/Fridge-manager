@@ -1,5 +1,6 @@
 import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import type { SignupRequestType } from '@companion/types';
+import { MaxByteLength } from './max-byte-length.decorator';
 
 /** POST /auth/signup 요청 본문 */
 export class SignupDto implements SignupRequestType {
@@ -11,7 +12,7 @@ export class SignupDto implements SignupRequestType {
 
   @IsString()
   @MinLength(8)
-  @MaxLength(72) // bcrypt 는 72바이트 초과분을 무시하므로 상한을 둔다
+  @MaxByteLength(72) // bcrypt 72바이트 상한 (문자 수가 아니라 바이트 수로 제한)
   password!: string;
 
   @IsOptional()
