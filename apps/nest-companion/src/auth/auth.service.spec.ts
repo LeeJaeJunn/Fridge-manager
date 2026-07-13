@@ -1,4 +1,4 @@
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
@@ -162,6 +162,28 @@ describe('AuthService', () => {
     it('해당 refresh 세션을 deleteMany 로 폐기(멱등)', async () => {
       await service.logout('sometoken');
       expect(prisma.refreshSession.deleteMany).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('getCurrentUser', () => {
+    it('있으면 표시용 유저 반환', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        loginId: 'bob',
+        name: '밥',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
+      await expect(service.getCurrentUser('u1')).resolves.toEqual({
+        id: 'u1',
+        loginId: 'bob',
+        name: '밥',
+        createdAt: '2026-01-01T00:00:00.000Z',
+      });
+    });
+
+    it('없으면 NotFoundException', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      await expect(service.getCurrentUser('ghost')).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 });

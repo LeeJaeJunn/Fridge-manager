@@ -1,9 +1,12 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, type JwtSignOptions } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
+
+// access token 발급자 식별자 — 서명/검증 양쪽에 동일하게 적용
+const JWT_ISSUER = 'companion';
 
 /**
  * @Global() — 다른 모듈의 @UseGuards(JwtAuthGuard) 에서 DI 로 가드를 쓰도록 export.
@@ -18,10 +21,13 @@ import { JwtAuthGuard } from './jwt-auth.guard';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         secret: config.getOrThrow<string>('JWT_SECRET'),
-        // expiresIn 은 ms 의 StringValue 타입이라 generic string 을 직접 못 넣어 캐스팅한다.
+        // expiresIn 은 ms 의 StringValue 타입이라 generic string 을 그 타입으로 캐스팅한다.
+        // (env.validation 이 형식을 이미 검증하므로 런타임엔 안전)
         signOptions: {
-          expiresIn: (config.get<string>('JWT_ACCESS_TTL') ?? '15m') as unknown as number,
+          expiresIn: (config.get<string>('JWT_ACCESS_TTL') ?? '15m') as JwtSignOptions['expiresIn'],
+          issuer: JWT_ISSUER,
         },
+        verifyOptions: { issuer: JWT_ISSUER },
       }),
     }),
   ],

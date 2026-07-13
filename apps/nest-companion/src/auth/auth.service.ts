@@ -1,5 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
@@ -31,6 +36,8 @@ function isUniqueViolation(err: unknown): boolean {
 @Injectable()
 export class AuthService {
   private readonly refreshTtlMs: number;
+  // 존재하지 않는 유저 로그인 시에도 비교를 수행해 응답 시간을 균등화(계정 열거 타이밍 공격 방지)
+  private readonly dummyHash = bcrypt.hashSync('companion-timing-guard', BCRYPT_ROUNDS);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -72,8 +79,9 @@ export class AuthService {
 
   async login(dto: LoginDto): Promise<AuthResponseType> {
     const user = await this.prisma.user.findUnique({ where: { loginId: dto.loginId } });
-    // 아이디 없음/비번 불일치 모두 같은 메시지 (계정 존재 여부 노출 방지)
-    const ok = user ? await bcrypt.compare(dto.password, user.passwordHash) : false;
+    // 유저가 없어도 동일 비용의 비교를 수행 → 타이밍으로 계정 존재 여부가 새지 않게 한다.
+    // 메시지도 아이디 없음/비번 불일치 모두 동일 (계정 존재 여부 노출 방지).
+    const ok = await bcrypt.compare(dto.password, user?.passwordHash ?? this.dummyHash);
     if (!user || !ok) {
       throw new UnauthorizedException('아이디 또는 비밀번호가 올바르지 않습니다.');
     }
@@ -82,8 +90,24 @@ export class AuthService {
     await this.prisma.refreshSession.create({
       data: { userId: user.id, tokenHash: refresh.tokenHash, expiresAt: refresh.expiresAt },
     });
+    // 기회적 정리: 이 유저의 만료된 세션을 청소(안 쓰고 남은 세션 누적 방지)
+    await this.prisma.refreshSession.deleteMany({
+      where: { userId: user.id, expiresAt: { lt: new Date() } },
+    });
     const accessToken = await this.signAccess(user.id);
     return { accessToken, refreshToken: refresh.raw, user: this.toCurrentUser(user) };
+  }
+
+  /** 현재 유저 조회 (GET /auth/me) — 표시용 필드만 반환 */
+  async getCurrentUser(userId: string): Promise<CurrentUserType> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, loginId: true, name: true, createdAt: true },
+    });
+    if (!user) {
+      throw new NotFoundException('유저를 찾을 수 없습니다.');
+    }
+    return this.toCurrentUser(user);
   }
 
   /** refresh 토큰으로 access 재발급 + refresh 회전 (삭제+생성을 원자화) */

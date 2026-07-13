@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, type PropsWithChildren 
 import { fetchMe, login as apiLogin, logout as apiLogout, signup as apiSignup } from '@/api/auth';
 import { onAuthExpired } from '@/api/auth-events';
 import { ApiError } from '@/api/errors';
-import { clearTokens, getAccessToken, getRefreshToken } from '@/api/token';
+import { getAccessToken, getRefreshToken } from '@/api/token';
 import type { CurrentUserType, LoginRequestType, SignupRequestType } from '@companion/types';
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
@@ -45,8 +45,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
           setStatus('unauthenticated');
           return;
         }
-        // 저장된 토큰으로 유저 확인. 401/403 은 진짜 인증 해제지만,
-        // 네트워크/서버 오류는 로그아웃이 아니므로 몇 번 재시도한다.
+        // 저장된 토큰으로 유저 확인. 401/403 = 세션 확정 만료(client 가 이미 토큰 정리),
+        // 그 외(네트워크/5xx/토큰 갱신 일시 실패)는 로그아웃이 아니므로 몇 번 재시도한다.
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             setUser(await fetchMe());
@@ -54,7 +54,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
             return;
           } catch (e) {
             if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
-              await clearTokens();
               setUser(null);
               setStatus('unauthenticated');
               return;
@@ -62,7 +61,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
             if (attempt < 2) await delay(1200);
           }
         }
-        // 재시도 후에도 네트워크/서버 오류 → 토큰은 유지(다음 실행에서 복구), 일단 로그인 화면
+        // 재시도 후에도 일시 오류 → 토큰은 유지(다음 실행에서 복구), 일단 로그인 화면
         setStatus('unauthenticated');
       } catch {
         // SecureStore 읽기 실패 등 예기치 못한 오류에도 로딩을 반드시 끝낸다(스플래시가 안 닫히는 것 방지)

@@ -1,14 +1,5 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpCode,
-  NotFoundException,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
 import type { AuthResponseType, CurrentUserType, RefreshResponseType } from '@companion/types';
-import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
 import { LoginDto } from './dto/login.dto';
@@ -18,10 +9,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
-  constructor(
-    private readonly auth: AuthService,
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly auth: AuthService) {}
 
   /** 회원가입 → 세션(access + refresh) 발급 */
   @Post('signup')
@@ -53,14 +41,7 @@ export class AuthController {
   /** 현재 유저 조회 (access token 필요) */
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  async me(@CurrentUser() userId: string): Promise<CurrentUserType> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, loginId: true, name: true, createdAt: true },
-    });
-    if (!user) {
-      throw new NotFoundException('유저를 찾을 수 없습니다.');
-    }
-    return { ...user, createdAt: user.createdAt.toISOString() };
+  me(@CurrentUser() userId: string): Promise<CurrentUserType> {
+    return this.auth.getCurrentUser(userId);
   }
 }

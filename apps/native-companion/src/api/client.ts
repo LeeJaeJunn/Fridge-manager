@@ -10,8 +10,11 @@ const AUTH_NO_RETRY = new Set(['/auth/login', '/auth/signup', '/auth/refresh', '
  * 공용 fetch 래퍼. 모든 백엔드 호출은 이걸 거친다.
  * - ENV.apiUrl 기준으로 path 결합, JSON 헤더 + access token(Authorization: Bearer) 자동 첨부
  * - access 만료(401)면 refresh 로 새 access 를 받아 **1회 자동 재시도** (사용자는 만료를 못 느낌)
- * - refresh 도 실패하면 토큰을 비운다 → 앱은 자연히 로그인 상태로 돌아감
- * - 에러 응답은 서버의 message 를 뽑아 Error 로 throw (class-validator 는 배열로 옴)
+ * - refresh 가 확정 실패(400/401/403)면 토큰을 비운다 → 앱은 자연히 로그인 상태로 돌아감.
+ *   일시 오류(5xx/429/네트워크)면 토큰을 유지하고 에러를 전달(재시도 가능).
+ * - 에러 응답은 서버의 message(status 포함)를 담아 ApiError 로 throw (class-validator 는 배열로 옴)
+ *
+ * 토큰 폐기의 소유권은 이 파일 한 곳에 둔다 — 상위(auth.tsx)는 상태만 반영하고 토큰을 직접 지우지 않는다.
  */
 async function rawFetch(
   path: string,
@@ -36,6 +39,8 @@ async function refreshAccessToken(): Promise<string | null> {
     refreshing = (async () => {
       const refreshToken = await getRefreshToken();
       if (!refreshToken) {
+        // refresh 자체가 없음 = 세션 사망 → 남은 토큰 정리 + 전역 인증 해제
+        await clearTokens();
         emitAuthExpired();
         return null;
       }
@@ -49,13 +54,14 @@ async function refreshAccessToken(): Promise<string | null> {
         await setTokens(data.accessToken, data.refreshToken);
         return data.accessToken;
       }
-      // 세션이 확실히 무효인 경우(만료·재사용·형식오류)만 폐기.
-      // 5xx·429 등 일시 오류는 토큰을 유지해 같은 refresh 로 재시도할 수 있게 한다.
+      // 세션이 확실히 무효(만료·재사용·형식오류)면 폐기 + 인증 해제.
       if (res.status === 400 || res.status === 401 || res.status === 403) {
         await clearTokens();
         emitAuthExpired();
+        return null;
       }
-      return null;
+      // 일시 오류(5xx/429 등)는 토큰을 유지하고 에러를 던진다 → 호출부가 401 이 아닌 오류로 인지해 재시도.
+      throw new ApiError(res.status, '토큰 갱신에 실패했습니다.');
     })().finally(() => {
       refreshing = null;
     });
