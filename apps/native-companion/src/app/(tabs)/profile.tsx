@@ -24,12 +24,12 @@ export default function ProfileScreen() {
   const name = user?.name ?? user?.loginId ?? '사용자';
 
   const confirmLogout = () => {
-    Alert.alert('로그아웃', '정말 로그아웃할까요?', [
-      { text: '취소', style: 'cancel' },
-      { text: '로그아웃', style: 'destructive', onPress: () => void logout() },
-    ]);
-    // console.log('로그아웃');
-    // logout();
+    // Alert.alert('로그아웃', '정말 로그아웃할까요?', [
+    //   { text: '취소', style: 'cancel' },
+    //   { text: '로그아웃', style: 'destructive', onPress: () => void logout() },
+    // ]);
+    console.log('로그아웃');
+    logout();
   };
 
   return (

@@ -24,12 +24,19 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('인증이 필요합니다.');
     }
 
+    let payload: { sub?: unknown; type?: unknown };
     try {
-      const payload = await this.jwt.verifyAsync<{ sub: string }>(token);
-      req.userId = payload.sub;
+      payload = await this.jwt.verifyAsync(token);
     } catch {
       throw new UnauthorizedException('유효하지 않거나 만료된 토큰입니다.');
     }
+
+    // 서명 검증만으로는 부족 — payload 형태를 런타임에 확인한다.
+    // (sub 누락 시 req.userId=undefined 로 흘러 소유권 쿼리가 오작동하는 것을 방지)
+    if (typeof payload.sub !== 'string' || payload.sub.length === 0 || payload.type !== 'access') {
+      throw new UnauthorizedException('유효하지 않은 토큰입니다.');
+    }
+    req.userId = payload.sub;
     return true;
   }
 }

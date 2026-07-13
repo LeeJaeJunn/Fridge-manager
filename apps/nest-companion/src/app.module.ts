@@ -8,12 +8,13 @@ import { CommerceModule } from './commerce/commerce.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { LlmModule } from './llm/llm.module';
 import { MemoryModule } from './memory/memory.module';
+import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
   imports: [
-    // .env 를 읽어 ConfigService 로 노출. isGlobal: 어디서든 주입 가능
-    ConfigModule.forRoot({ isGlobal: true }),
+    // .env 를 읽어 ConfigService 로 노출. isGlobal: 어디서든 주입 가능. validate: 시작 시 검증
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     PrismaModule,
     AuthModule,
     CharacterModule,

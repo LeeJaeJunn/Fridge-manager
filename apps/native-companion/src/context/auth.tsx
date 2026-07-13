@@ -1,9 +1,13 @@
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
 import { fetchMe, login as apiLogin, logout as apiLogout, signup as apiSignup } from '@/api/auth';
-import { getAccessToken, getRefreshToken } from '@/api/token';
+import { onAuthExpired } from '@/api/auth-events';
+import { ApiError } from '@/api/errors';
+import { clearTokens, getAccessToken, getRefreshToken } from '@/api/token';
 import type { CurrentUserType, LoginRequestType, SignupRequestType } from '@companion/types';
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 type AuthContextValue = {
   /** 현재 인증된 유저 (미인증이면 null) */
@@ -28,20 +32,41 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [status, setStatus] = useState<AuthStatus>('loading');
 
   useEffect(() => {
-    void (async () => {
+    // 사용 중 세션 사망(refresh 실패) 시 client 가 쏘는 이벤트 → 전역 인증 해제
+    const unsubscribe = onAuthExpired(() => {
+      setUser(null);
+      setStatus('unauthenticated');
+    });
+
+    const bootstrap = async () => {
       const [access, refresh] = await Promise.all([getAccessToken(), getRefreshToken()]);
       if (!access && !refresh) {
         setStatus('unauthenticated');
         return;
       }
-      try {
-        setUser(await fetchMe());
-        setStatus('authenticated');
-      } catch {
-        setUser(null);
-        setStatus('unauthenticated');
+      // 저장된 토큰으로 유저 확인. 401/403 은 진짜 인증 해제지만,
+      // 네트워크/서버 오류는 로그아웃이 아니므로 몇 번 재시도한다.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          setUser(await fetchMe());
+          setStatus('authenticated');
+          return;
+        } catch (e) {
+          if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+            await clearTokens();
+            setUser(null);
+            setStatus('unauthenticated');
+            return;
+          }
+          if (attempt < 2) await delay(1200);
+        }
       }
-    })();
+      // 재시도 후에도 네트워크/서버 오류 → 토큰은 유지(다음 실행에서 복구), 일단 로그인 화면
+      setStatus('unauthenticated');
+    };
+
+    void bootstrap();
+    return unsubscribe;
   }, []);
 
   const login = async (body: LoginRequestType) => {

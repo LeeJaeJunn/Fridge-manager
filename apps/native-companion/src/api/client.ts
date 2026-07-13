@@ -1,5 +1,10 @@
 import { ENV } from '@/config/env';
+import { emitAuthExpired } from '@/api/auth-events';
+import { ApiError } from '@/api/errors';
 import { clearTokens, getAccessToken, getRefreshToken, setTokens } from '@/api/token';
+
+// refresh 를 태우면 안 되는 인증 변경 엔드포인트(재귀 방지). /auth/me 는 제외 → 만료 시 자동 갱신됨.
+const AUTH_NO_RETRY = new Set(['/auth/login', '/auth/signup', '/auth/refresh', '/auth/logout']);
 
 /**
  * 공용 fetch 래퍼. 모든 백엔드 호출은 이걸 거친다.
@@ -30,14 +35,19 @@ async function refreshAccessToken(): Promise<string | null> {
   if (!refreshing) {
     refreshing = (async () => {
       const refreshToken = await getRefreshToken();
-      if (!refreshToken) return null;
+      if (!refreshToken) {
+        emitAuthExpired();
+        return null;
+      }
       const res = await fetch(`${ENV.apiUrl}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken }),
       });
       if (!res.ok) {
+        // refresh 최종 실패 = 세션 사망 → 토큰 정리 + 전역 인증 해제 신호
         await clearTokens();
+        emitAuthExpired();
         return null;
       }
       const data = (await res.json()) as { accessToken: string; refreshToken: string };
@@ -54,8 +64,8 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   const access = await getAccessToken();
   let res = await rawFetch(path, init, access);
 
-  // access 만료 → refresh 로 재발급 후 1회 재시도. /auth/* 자체는 재시도하지 않는다(무한루프 방지).
-  if (res.status === 401 && !path.startsWith('/auth/')) {
+  // access 만료 → refresh 로 재발급 후 1회 재시도. 인증 변경 엔드포인트는 재시도하지 않는다(무한루프 방지).
+  if (res.status === 401 && !AUTH_NO_RETRY.has(path)) {
     const renewed = await refreshAccessToken();
     if (renewed) res = await rawFetch(path, init, renewed);
   }
@@ -65,7 +75,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
       message?: string | string[];
     } | null;
     const msg = Array.isArray(body?.message) ? body?.message.join(', ') : body?.message;
-    throw new Error(msg ?? `요청 실패 (${res.status})`);
+    throw new ApiError(res.status, msg ?? `요청 실패 (${res.status})`);
   }
 
   if (res.status === 204) return undefined as T;

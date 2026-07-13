@@ -12,9 +12,9 @@ type PrismaMock = {
   refreshSession: {
     create: jest.Mock;
     findUnique: jest.Mock;
-    delete: jest.Mock;
     deleteMany: jest.Mock;
   };
+  $transaction: jest.Mock;
 };
 
 describe('AuthService', () => {
@@ -28,10 +28,12 @@ describe('AuthService', () => {
       refreshSession: {
         create: jest.fn().mockResolvedValue(undefined),
         findUnique: jest.fn(),
-        delete: jest.fn().mockResolvedValue(undefined),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      $transaction: jest.fn(),
     };
+    // 트랜잭션은 콜백에 같은 mock 을 tx 로 넘겨 실행 (원자성 자체가 아니라 흐름을 검증)
+    prisma.$transaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(prisma));
     jwt = { signAsync: jest.fn().mockResolvedValue('access.jwt.token') };
     const config = { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService;
     service = new AuthService(
@@ -42,16 +44,14 @@ describe('AuthService', () => {
   });
 
   describe('signup', () => {
-    it('중복 loginId 면 ConflictException, create 미호출', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: 'u1' });
+    it('unique 위반(P2002)이면 ConflictException', async () => {
+      prisma.user.create.mockRejectedValue({ code: 'P2002' });
       await expect(
         service.signup({ loginId: 'taken', password: 'password123' }),
       ).rejects.toBeInstanceOf(ConflictException);
-      expect(prisma.user.create).not.toHaveBeenCalled();
     });
 
     it('성공 시 비번을 해시로 저장하고 세션 토큰을 발급', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
       prisma.user.create.mockResolvedValue({
         id: 'u1',
         loginId: 'newbie',
@@ -122,14 +122,14 @@ describe('AuthService', () => {
       await expect(service.refresh('whatever')).rejects.toBeInstanceOf(UnauthorizedException);
     });
 
-    it('만료된 세션이면 삭제하고 거절', async () => {
+    it('만료된 세션이면 정리하고 거절', async () => {
       prisma.refreshSession.findUnique.mockResolvedValue({
         id: 's1',
         userId: 'u1',
         expiresAt: new Date(Date.now() - 1000),
       });
       await expect(service.refresh('expired')).rejects.toBeInstanceOf(UnauthorizedException);
-      expect(prisma.refreshSession.delete).toHaveBeenCalledWith({ where: { id: 's1' } });
+      expect(prisma.refreshSession.deleteMany).toHaveBeenCalledWith({ where: { id: 's1' } });
     });
 
     it('유효하면 회전: 옛 세션 삭제 + 새 세션 발급', async () => {
@@ -138,11 +138,23 @@ describe('AuthService', () => {
         userId: 'u1',
         expiresAt: new Date(Date.now() + 100_000),
       });
+      prisma.refreshSession.deleteMany.mockResolvedValue({ count: 1 });
       const res = await service.refresh('valid');
-      expect(prisma.refreshSession.delete).toHaveBeenCalledWith({ where: { id: 's1' } });
+      expect(prisma.refreshSession.deleteMany).toHaveBeenCalledTimes(1);
       expect(prisma.refreshSession.create).toHaveBeenCalledTimes(1);
       expect(res.accessToken).toBe('access.jwt.token');
       expect(res.refreshToken).toEqual(expect.any(String));
+    });
+
+    it('경합으로 이미 삭제됨(count 0)이면 재사용 거절 (500 아님)', async () => {
+      prisma.refreshSession.findUnique.mockResolvedValue({
+        id: 's1',
+        userId: 'u1',
+        expiresAt: new Date(Date.now() + 100_000),
+      });
+      prisma.refreshSession.deleteMany.mockResolvedValue({ count: 0 });
+      await expect(service.refresh('raced')).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(prisma.refreshSession.create).not.toHaveBeenCalled();
     });
   });
 
