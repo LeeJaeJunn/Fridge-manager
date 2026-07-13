@@ -39,30 +39,35 @@ export function AuthProvider({ children }: PropsWithChildren) {
     });
 
     const bootstrap = async () => {
-      const [access, refresh] = await Promise.all([getAccessToken(), getRefreshToken()]);
-      if (!access && !refresh) {
-        setStatus('unauthenticated');
-        return;
-      }
-      // 저장된 토큰으로 유저 확인. 401/403 은 진짜 인증 해제지만,
-      // 네트워크/서버 오류는 로그아웃이 아니므로 몇 번 재시도한다.
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          setUser(await fetchMe());
-          setStatus('authenticated');
+      try {
+        const [access, refresh] = await Promise.all([getAccessToken(), getRefreshToken()]);
+        if (!access && !refresh) {
+          setStatus('unauthenticated');
           return;
-        } catch (e) {
-          if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
-            await clearTokens();
-            setUser(null);
-            setStatus('unauthenticated');
-            return;
-          }
-          if (attempt < 2) await delay(1200);
         }
+        // 저장된 토큰으로 유저 확인. 401/403 은 진짜 인증 해제지만,
+        // 네트워크/서버 오류는 로그아웃이 아니므로 몇 번 재시도한다.
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            setUser(await fetchMe());
+            setStatus('authenticated');
+            return;
+          } catch (e) {
+            if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+              await clearTokens();
+              setUser(null);
+              setStatus('unauthenticated');
+              return;
+            }
+            if (attempt < 2) await delay(1200);
+          }
+        }
+        // 재시도 후에도 네트워크/서버 오류 → 토큰은 유지(다음 실행에서 복구), 일단 로그인 화면
+        setStatus('unauthenticated');
+      } catch {
+        // SecureStore 읽기 실패 등 예기치 못한 오류에도 로딩을 반드시 끝낸다(스플래시가 안 닫히는 것 방지)
+        setStatus('unauthenticated');
       }
-      // 재시도 후에도 네트워크/서버 오류 → 토큰은 유지(다음 실행에서 복구), 일단 로그인 화면
-      setStatus('unauthenticated');
     };
 
     void bootstrap();
@@ -80,9 +85,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
   };
 
   const logout = async () => {
-    await apiLogout();
-    setUser(null);
-    setStatus('unauthenticated');
+    // 서버 로그아웃이 실패해도(서버 다운 등) 로컬 세션은 반드시 내린다.
+    // (apiLogout 은 finally 에서 로컬 토큰을 이미 지운다)
+    try {
+      await apiLogout();
+    } catch {
+      // 무시: 상태 정리는 아래 finally 가 보장
+    } finally {
+      setUser(null);
+      setStatus('unauthenticated');
+    }
   };
 
   return (

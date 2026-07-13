@@ -64,11 +64,14 @@ export async function getRefreshToken(): Promise<string | null> {
 }
 
 export async function setTokens(accessToken: string, refreshToken: string): Promise<void> {
-  cache = { accessToken, refreshToken };
-  await writeRaw(JSON.stringify(cache));
+  // 디스크 저장이 성공한 뒤 캐시를 갱신 — 저장 실패 시 메모리만 로그인 상태가 되는 것을 막는다.
+  const next: Tokens = { accessToken, refreshToken };
+  await writeRaw(JSON.stringify(next));
+  cache = next;
 }
 
 export async function clearTokens(): Promise<void> {
+  // 로그아웃은 인증 해제를 우선 — 캐시를 먼저 비워 디스크 삭제가 실패해도 이번 세션은 즉시 로그아웃된다.
   cache = null;
   await deleteRaw();
 }

@@ -10,6 +10,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    # 테스트용 더미 환경변수 — AppModule 부팅(env 검증) + 서비스 생성자가 요구하는 값.
+    # E2E 는 PrismaService 를 mock 하므로 DATABASE_URL 은 실제 접속 가능할 필요는 없다.
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/test
+      OPENAI_API_KEY: test-key
+      LLM_MODEL: test-model
+      NAVER_CLIENT_ID: test-client
+      NAVER_CLIENT_SECRET: test-secret
+      JWT_SECRET: test-only-secret-at-least-32-characters
+
     steps:
       - uses: actions/checkout@v4
 

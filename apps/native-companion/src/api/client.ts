@@ -44,15 +44,18 @@ async function refreshAccessToken(): Promise<string | null> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken }),
       });
-      if (!res.ok) {
-        // refresh 최종 실패 = 세션 사망 → 토큰 정리 + 전역 인증 해제 신호
+      if (res.ok) {
+        const data = (await res.json()) as { accessToken: string; refreshToken: string };
+        await setTokens(data.accessToken, data.refreshToken);
+        return data.accessToken;
+      }
+      // 세션이 확실히 무효인 경우(만료·재사용·형식오류)만 폐기.
+      // 5xx·429 등 일시 오류는 토큰을 유지해 같은 refresh 로 재시도할 수 있게 한다.
+      if (res.status === 400 || res.status === 401 || res.status === 403) {
         await clearTokens();
         emitAuthExpired();
-        return null;
       }
-      const data = (await res.json()) as { accessToken: string; refreshToken: string };
-      await setTokens(data.accessToken, data.refreshToken);
-      return data.accessToken;
+      return null;
     })().finally(() => {
       refreshing = null;
     });
