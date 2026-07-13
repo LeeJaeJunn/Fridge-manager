@@ -1,22 +1,64 @@
 import { ENV } from '@/config/env';
+import { clearTokens, getAccessToken, getRefreshToken, setTokens } from '@/api/token';
 
 /**
  * 공용 fetch 래퍼. 모든 백엔드 호출은 이걸 거친다.
- * - ENV.apiUrl 기준으로 path 결합
- * - JSON 헤더 + dev 인증 헤더(x-user-id) 자동 첨부
+ * - ENV.apiUrl 기준으로 path 결합, JSON 헤더 + access token(Authorization: Bearer) 자동 첨부
+ * - access 만료(401)면 refresh 로 새 access 를 받아 **1회 자동 재시도** (사용자는 만료를 못 느낌)
+ * - refresh 도 실패하면 토큰을 비운다 → 앱은 자연히 로그인 상태로 돌아감
  * - 에러 응답은 서버의 message 를 뽑아 Error 로 throw (class-validator 는 배열로 옴)
- *
- * ⚠️ 임시(dev): x-user-id 는 DevAuthGuard 용. 진짜 로그인 붙으면 Authorization 토큰으로 교체.
  */
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${ENV.apiUrl}${path}`, {
+async function rawFetch(
+  path: string,
+  init: RequestInit | undefined,
+  accessToken: string | null,
+): Promise<Response> {
+  return fetch(`${ENV.apiUrl}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      'x-user-id': ENV.devUserId,
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...init?.headers,
     },
   });
+}
+
+// 동시에 여러 요청이 401 을 받아도 refresh 는 한 번만 (single-flight)
+let refreshing: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (!refreshing) {
+    refreshing = (async () => {
+      const refreshToken = await getRefreshToken();
+      if (!refreshToken) return null;
+      const res = await fetch(`${ENV.apiUrl}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!res.ok) {
+        await clearTokens();
+        return null;
+      }
+      const data = (await res.json()) as { accessToken: string; refreshToken: string };
+      await setTokens(data.accessToken, data.refreshToken);
+      return data.accessToken;
+    })().finally(() => {
+      refreshing = null;
+    });
+  }
+  return refreshing;
+}
+
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const access = await getAccessToken();
+  let res = await rawFetch(path, init, access);
+
+  // access 만료 → refresh 로 재발급 후 1회 재시도. /auth/* 자체는 재시도하지 않는다(무한루프 방지).
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    const renewed = await refreshAccessToken();
+    if (renewed) res = await rawFetch(path, init, renewed);
+  }
 
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as {

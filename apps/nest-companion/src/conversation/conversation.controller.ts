@@ -1,11 +1,11 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ConversationService } from './conversation.service';
 import { SendMessageDto } from './dto/send-message.dto';
 
 /** 전부 현재 유저 기준. 입력 검증은 전역 ValidationPipe가 처리. */
-@UseGuards(DevAuthGuard)
+@UseGuards(JwtAuthGuard)
 @Controller('conversations')
 export class ConversationController {
   constructor(private readonly conversations: ConversationService) {}

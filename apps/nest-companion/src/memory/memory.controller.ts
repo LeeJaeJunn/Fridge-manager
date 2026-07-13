@@ -1,10 +1,10 @@
 import { Controller, Delete, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { MemoryService } from './memory.service';
 
 /** "AI가 기억하는 나" — 전부 현재 유저 기준. */
-@UseGuards(DevAuthGuard)
+@UseGuards(JwtAuthGuard)
 @Controller('memories')
 export class MemoryController {
   constructor(private readonly memories: MemoryService) {}

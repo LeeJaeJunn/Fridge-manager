@@ -1,12 +1,12 @@
 import { Body, Controller, Delete, Get, HttpCode, Patch, Post, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CharacterService } from './character.service';
 import { CreateCharacterDto } from './dto/create-character.dto';
 import { UpdateCharacterDto } from './dto/update-character.dto';
 
 /** 전부 현재 유저 기준. 입력 검증은 전역 ValidationPipe가 처리. */
-@UseGuards(DevAuthGuard)
+@UseGuards(JwtAuthGuard)
 @Controller('characters')
 export class CharacterController {
   constructor(private readonly characters: CharacterService) {}

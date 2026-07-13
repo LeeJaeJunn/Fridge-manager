@@ -1,4 +1,12 @@
-export type { CurrentUserType } from './auth';
+export type {
+  AuthResponseType,
+  CurrentUserType,
+  LoginRequestType,
+  LogoutRequestType,
+  RefreshRequestType,
+  RefreshResponseType,
+  SignupRequestType,
+} from './auth';
 
 export type {
   ChatMessageType,

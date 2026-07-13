@@ -71,14 +71,18 @@
 - **호출량**: 네이버 쿼터는 호출 1회 = 1카운트(개수 무관). 페이징 절약이 필요하면 나중에 **배치 캐싱**(한 번에 받아 캐시에서 페이지 서빙) — 지금은 무상태라 잉여분 재사용 안 됨.
 - `GET /products` 는 **임시 테스트용**(LLM 없음). 정식 소비 경로는 채팅 tool-use(위 Conversation "상품추천").
 
-## 인증 — dev-auth 시드 (로그인은 나중)
+## 인증 — 로그인(JWT access + refresh)
 
-- 실제 로그인(Passport/JWT)은 뒤로 미루고, 테스트 시 매번 로그인하지 않도록 **개발용 인증 시드**를 둔다. `src/auth/`.
-- `DevAuthGuard`: `DEV_AUTH !== 'true'` 면 401. 그 외에는 `x-user-id` 헤더(없으면 `DEV_USER_ID`)를 `req.userId` 로 세팅.
-- `@CurrentUser()` 데코레이터로 컨트롤러에서 `req.userId` 를 꺼낸다. 모든 유저 스코프 라우트는 이 값 기준.
-- 부팅 시 `DEV_AUTH` 면 `DEV_USER_ID` 유저를 upsert 시드(`dev-user.seed.ts`).
-- env: `DEV_AUTH=true`, `DEV_USER_ID=dev-user`. **프로덕션에선 `DEV_AUTH` 를 끄고 실제 인증으로 교체** — 이 가드/시드가 트러스트 경계 우회로가 되지 않게.
-- 로그인 붙일 때 바꾸는 건 가드 한 곳 + `@CurrentUser()` 해석부뿐이고, 컨트롤러/서비스는 그대로다(같은 `userId` 계약).
+- `src/auth/`(`AuthModule`, `@Global`). loginId/password 로그인 + JWT 기반 세션.
+- **토큰 2종**:
+  - **access token** = JWT(서명, `{ sub: userId }`), 짧은 수명(`JWT_ACCESS_TTL`, 기본 15분). 모든 API 요청의 `Authorization: Bearer` 로 사용. `JwtAuthGuard` 가 서명·만료를 검증해 `req.userId` 에 심는다.
+  - **refresh token** = 랜덤 문자열, 긴 수명(`REFRESH_TTL_DAYS`, 기본 30일). access 재발급(`POST /auth/refresh`)에만 쓰고 일반 API엔 안 쓴다. 원문은 저장하지 않고 **sha256 해시만** `RefreshSession` 에 저장(DB 유출 시 원문 복원 방지).
+- `@CurrentUser()` 데코레이터로 컨트롤러에서 `req.userId` 를 꺼낸다. 모든 유저 스코프 라우트는 이 값 기준. (가드가 `DevAuthGuard`→`JwtAuthGuard` 로 바뀌었지만 `req.userId` 계약이 같아 컨트롤러/서비스는 무변경.)
+- **회전(rotation)**: `refresh` 는 옛 세션을 폐기하고 새 access+refresh 를 발급한다 → 탈취된 옛 refresh 재사용은 401. **로그아웃**(`POST /auth/logout`)은 해당 refresh 세션을 삭제(멱등)한다.
+- **AuthService**: `signup`(loginId 중복→`ConflictException`, bcrypt 해시), `login`(불일치→`UnauthorizedException`, 계정 존재 여부 비노출 위해 동일 메시지), `refresh`, `logout`. bcrypt 는 순수 JS `bcryptjs`.
+- API: `POST /auth/signup|login|refresh|logout`(가드 없음), `GET /auth/me`(`JwtAuthGuard`). signup/login 은 `{ accessToken, refreshToken, user }` 반환.
+- env: `JWT_SECRET`(프로덕션은 길고 무작위로 교체 필수), `JWT_ACCESS_TTL`, `REFRESH_TTL_DAYS`. `JwtModule` 은 `global: true` 로 등록해 각 모듈의 `@UseGuards(JwtAuthGuard)` 가 `JwtService` 를 주입받게 한다.
+- 데이터: `RefreshSession`(userId, `tokenHash` @unique, expiresAt). `User` 에 이미 `loginId`/`passwordHash` 존재.
 
 ## DB / Prisma
 

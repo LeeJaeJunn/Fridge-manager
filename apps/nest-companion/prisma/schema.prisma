@@ -31,6 +31,22 @@ model User {
   character     Character? // 1:1 — 유저당 캐릭터 하나
   conversations Conversation[]
   memories      Memory[]
+  refreshSessions RefreshSession[]
+}
+
+// 리프레시 세션 — access token 재발급의 근거. 로그인/기기마다 1개.
+// 토큰 원문은 저장하지 않고 sha256 해시만 저장한다(DB 유출 시 원문 복원 방지).
+// 로그아웃 = 해당 row 삭제(폐기). refresh 회전 시 옛 row 삭제 + 새 row 생성.
+model RefreshSession {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique // sha256(refreshToken) — 조회용이라 유니크·인덱스
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // 유저의 단 하나뿐인 컴패니언 (선택 목록이 아님)

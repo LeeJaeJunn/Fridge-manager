@@ -20,8 +20,17 @@ function SettingsRow({ label, onPress }: { label: string; onPress: () => void })
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const name = user?.name ?? user?.loginId ?? '사용자';
+
+  const confirmLogout = () => {
+    Alert.alert('로그아웃', '정말 로그아웃할까요?', [
+      { text: '취소', style: 'cancel' },
+      { text: '로그아웃', style: 'destructive', onPress: () => void logout() },
+    ]);
+    // console.log('로그아웃');
+    // logout();
+  };
 
   return (
     <Screen scroll contentClassName="gap-8 px-6 py-8">
@@ -38,10 +47,7 @@ export default function ProfileScreen() {
       <View className="gap-2.5">
         <SettingsRow label="캐릭터 설정" onPress={() => router.push('/settings/character')} />
         <SettingsRow label="AI 메모리 관리" onPress={() => router.push('/settings/memory')} />
-        <SettingsRow
-          label="로그아웃"
-          onPress={() => Alert.alert('로그아웃', '로그인 기능은 아직 준비 중이에요.')}
-        />
+        <SettingsRow label="로그아웃" onPress={confirmLogout} />
       </View>
     </Screen>
   );
