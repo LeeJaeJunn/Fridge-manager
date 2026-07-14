@@ -152,6 +152,7 @@ export class LlmService {
         tools: toolParams,
       });
       accumulate(res.usage);
+      console.log(JSON.stringify(res));
 
       // 모델이 툴을 더 안 부를 때까지(또는 상한까지) 반복
       for (let round = 0; round < maxRounds; round++) {

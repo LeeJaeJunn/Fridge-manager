@@ -95,6 +95,8 @@ model Message {
   content        String
   // 상품추천 답변일 때 검색된 ProductType[] 스냅샷 (그 시점 가격·정보 박제, 카드 렌더용). 없으면 null.
   products       Json?
+  // 이 검색에 이어볼 상품이 더 있는지(= 그 시점 커서의 hasMore). products 있을 때만 세팅. "더보기" 버튼 노출 판단용.
+  hasMoreProducts Boolean?
   createdAt      DateTime @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)

@@ -39,10 +39,9 @@ export default function ConversationScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleSend() {
-    const content = input.trim();
+  // 임의 텍스트를 전송하는 코어 (입력창 전송 + "다른 상품 보여줘" 버튼이 공유)
+  async function send(content: string) {
     if (!content || sending) return;
-    setInput('');
     setError(null);
     setSending(true);
 
@@ -72,6 +71,21 @@ export default function ConversationScreen() {
       setSending(false);
     }
   }
+
+  function handleSend() {
+    const content = input.trim();
+    if (!content || sending) return;
+    setInput('');
+    void send(content);
+  }
+
+  // 마지막 답변이 상품 카드 + "더 있음"이면 이어보기 버튼을 노출 (소진되면 자동으로 사라짐)
+  const last = messages[messages.length - 1];
+  const canLoadMore =
+    !sending &&
+    last?.role === 'assistant' &&
+    !!last.products?.length &&
+    last.hasMoreProducts === true;
 
   return (
     <Screen edges={['top', 'bottom']}>
@@ -115,6 +129,16 @@ export default function ConversationScreen() {
                 )}
               </View>
             ))}
+            {canLoadMore && (
+              <View className="items-start">
+                <Button
+                  label="다른 상품 보여줘"
+                  variant="secondary"
+                  size="sm"
+                  onPress={() => void send('다른 상품도 보여줘')}
+                />
+              </View>
+            )}
             {sending && <Bubble role="assistant" pending />}
           </ScrollView>
         )}

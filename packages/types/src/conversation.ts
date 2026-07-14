@@ -14,6 +14,8 @@ export interface MessageType {
   createdAt: string;
   /** 상품추천 답변일 때 첨부된 상품 스냅샷 (카드 렌더용). 그 외엔 없음. */
   products?: ProductType[];
+  /** 이 검색에 이어볼 상품이 더 있는지 (products 있을 때만 의미). false면 "더보기" 숨김. */
+  hasMoreProducts?: boolean;
 }
 
 /** 대화 목록 항목 (GET /conversations) */

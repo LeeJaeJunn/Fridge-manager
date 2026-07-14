@@ -69,6 +69,7 @@ const MESSAGE_SELECT = {
   role: true,
   content: true,
   products: true,
+  hasMoreProducts: true,
   createdAt: true,
 } as const;
 
@@ -77,6 +78,7 @@ type MessageRow = {
   role: ChatRoleType;
   content: string;
   products: Prisma.JsonValue | null;
+  hasMoreProducts: boolean | null;
   createdAt: Date;
 };
 
@@ -95,6 +97,7 @@ const toMessage = (m: MessageRow): MessageType => ({
   createdAt: m.createdAt.toISOString(),
   // 저장은 Json 이지만 우리가 넣는 건 항상 ProductType[] (없으면 null → 카드 없음)
   products: (m.products as unknown as ProductType[] | null) ?? undefined,
+  hasMoreProducts: m.hasMoreProducts ?? undefined,
 });
 
 @Injectable()
@@ -342,10 +345,11 @@ export class ConversationService {
           create: {
             role: 'assistant',
             content: res.text,
-            // 검색이 있었으면 그 시점 상품 스냅샷을 함께 저장 (없으면 null)
+            // 검색이 있었으면 그 시점 상품 스냅샷 + "더 있음" 플래그를 함께 저장 (없으면 null)
             products: foundProducts.length
               ? (foundProducts as unknown as Prisma.InputJsonValue)
               : undefined,
+            hasMoreProducts: foundProducts.length ? Boolean(cursor?.hasMore) : undefined,
           },
         },
       },
