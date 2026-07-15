@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { Alert, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
 import { Avatar, Card, Screen } from '@/components';
 import { useAuth } from '@/context/auth';
@@ -20,16 +20,8 @@ function SettingsRow({ label, onPress }: { label: string; onPress: () => void })
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const name = user?.name ?? user?.loginId ?? '사용자';
-
-  const confirmLogout = () => {
-    // Alert.alert('로그아웃', '정말 로그아웃할까요?', [
-    //   { text: '취소', style: 'cancel' },
-    //   { text: '로그아웃', style: 'destructive', onPress: () => void logout() },
-    // ]);
-    logout();
-  };
 
   return (
     <Screen scroll contentClassName="gap-8 px-6 py-8">
@@ -44,9 +36,9 @@ export default function ProfileScreen() {
 
       {/* 섹션 */}
       <View className="gap-2.5">
+        <SettingsRow label="계정" onPress={() => router.push('/settings/account')} />
         <SettingsRow label="캐릭터 설정" onPress={() => router.push('/settings/character')} />
         <SettingsRow label="AI 메모리 관리" onPress={() => router.push('/settings/memory')} />
-        <SettingsRow label="로그아웃" onPress={confirmLogout} />
       </View>
     </Screen>
   );

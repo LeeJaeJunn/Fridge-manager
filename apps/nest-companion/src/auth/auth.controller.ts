@@ -1,10 +1,11 @@
-import { Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Patch, Post, UseGuards } from '@nestjs/common';
 import type { AuthResponseType, CurrentUserType, RefreshResponseType } from '@companion/types';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { SignupDto } from './dto/signup.dto';
+import { UpdateMeDto } from './dto/update-me.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
@@ -43,5 +44,12 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() userId: string): Promise<CurrentUserType> {
     return this.auth.getCurrentUser(userId);
+  }
+
+  /** 현재 유저 이름 수정 */
+  @UseGuards(JwtAuthGuard)
+  @Patch('me')
+  updateMe(@CurrentUser() userId: string, @Body() dto: UpdateMeDto): Promise<CurrentUserType> {
+    return this.auth.updateName(userId, dto.name);
   }
 }

@@ -5,6 +5,7 @@ import type {
   CurrentUserType,
   LoginRequestType,
   SignupRequestType,
+  UpdateMeRequestType,
 } from '@companion/types';
 
 /** 로그인 → 토큰 저장 후 현재 유저 반환 */
@@ -30,6 +31,14 @@ export async function signup(body: SignupRequestType): Promise<CurrentUserType> 
 /** 현재 인증된 유저 조회 (access token 필요, 만료 시 client 가 자동 refresh) */
 export function fetchMe(): Promise<CurrentUserType> {
   return apiFetch<CurrentUserType>('/auth/me');
+}
+
+/** 내 이름 수정 → 갱신된 유저 반환 */
+export function updateMyName(body: UpdateMeRequestType): Promise<CurrentUserType> {
+  return apiFetch<CurrentUserType>('/auth/me', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
 }
 
 /** 로그아웃 — 서버의 refresh 세션을 폐기하고 로컬 토큰을 지운다 */

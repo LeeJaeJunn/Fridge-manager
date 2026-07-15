@@ -19,6 +19,11 @@ export type LoginRequestType = {
   password: string;
 };
 
+/** 내 정보 수정 요청 본문 (PATCH /auth/me) */
+export type UpdateMeRequestType = {
+  name: string;
+};
+
 /**
  * 인증 성공 응답 (회원가입/로그인).
  * - accessToken: 짧은 수명(15분). 모든 API 요청의 Authorization: Bearer 로 사용.

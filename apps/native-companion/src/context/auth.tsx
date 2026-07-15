@@ -1,5 +1,11 @@
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
-import { fetchMe, login as apiLogin, logout as apiLogout, signup as apiSignup } from '@/api/auth';
+import {
+  fetchMe,
+  login as apiLogin,
+  logout as apiLogout,
+  signup as apiSignup,
+  updateMyName,
+} from '@/api/auth';
 import { onAuthExpired } from '@/api/auth-events';
 import { ApiError } from '@/api/errors';
 import { getAccessToken, getRefreshToken } from '@/api/token';
@@ -17,6 +23,8 @@ type AuthContextValue = {
   login: (body: LoginRequestType) => Promise<void>;
   signup: (body: SignupRequestType) => Promise<void>;
   logout: () => Promise<void>;
+  /** 내 이름 수정 → 전역 user 즉시 갱신 (홈 인사 등 반영) */
+  updateName: (name: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -96,9 +104,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   };
 
+  const updateName = async (name: string) => {
+    setUser(await updateMyName({ name }));
+  };
+
   return (
     <AuthContext.Provider
-      value={{ user, status, isLoading: status === 'loading', login, signup, logout }}
+      value={{ user, status, isLoading: status === 'loading', login, signup, logout, updateName }}
     >
       {children}
     </AuthContext.Provider>

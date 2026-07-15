@@ -110,6 +110,16 @@ export class AuthService {
     return this.toCurrentUser(user);
   }
 
+  /** 현재 유저 이름 수정 (PATCH /auth/me) */
+  async updateName(userId: string, name: string): Promise<CurrentUserType> {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { name },
+      select: { id: true, loginId: true, name: true, createdAt: true },
+    });
+    return this.toCurrentUser(user);
+  }
+
   /** refresh 토큰으로 access 재발급 + refresh 회전 (삭제+생성을 원자화) */
   async refresh(rawToken: string): Promise<RefreshResponseType> {
     const tokenHash = this.hashToken(rawToken);
