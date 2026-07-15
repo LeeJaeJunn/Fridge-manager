@@ -9,7 +9,7 @@ src/
 ├─ app/                      # expo-router v56 (파일 = 라우트)
 │  ├─ _layout.tsx            # 루트: SplashScreen + Auth→Character 3단 Stack.Protected 게이트
 │  ├─ login.tsx              # 미인증 (로그인/회원가입 폼 토글)
-│  ├─ onboarding.tsx         # 캐릭터 없을 때 (프리셋 선택 → 생성)
+│  ├─ onboarding.tsx         # 캐릭터 없을 때 (이름·성별·관계·성격·말투 등 상세 설정 → 생성)
 │  ├─ (tabs)/                # 홈 / 채팅(대화 목록) / 프로필(허브)
 │  ├─ settings/             # 프로필 하위 페이지: character(설정) · memory(AI가 기억하는 나)
 │  └─ conversation/[id].tsx  # 채팅 창 (id="new" 면 새 대화)

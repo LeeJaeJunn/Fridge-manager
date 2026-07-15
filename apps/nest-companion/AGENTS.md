@@ -21,17 +21,21 @@
 ## 보안 — 신뢰 경계 (trust boundary)
 
 - **서버 동작을 결정하는 값(시스템 프롬프트/`instruction`, 사용할 `model`)은 서버 소유다. 클라이언트가 보내게 하지 않는다.**
-- `instruction` 은 서버가 DB(유저의 Character)에서, `model` 은 env(`LLM_MODEL`)에서 해석한다. 클라이언트가 이 값들을 보내거나 고르게 하지 않는다. (프롬프트 조작·탈옥·모델 비용 악용 방지)
+- `instruction` 은 서버가 DB(유저의 Character 구조화 필드)에서 조립하고, `model` 은 env(`LLM_MODEL`)에서 해석한다. 클라이언트는 캐릭터 **설정값**(성별·관계·성격 등)은 보내지만 조립된 instruction·model 을 보내거나 고르게 하지 않는다. (프롬프트 조작·탈옥·모델 비용 악용 방지)
 - 클라이언트에 내려주는 캐릭터 정보는 **표시용**(name 등)에 한정하고 `instruction`/`model` 은 노출하지 않는다.
 
 ## 캐릭터 데이터
 
 - **유저당 캐릭터는 하나다** (여러 개 중 선택이 아님). DB에서 `User` ↔ `Character` 1:1 (`Character.userId @unique`).
-- 캐릭터의 `name` 은 **사용자가 설정·수정** 한다. `instruction`/`description` 은 최초 생성 시 프리셋의 값을 복사해 시작한다(현재 UI에선 instruction 직접 수정은 미노출).
-- `description` 은 캐릭터 카드용 한 줄 소개(표시용). `instruction`(시스템 프롬프트)과 별개다.
-- `src/character/characters.ts` 는 "선택 가능한 캐릭터 목록"이 아니라 **페르소나 프리셋(시드 템플릿)** 이다. 소수·정적이라 코드에 둔다 (새 캐릭터 생성 시 instruction/description/기본 이름의 출처).
-- `model` 은 캐릭터 데이터가 아니다 — 관리자 소유로 env(`LLM_MODEL`)에서 온다 (위 "신뢰 경계" 참고).
-- API는 `src/character/` (`CharacterModule`): `GET presets`(프리셋 목록), `GET me`, `POST`(presetId로 생성), `PATCH me`(name 수정), `DELETE me`. 표시용 필드만 내려주고 `instruction`/`model` 은 노출하지 않는다.
+- 캐릭터는 **구조화 필드**로 상세 설정한다: `name`(필수) + `gender`/`relationship`/`personality[]`/`speechStyle`(온보딩 필수) + `age`/`job`/`actingRule`(≤100자)/`userNickname`(선택). 전부 사용자가 정하고 `PATCH me` 로 부분수정한다.
+- **`instruction`(시스템 프롬프트)은 저장하지 않는다** — 구조화 필드에서 **프롬프트 시점에 매번 조립**한다(`src/character/persona.ts` 의 `buildPersonaInstruction`, 단일 진실원천). 템플릿을 고치면 기존 캐릭터도 자동 반영. (신뢰 경계: 클라는 설정값을 보내지만 조립된 instruction/model 은 서버 소유·비노출.)
+- `gender`/`relationship`/`speechStyle` 은 안정적 키를 **String 컬럼**에 저장한다(관계가 나중에 freeform 될 걸 대비해 DB enum 회피). 값→한국어 라벨, 선택지 vocab(성격/관심사), **입력 제한값(`LIMITS`)** 은 전부 **`persona.ts` 가 소유**하고 `GET options` 로 native 에 내려준다. DTO 검증(@IsIn/@MaxLength/@Min/@Max)도 같은 상수를 쓴다 — **DTO 에 숫자를 직접 쓰지 말 것**(숫자가 두 곳에 박히면 한쪽만 고쳐 어긋난다. 실제로 age 가 그렇게 어긋났었다).
+- **클라 검증은 UX, 서버 검증이 방어다.** 앱은 신뢰 경계 밖이라 curl 로 바로 API 를 때릴 수 있고, `personality`/`actingRule` 은 시스템 프롬프트에 그대로 들어간다 → `@IsIn`·`@MaxLength` 를 빼면 프롬프트 조작·토큰 비용 악용이 열린다. 클라 제한은 "미리 알려주기"일 뿐 자물쇠가 아니다.
+- ⚠️ **vocab·제한값을 `@companion/types` 에 상수로 옮기지 말 것.** 그 패키지는 타입 전용(런타임 엔트리 없음)이라 값을 import 하면 **tsc·CI 는 통과하는데 서버 부팅이 죽는다**(`ERR_PACKAGE_PATH_NOT_EXPORTED`). 실제로 확인함. 값은 API 로 내려주는 게 정답이고, 덤으로 앱 배포 없이 vocab·제한을 바꿀 수 있다. ⚠️ vocab 은 문자열-리터럴 유니온으로 좁히지 말 것(`as const` 금지) — `===`/`!==` 비교 시 `no-unsafe-enum-comparison` 규칙이 크래시한다. 같은 이유로 이 레포는 `x !== undefined` 대신 `typeof x !== 'undefined'` 를 쓴다.
+- **유저 관심사는 캐릭터가 아니라 유저 취향**이다 → 생성 시 `category=INTEREST` **Memory row 로 시드**한다(캐릭터·관심사 생성을 한 `$transaction`). 기존 recall 주입/표시 파이프라인을 그대로 타서 첫 대화부터 "나를 기억하는 AI" 로 작동하고, 관리(삭제)는 메모리 API 로 한다. 캐릭터엔 관심사 컬럼이 없다.
+- **파생 데이터는 저장하지 않는다.** instruction 과 같은 이유로 `description`(카드 한 줄 소개)도 없앴다 — 관계·성격을 이어붙인 파생 문자열이라 staleness 만 생기고, 클라가 이미 가진 `relationship`/`personality`(+`GET options` 라벨)로 직접 렌더하는 게 유연하다. `model` 도 캐릭터 데이터가 아니다(관리자 소유, env `LLM_MODEL`).
+- **프리셋 개념은 없다** (`characters.ts`·`presetId` 제거됨). 사용자가 처음부터 필드를 직접 채워 자기 캐릭터를 만든다 — "둘 중 하나 고르기"는 옛 모델이다. 나중에 "빠른 시작"이 필요하면 native 폼의 기본값으로 넣으면 되고, 백엔드 개념은 필요 없다.
+- API는 `src/character/` (`CharacterModule`): `GET options`(선택지 vocab), `GET me`, `POST`(필드 세트+관심사로 생성), `PATCH me`(부분수정), `DELETE me`. 표시용 필드만 내려주고 `instruction`/`model` 은 노출하지 않는다.
 
 ## 대화 저장 (Conversation)
 
@@ -41,7 +45,7 @@
   - `GET /conversations`(목록), `GET /conversations/:id`(상세+메시지), `POST /conversations`(첫 메시지로 **지연 생성**), `POST /conversations/:id/messages`(이어가기), `DELETE /conversations/:id`, `DELETE /conversations/:id/messages/:messageId`.
 - **지연 생성(lazy)**: "새 채팅" 버튼은 빈 화면만 열고, 첫 메시지를 보낼 때 비로소 `Conversation` 을 만든다 (빈 대화가 DB에 안 쌓이게).
 - 매 교환마다 서버가 DB에서 **해당 대화의 전체 히스토리를 읽어** LLM에 넘긴다. 히스토리·instruction을 클라이언트가 보내지 않는다(신뢰 경계).
-- 최종 instruction 은 `buildInstruction` 이 조립한다: 캐릭터 이름 + **유저 이름** + **장기 메모리(`MemoryService.recall`)** + 캐릭터 `instruction`. 메모리 선택은 반드시 `recall()` 만 거친다(아래 "장기 메모리" 참고). model은 env에서 해석.
+- 최종 instruction 은 `buildInstruction` 이 조립한다: 캐릭터 이름 + **유저 이름** + **장기 메모리(`MemoryService.recall`)** + **캐릭터 페르소나**(`getPromptContext` 가 구조화 필드로 `buildPersonaInstruction` 조립 — 저장된 instruction 컬럼은 없다). 메모리 선택은 반드시 `recall()` 만 거친다(아래 "장기 메모리" 참고). model은 env에서 해석.
 - 매 교환 후 **N메시지마다 백그라운드로 메모리를 추출**한다(`MEMORY_EXTRACT_EVERY_N`). 판단은 `exchange` 가 반환하는 `messageCount`(= 이미 읽은 히스토리 길이 + 1)로 하며 **별도 count 쿼리를 하지 않는다**.
 - nested write 만 하면 `@updatedAt` 이 안 올라가므로 답변 저장 시 `updatedAt: new Date()` 를 명시 갱신한다(목록 최근순 정렬용).
 - **상품추천(대화 중)**: `exchangeWithTools` 가 `search_products` 툴을 붙여(`chatWithTools`) 대화한다. 모델이 쇼핑 의도로 판단하면 툴을 부르고(인자=검색조건), 실행기가 `CommerceService.search` 로 후보를 가져와 재주입 → **같은 채팅 LLM이 이유 있는 답**을 쓴다 (별도 추천 서비스·구조화 없음 — 검색조건 도출·이유 생성 모두 채팅 LLM이 함). 툴 없는 순수 대화용 기본 `exchange` 는 재사용 위해 보존. 검색된 상품은 실행기 클로저로 붙잡아 `Message.products`(`Json?`)에 **`ProductType[]` 스냅샷**으로 저장한다 — 그 시점 가격·정보를 박제해 새로고침에도 카드가 유지되고 대화와 일관(참조·재조회 아님). 클라는 이 스냅샷을 버블 아래 카드로 렌더. **"다음/다른 상품"** 은 `search_products(more:true)` + `Conversation.lastSearch`(페이징 커서)로 이어 검색한다 — tool 결과는 턴 사이 DB 히스토리에 안 남아 모델이 `nextStart` 를 기억 못 하므로, 서버가 대화 단위로 커서를 저장·재사용한다(소진 시 `exhausted` 반환).

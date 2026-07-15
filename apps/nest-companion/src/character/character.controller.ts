@@ -11,10 +11,10 @@ import { UpdateCharacterDto } from './dto/update-character.dto';
 export class CharacterController {
   constructor(private readonly characters: CharacterService) {}
 
-  /** GET /characters/presets — 세팅용 프리셋 목록 */
-  @Get('presets')
-  presets() {
-    return this.characters.listPresets();
+  /** GET /characters/options — 온보딩 폼 선택지 vocab (성별/관계/말투/성격/관심사) */
+  @Get('options')
+  options() {
+    return this.characters.options();
   }
 
   /** GET /characters/me — 내 캐릭터 (없으면 null) */
@@ -23,16 +23,16 @@ export class CharacterController {
     return this.characters.getMine(userId);
   }
 
-  /** POST /characters — 프리셋 선택해 내 캐릭터 생성 */
+  /** POST /characters — 캐릭터 상세 생성 (필드 세트 + 관심사) */
   @Post()
   create(@CurrentUser() userId: string, @Body() body: CreateCharacterDto) {
-    return this.characters.create(userId, body.presetId);
+    return this.characters.create(userId, body);
   }
 
-  /** PATCH /characters/me — 이름 수정 */
+  /** PATCH /characters/me — 캐릭터 부분 수정 (보낸 필드만) */
   @Patch('me')
-  updateName(@CurrentUser() userId: string, @Body() body: UpdateCharacterDto) {
-    return this.characters.updateName(userId, body.name);
+  update(@CurrentUser() userId: string, @Body() body: UpdateCharacterDto) {
+    return this.characters.update(userId, body);
   }
 
   /** DELETE /characters/me — 내 캐릭터 삭제 (테스트/리셋용). 대화도 cascade 삭제 */

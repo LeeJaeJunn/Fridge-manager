@@ -6,6 +6,7 @@ export type {
   RefreshRequestType,
   RefreshResponseType,
   SignupRequestType,
+  UpdateMeRequestType,
 } from './auth';
 
 export type {
@@ -18,9 +19,14 @@ export type {
 } from './chat';
 
 export type {
+  CharacterLimitsType,
+  CharacterOptionsType,
+  CharacterOptionType,
   CharacterType,
   CreateCharacterRequestType,
-  PresetSummaryType,
+  GenderType,
+  RelationshipType,
+  SpeechStyleType,
   UpdateCharacterRequestType,
 } from './character';
 

@@ -10,6 +10,7 @@ import type {
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CommerceService } from '../commerce/commerce.service';
+import { buildPersonaInstruction } from '../character/persona';
 import { Prisma } from '../generated/prisma/client';
 import { LlmService, type LlmTool, type LlmToolExecutor } from '../llm/llm.service';
 import { MemoryService, type RecalledMemory } from '../memory/memory.service';
@@ -378,21 +379,35 @@ export class ConversationService {
   private async getPromptContext(
     userId: string,
   ): Promise<{ character: CharacterPromptSource; memories: RecalledMemory[] }> {
-    const [character, memories] = await Promise.all([
+    const [row, memories] = await Promise.all([
       this.prisma.character.findUnique({
         where: { userId },
         select: {
           id: true,
           name: true,
-          instruction: true,
+          age: true,
+          gender: true,
+          relationship: true,
+          personality: true,
+          speechStyle: true,
+          job: true,
+          actingRule: true,
+          userNickname: true,
           user: { select: { name: true } },
         },
       }),
       this.memory.recall(userId), // ← 주입 seam
     ]);
-    if (!character) {
+    if (!row) {
       throw new BadRequestException('먼저 캐릭터를 만들어 주세요.');
     }
+    // instruction 은 저장하지 않는다 — 구조화 필드에서 매번 조립(단일 진실원천).
+    const character: CharacterPromptSource = {
+      id: row.id,
+      name: row.name,
+      instruction: buildPersonaInstruction(row),
+      user: row.user,
+    };
     return { character, memories };
   }
 

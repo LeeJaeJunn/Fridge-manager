@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Alert, Text, TextInput, View } from 'react-native';
 
-import { deleteMyCharacter, updateCharacterName } from '@/api/character';
+import { deleteMyCharacter, updateCharacter } from '@/api/character';
 import { Button, Screen } from '@/components';
 import { useCharacter } from '@/context/character';
 
@@ -31,7 +31,7 @@ export default function CharacterSettingsScreen() {
     setSaving(true);
     setError(null);
     try {
-      const updated = await updateCharacterName({ name });
+      const updated = await updateCharacter({ name });
       setCharacter(updated); // 홈 인사 등 전역 즉시 반영
       setEditing(false);
     } catch (e: unknown) {

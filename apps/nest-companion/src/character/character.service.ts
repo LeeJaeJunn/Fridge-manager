@@ -1,43 +1,69 @@
-import type { CharacterType, PresetSummaryType } from '@companion/types';
+import type {
+  CharacterOptionsType,
+  CharacterType,
+  CreateCharacterRequestType,
+  GenderType,
+  RelationshipType,
+  SpeechStyleType,
+  UpdateCharacterRequestType,
+} from '@companion/types';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { CHARACTERS, findCharacter } from './characters';
+import { characterOptions, interestToMemoryContent } from './persona';
 import { PrismaService } from '../prisma/prisma.service';
 
-/** Prisma row → 클라이언트 계약(CharacterType) 변환. instruction 등 내부 필드는 제외. */
+/** Prisma row → 클라이언트 계약(CharacterType) 변환. instruction 등 내부 필드는 애초에 없음(조립식). */
 type CharacterRow = {
   id: string;
   name: string;
-  description: string | null;
-  presetId: string | null;
+  age: number | null;
+  gender: string | null;
+  relationship: string | null;
+  personality: string[];
+  speechStyle: string | null;
+  job: string | null;
+  actingRule: string | null;
+  userNickname: string | null;
   createdAt: Date;
 };
+
 const toDto = (c: CharacterRow): CharacterType => ({
   id: c.id,
   name: c.name,
-  description: c.description,
-  presetId: c.presetId,
+  age: c.age,
+  gender: c.gender as GenderType | null,
+  relationship: c.relationship as RelationshipType | null,
+  personality: c.personality,
+  speechStyle: c.speechStyle as SpeechStyleType | null,
+  job: c.job,
+  actingRule: c.actingRule,
+  userNickname: c.userNickname,
   createdAt: c.createdAt.toISOString(),
 });
 
 const SELECT = {
   id: true,
   name: true,
-  description: true,
-  presetId: true,
+  age: true,
+  gender: true,
+  relationship: true,
+  personality: true,
+  speechStyle: true,
+  job: true,
+  actingRule: true,
+  userNickname: true,
   createdAt: true,
 } as const;
+
+const trimOrNull = (v: string | null | undefined): string | null | undefined =>
+  typeof v === 'string' ? v.trim() : v;
 
 @Injectable()
 export class CharacterService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** 세팅 화면용 프리셋 목록 (instruction 비노출) */
-  listPresets(): PresetSummaryType[] {
-    return CHARACTERS.map(({ id, name, description }) => ({
-      id,
-      name,
-      description,
-    }));
+  /** 온보딩 폼이 렌더할 선택지 vocab (성별/관계/말투/성격/관심사) — 서버 소유 단일 진실원천 */
+  options(): CharacterOptionsType {
+    return characterOptions();
   }
 
   /** 내 캐릭터 조회 — 아직 없으면 null */
@@ -49,36 +75,61 @@ export class CharacterService {
     return row ? toDto(row) : null;
   }
 
-  /** 프리셋을 골라 내 캐릭터 생성 (유저당 1개). 이름은 프리셋 기본값 — 수정은 PATCH로 나중. */
-  async create(userId: string, presetId: string): Promise<CharacterType> {
-    const preset = findCharacter(presetId);
-    if (!preset) {
-      throw new NotFoundException(`존재하지 않는 프리셋입니다: ${presetId}`);
-    }
+  /**
+   * 캐릭터 상세 생성 (유저당 1개).
+   * 캐릭터 생성 + 유저 관심사를 INTEREST 메모리로 시드하는 걸 **한 트랜잭션**으로 묶는다
+   * (반쪽 생성 방지). instruction 은 저장하지 않는다 — 프롬프트 시점에 필드에서 조립.
+   */
+  async create(userId: string, dto: CreateCharacterRequestType): Promise<CharacterType> {
+    const row = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.character.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
+      if (existing) {
+        throw new ConflictException('이미 캐릭터가 있습니다.');
+      }
 
-    const existing = await this.prisma.character.findUnique({
-      where: { userId },
-      select: { id: true },
-    });
-    if (existing) {
-      throw new ConflictException('이미 캐릭터가 있습니다.');
-    }
+      const created = await tx.character.create({
+        data: {
+          userId,
+          name: dto.name.trim(),
+          gender: dto.gender,
+          relationship: dto.relationship,
+          personality: dto.personality,
+          speechStyle: dto.speechStyle,
+          age: dto.age ?? null,
+          job: trimOrNull(dto.job) || null,
+          actingRule: trimOrNull(dto.actingRule) || null,
+          userNickname: trimOrNull(dto.userNickname) || null,
+        },
+        select: SELECT,
+      });
 
-    const row = await this.prisma.character.create({
-      data: {
-        userId,
-        name: preset.name, // 생성 시엔 프리셋 기본 이름
-        description: preset.description, // 프리셋에서 복사 (표시용)
-        instruction: preset.instruction, // 프리셋에서 복사 (이후 사용자 수정은 나중)
-        presetId: preset.id,
-      },
-      select: SELECT,
+      // 유저 관심사 → INTEREST 메모리 시드 (기존과 정확일치 중복은 건너뜀 — 재생성 시 중복 방지)
+      const contents = (dto.interests ?? []).map(interestToMemoryContent);
+      if (contents.length > 0) {
+        const known = await tx.memory.findMany({
+          where: { userId, content: { in: contents } },
+          select: { content: true },
+        });
+        const knownSet = new Set(known.map((k) => k.content));
+        const fresh = contents
+          .filter((c) => !knownSet.has(c))
+          .map((content) => ({ userId, category: 'INTEREST' as const, content, importance: 2 }));
+        if (fresh.length > 0) {
+          await tx.memory.createMany({ data: fresh });
+        }
+      }
+
+      return created;
     });
+
     return toDto(row);
   }
 
-  /** 캐릭터 이름 수정 */
-  async updateName(userId: string, name: string): Promise<CharacterType> {
+  /** 캐릭터 부분 수정 (보낸 필드만) */
+  async update(userId: string, dto: UpdateCharacterRequestType): Promise<CharacterType> {
     const existing = await this.prisma.character.findUnique({
       where: { userId },
       select: { id: true },
@@ -87,9 +138,25 @@ export class CharacterService {
       throw new NotFoundException('캐릭터가 없습니다. 먼저 생성하세요.');
     }
 
+    // 보낸 필드만 갱신 — class-transformer 는 DTO 의 선언 필드를 전부 own 프로퍼티(값 undefined)로
+    // 만들 수 있어 hasOwnProperty 로는 "보냄/안보냄"을 못 가른다. 그래서 값의 undefined 여부로 판단한다.
+    // 단 `!== undefined` 는 no-unsafe-enum-comparison 규칙이 크래시하므로 `typeof` 로 검사한다.
+    // (undefined = 안 보냄 → 건너뜀, 명시적 null = 비우기 → 반영)
+    const isSet = (v: unknown): boolean => typeof v !== 'undefined';
+    const data: Record<string, unknown> = {};
+    if (isSet(dto.name)) data.name = (dto.name as string).trim();
+    if (isSet(dto.gender)) data.gender = dto.gender;
+    if (isSet(dto.relationship)) data.relationship = dto.relationship;
+    if (isSet(dto.personality)) data.personality = dto.personality;
+    if (isSet(dto.speechStyle)) data.speechStyle = dto.speechStyle;
+    if (isSet(dto.age)) data.age = dto.age;
+    if (isSet(dto.job)) data.job = trimOrNull(dto.job) || null;
+    if (isSet(dto.actingRule)) data.actingRule = trimOrNull(dto.actingRule) || null;
+    if (isSet(dto.userNickname)) data.userNickname = trimOrNull(dto.userNickname) || null;
+
     const row = await this.prisma.character.update({
       where: { userId },
-      data: { name: name.trim() },
+      data,
       select: SELECT,
     });
     return toDto(row);

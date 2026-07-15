@@ -1,14 +1,14 @@
 import { apiFetch } from '@/api/client';
 import type {
+  CharacterOptionsType,
   CharacterType,
   CreateCharacterRequestType,
-  PresetSummaryType,
   UpdateCharacterRequestType,
 } from '@companion/types';
 
-/** 세팅(온보딩) 화면용 프리셋 목록 */
-export function fetchPresets(): Promise<PresetSummaryType[]> {
-  return apiFetch<PresetSummaryType[]>('/characters/presets');
+/** 온보딩 폼 선택지 (성별/관계/말투/성격/관심사) — 서버가 목록을 소유한다 */
+export function fetchCharacterOptions(): Promise<CharacterOptionsType> {
+  return apiFetch<CharacterOptionsType>('/characters/options');
 }
 
 /** 내 캐릭터 조회 — 아직 만들기 전이면 null */
@@ -16,7 +16,7 @@ export function fetchMyCharacter(): Promise<CharacterType | null> {
   return apiFetch<CharacterType | null>('/characters/me');
 }
 
-/** 프리셋 선택 + (선택)이름으로 내 캐릭터 생성 */
+/** 캐릭터 상세 생성 (필드 세트 + 관심사). 관심사는 서버가 장기 메모리로 시드한다 */
 export function createCharacter(body: CreateCharacterRequestType): Promise<CharacterType> {
   return apiFetch<CharacterType>('/characters', {
     method: 'POST',
@@ -24,8 +24,8 @@ export function createCharacter(body: CreateCharacterRequestType): Promise<Chara
   });
 }
 
-/** 캐릭터 이름 수정 */
-export function updateCharacterName(body: UpdateCharacterRequestType): Promise<CharacterType> {
+/** 캐릭터 부분 수정 (보낸 필드만 갱신) */
+export function updateCharacter(body: UpdateCharacterRequestType): Promise<CharacterType> {
   return apiFetch<CharacterType>('/characters/me', {
     method: 'PATCH',
     body: JSON.stringify(body),
