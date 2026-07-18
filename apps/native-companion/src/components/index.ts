@@ -4,5 +4,6 @@ export { Button } from './Button';
 export { Card } from './Card';
 export { Chip } from './Chip';
 export { ChipGroup, type ChipOption } from './ChipGroup';
+export { Field } from './Field';
 export { ProductCard } from './ProductCard';
 export { Screen } from './Screen';

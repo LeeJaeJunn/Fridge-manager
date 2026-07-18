@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 
 import { createCharacter, fetchCharacterOptions } from '@/api/character';
-import { Button, ChipGroup, Screen } from '@/components';
+import { Button, ChipGroup, Field, Screen } from '@/components';
 import { useCharacter } from '@/context/character';
 import type {
   CharacterOptionsType,
@@ -60,31 +60,6 @@ const PLACEHOLDER = '#A1A1AA'; // ink-faint
 
 /** 문자열 목록 → 칩 옵션 (성격·관심사는 한국어 라벨 자체가 값이다) */
 const toOptions = (xs: string[]) => xs.map((x) => ({ value: x, label: x }));
-
-function Field({
-  label,
-  hint,
-  error,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  /** 있으면 hint 대신 빨갛게 보여준다 (그 자리에서 뭐가 틀렸는지 알려주기 위함) */
-  error?: string;
-  children: ReactNode;
-}) {
-  return (
-    <View className="gap-2">
-      <Text className="text-sm font-medium text-ink">{label}</Text>
-      {children}
-      {error ? (
-        <Text className="text-xs text-red-500">{error}</Text>
-      ) : hint ? (
-        <Text className="text-xs text-ink-faint">{hint}</Text>
-      ) : null}
-    </View>
-  );
-}
 
 export default function OnboardingScreen() {
   const { setCharacter } = useCharacter();
