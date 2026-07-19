@@ -12,7 +12,7 @@
  * 서버가 `GET /characters/options` 로 내려준다(단일 진실원천, persona 코드 소유).
  */
 
-export type SpeechStyleType = 'casual' | 'formal' | 'semiformal';
+export type SpeechStyleType = 'casual' | 'formal';
 
 /** 선택지 한 항목 (값 + 표시 라벨) */
 export interface CharacterOptionType {

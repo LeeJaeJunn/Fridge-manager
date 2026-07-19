@@ -21,11 +21,10 @@ export type OptionType = { value: string; label: string };
 // 좁히면 labelOf 의 `o.value === value` 가 리터럴 유니온 비교가 되어 typescript-eslint 의
 // no-unsafe-enum-comparison 규칙이 크래시한다(값은 어차피 String 컬럼이라 좁힐 이유도 없음).
 
-/** 말투 — 반말/존댓말/반존대. */
+/** 말투 — 반말/존댓말. */
 export const SPEECH_STYLES: OptionType[] = [
   { value: 'casual', label: '반말' },
   { value: 'formal', label: '존댓말' },
-  { value: 'semiformal', label: '반존대' },
 ];
 
 /** 유저 관심사(선택형, 다중). 캐릭터가 아니라 유저 취향 → Memory(INTEREST) 로 시드된다. */
@@ -79,7 +78,6 @@ export type PersonaInput = {
 const SPEECH_INSTRUCTION: Record<string, string> = {
   casual: '대화는 항상 반말로, 편하고 친근하게 해.',
   formal: '대화는 항상 존댓말로, 정중하게 해.',
-  semiformal: '대화는 반말과 존댓말을 자연스럽게 섞은 반존대로 해.',
 };
 
 // 조언자 정체성 — 캐릭터의 뿌리. 롤플레이(연인/성별 등) 대신 "나를 잘 아는 의사결정 조력자"로 고정한다.
