@@ -24,8 +24,6 @@ export type {
   CharacterOptionType,
   CharacterType,
   CreateCharacterRequestType,
-  GenderType,
-  RelationshipType,
   SpeechStyleType,
   UpdateCharacterRequestType,
 } from './character';

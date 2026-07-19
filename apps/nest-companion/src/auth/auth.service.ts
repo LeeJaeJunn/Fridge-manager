@@ -152,6 +152,15 @@ export class AuthService {
     await this.prisma.refreshSession.deleteMany({ where: { tokenHash: this.hashToken(rawToken) } });
   }
 
+  /**
+   * 회원탈퇴 — 유저를 삭제한다. 캐릭터·대화·메시지·메모리·refresh 세션은 onDelete:Cascade 로 함께 삭제.
+   * deleteMany 라 이미 지워졌어도 안전(멱등). 발급된 access token 은 stateless(JWT)라 만료까지 남지만,
+   * 유저가 없으니 이후 소유권 쿼리는 빈 결과가 되고 클라가 토큰을 비우면 끝난다.
+   */
+  async deleteAccount(userId: string): Promise<void> {
+    await this.prisma.user.deleteMany({ where: { id: userId } });
+  }
+
   private signAccess(userId: string): Promise<string> {
     return this.jwt.signAsync({ sub: userId, type: 'access' });
   }

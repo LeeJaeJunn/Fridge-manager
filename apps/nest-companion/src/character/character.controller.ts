@@ -11,7 +11,7 @@ import { UpdateCharacterDto } from './dto/update-character.dto';
 export class CharacterController {
   constructor(private readonly characters: CharacterService) {}
 
-  /** GET /characters/options — 온보딩 폼 선택지 vocab (성별/관계/말투/성격/관심사) */
+  /** GET /characters/options — 온보딩 폼 선택지 vocab (말투/관심사) */
   @Get('options')
   options() {
     return this.characters.options();

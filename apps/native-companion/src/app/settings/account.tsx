@@ -4,13 +4,14 @@ import { Alert, Text, TextInput, View } from 'react-native';
 import { Button, Screen } from '@/components';
 import { useAuth } from '@/context/auth';
 
-/** 계정 설정 — 이름 수정 + 로그아웃 */
+/** 계정 설정 — 이름 수정 + 로그아웃 + 회원탈퇴 */
 export default function AccountSettingsScreen() {
-  const { user, updateName, logout } = useAuth();
+  const { user, updateName, logout, deleteAccount } = useAuth();
 
   const [editing, setEditing] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function startEdit() {
@@ -43,6 +44,28 @@ export default function AccountSettingsScreen() {
       { text: '취소', style: 'cancel' },
       { text: '로그아웃', style: 'destructive', onPress: () => void logout() },
     ]);
+  }
+
+  function confirmDelete() {
+    Alert.alert(
+      '회원탈퇴',
+      '탈퇴하면 캐릭터·대화·기억이 모두 삭제되고 되돌릴 수 없어요. 정말 탈퇴할까요?',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '탈퇴',
+          style: 'destructive',
+          onPress: () => {
+            setDeleting(true);
+            // 성공 시 게이트가 로그인으로 전환되며 이 화면은 언마운트된다 → 성공 경로엔 setDeleting 불필요.
+            deleteAccount().catch((e: unknown) => {
+              setDeleting(false);
+              Alert.alert('탈퇴 실패', e instanceof Error ? e.message : '오류가 발생했습니다');
+            });
+          },
+        },
+      ],
+    );
   }
 
   return (
@@ -100,7 +123,10 @@ export default function AccountSettingsScreen() {
         <Text className="text-lg text-ink">@{user?.loginId ?? '-'}</Text>
       </View>
 
-      <Button label="로그아웃" variant="secondary" className="mt-auto" onPress={confirmLogout} />
+      <View className="mt-auto gap-3">
+        <Button label="로그아웃" variant="secondary" onPress={confirmLogout} />
+        <Button label="회원탈퇴" variant="danger" onPress={confirmDelete} loading={deleting} />
+      </View>
     </Screen>
   );
 }

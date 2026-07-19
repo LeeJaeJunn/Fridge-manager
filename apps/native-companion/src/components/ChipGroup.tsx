@@ -8,7 +8,7 @@ type Base = {
   className?: string;
 };
 
-/** 단일선택 — 성별·관계·말투 */
+/** 단일선택 — 말투 */
 type SingleProps = Base & {
   value: string | null;
   onChange: (value: string) => void;

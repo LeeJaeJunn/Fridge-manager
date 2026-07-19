@@ -41,6 +41,15 @@ export function updateMyName(body: UpdateMeRequestType): Promise<CurrentUserType
   });
 }
 
+/**
+ * 회원탈퇴 — 서버에서 계정과 모든 데이터를 삭제(cascade)하고 로컬 토큰을 지운다.
+ * 서버 삭제가 실패하면 토큰을 남겨(로그인 유지) 에러를 던진다 — 반쪽 탈퇴 방지.
+ */
+export async function deleteAccount(): Promise<void> {
+  await apiFetch('/auth/me', { method: 'DELETE' });
+  await clearTokens();
+}
+
 /** 로그아웃 — 서버의 refresh 세션을 폐기하고 로컬 토큰을 지운다 */
 export async function logout(): Promise<void> {
   const refreshToken = await getRefreshToken();

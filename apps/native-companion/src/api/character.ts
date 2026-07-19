@@ -6,7 +6,7 @@ import type {
   UpdateCharacterRequestType,
 } from '@companion/types';
 
-/** 온보딩 폼 선택지 (성별/관계/말투/성격/관심사) — 서버가 목록을 소유한다 */
+/** 온보딩 폼 선택지 (말투/관심사) — 서버가 목록을 소유한다 */
 export function fetchCharacterOptions(): Promise<CharacterOptionsType> {
   return apiFetch<CharacterOptionsType>('/characters/options');
 }

@@ -1,16 +1,17 @@
 /**
  * 캐릭터(컴패니언) 관련 클라이언트↔서버 공유 계약.
  *
- * 유저당 캐릭터는 **하나**(1:1)다. 캐릭터의 구조화 속성(성별·관계·성격·말투 등)은 클라이언트가
- * 보내도 되는 **설정값**이지만, 그걸 조립한 최종 `instruction`/`model` 은 서버 소유라 노출하지 않는다
- * (신뢰 경계). 관심사는 캐릭터가 아니라 **유저 취향** → 생성 시 장기 메모리(INTEREST)로 시드된다.
+ * 유저당 캐릭터는 **하나**(1:1)다. 캐릭터는 "조언자 톤"의 얇은 페르소나로 축소됐다 —
+ * 남는 설정은 **이름·말투·호칭**뿐이다. 성별·나이·관계·성격 같은 롤플레이 필드는 제거했다
+ * (제품 방향: 나를 기억하는 의사결정 컴패니언, 루트 README 참고).
  *
- * 성별/관계/말투의 **값**은 아래 유니온으로 미러하고(컴파일 안전), 화면에 뿌릴 **라벨 목록**은
+ * 클라이언트가 보내는 건 **설정값**이고, 그걸 조립한 최종 `instruction`/`model` 은 서버 소유라
+ * 노출하지 않는다(신뢰 경계). 관심사는 캐릭터가 아니라 **유저 취향** → 생성 시 장기 메모리(INTEREST)로 시드된다.
+ *
+ * 말투의 **값**은 아래 유니온으로 미러하고(컴파일 안전), 화면에 뿌릴 **라벨 목록**은
  * 서버가 `GET /characters/options` 로 내려준다(단일 진실원천, persona 코드 소유).
  */
 
-export type GenderType = 'male' | 'female';
-export type RelationshipType = 'friend' | 'lover' | 'family';
 export type SpeechStyleType = 'casual' | 'formal' | 'semiformal';
 
 /** 선택지 한 항목 (값 + 표시 라벨) */
@@ -30,22 +31,13 @@ export interface CharacterOptionType {
  */
 export interface CharacterLimitsType {
   nameMax: number;
-  ageMin: number;
-  ageMax: number;
-  personalityMax: number;
-  jobMax: number;
-  actingRuleMax: number;
   userNicknameMax: number;
   interestsMax: number;
 }
 
 /** GET /characters/options — 온보딩 폼이 렌더할 선택지 + 입력 제한 (표시용) */
 export interface CharacterOptionsType {
-  genders: CharacterOptionType[];
-  relationships: CharacterOptionType[];
   speechStyles: CharacterOptionType[];
-  /** 성격 태그(선택형, 다중) — 한국어 형용사 그대로 */
-  personalityTraits: string[];
   /** 유저 관심사(선택형, 다중) */
   interests: string[];
   limits: CharacterLimitsType;
@@ -55,31 +47,19 @@ export interface CharacterOptionsType {
 export interface CharacterType {
   id: string;
   name: string;
-  age: number | null;
-  gender: GenderType | null;
-  relationship: RelationshipType | null;
-  personality: string[];
   speechStyle: SpeechStyleType | null;
-  job: string | null;
-  actingRule: string | null;
   userNickname: string | null;
   createdAt: string;
 }
 
 /**
- * POST /characters — 캐릭터 상세 생성.
- * 필수: name·gender·relationship·personality·speechStyle. 나머지는 선택.
+ * POST /characters — 캐릭터 생성.
+ * 필수: name·speechStyle. 나머지는 선택.
  * interests 는 캐릭터에 저장되지 않고 장기 메모리(INTEREST)로 시드된다.
  */
 export interface CreateCharacterRequestType {
   name: string;
-  gender: GenderType;
-  relationship: RelationshipType;
-  personality: string[];
   speechStyle: SpeechStyleType;
-  age?: number;
-  job?: string;
-  actingRule?: string;
   userNickname?: string;
   interests?: string[];
 }
@@ -87,12 +67,6 @@ export interface CreateCharacterRequestType {
 /** PATCH /characters/me — 부분 수정 (보낸 필드만 갱신). interests 는 메모리 API 로 관리. */
 export interface UpdateCharacterRequestType {
   name?: string;
-  gender?: GenderType;
-  relationship?: RelationshipType;
-  personality?: string[];
   speechStyle?: SpeechStyleType;
-  age?: number | null;
-  job?: string | null;
-  actingRule?: string | null;
   userNickname?: string | null;
 }

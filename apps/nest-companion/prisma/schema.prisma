@@ -55,17 +55,11 @@ model Character {
   id     String @id @default(cuid())
   userId String @unique // @unique 가 1:1 + 인덱스를 함께 보장
   name   String // 사용자가 짓고 수정 가능
-  // 아래 구조화 속성들 → 서버가 시스템 프롬프트(instruction)를 매번 조립하는 재료다(저장 안 함).
-  // gender/relationship/speechStyle 은 안정적 enum 키('male' 등), 관계가 나중에 freeform 될 걸 대비해
-  // DB enum 이 아니라 String 으로 두고 앱(DTO @IsIn)에서 검증한다. 값→한국어 라벨은 persona.ts 소유.
-  // DB 상 nullable 이지만(기존 row·마이그레이션 안전) 신규 생성은 DTO 에서 필수 필드를 강제한다.
-  age          Int? // 캐릭터 나이 (선택)
-  gender       String? // 'male' | 'female'
-  relationship String? // 'friend' | 'lover' | 'family'
-  personality  String[] @default([]) // 성격 태그(다중) — 한국어 형용사 그대로 저장 (예: '유머러스한')
+  // 캐릭터는 "조언자 톤"으로 축소됐다(제품 방향: 의사결정 컴패니언, 루트 README).
+  // 남는 설정은 말투·호칭뿐이고, 이 둘이 서버가 시스템 프롬프트(instruction)를 조립하는 재료다(저장 안 함).
+  // speechStyle 은 안정적 enum 키('casual' 등)라 DB enum 대신 String + 앱(DTO @IsIn) 검증. 값→라벨은 persona.ts 소유.
+  // DB 상 nullable 이지만(마이그레이션 안전) 신규 생성은 DTO 에서 필수 필드를 강제한다.
   speechStyle  String? // 'casual'(반말) | 'formal'(존댓말) | 'semiformal'(반존대)
-  job          String? // 직업 (선택, freeform)
-  actingRule   String? // 사용자 커스텀 행동 규칙 (선택, ≤100자) — 프롬프트 뒤에 그대로 붙음
   userNickname String? // 캐릭터가 사용자를 부르는 호칭 (선택, 예: '오빠', '○○님')
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Patch, Post, UseGuards } from '@nestjs/common';
 import type { AuthResponseType, CurrentUserType, RefreshResponseType } from '@companion/types';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
@@ -51,5 +51,13 @@ export class AuthController {
   @Patch('me')
   updateMe(@CurrentUser() userId: string, @Body() dto: UpdateMeDto): Promise<CurrentUserType> {
     return this.auth.updateName(userId, dto.name);
+  }
+
+  /** 회원탈퇴 — 현재 유저와 관련 데이터 전부 삭제 (cascade) */
+  @UseGuards(JwtAuthGuard)
+  @Delete('me')
+  @HttpCode(204)
+  async deleteMe(@CurrentUser() userId: string): Promise<void> {
+    await this.auth.deleteAccount(userId);
   }
 }

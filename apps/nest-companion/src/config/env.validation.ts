@@ -9,6 +9,8 @@ const schema = z
   .object({
     DATABASE_URL: z.string().min(1, 'DATABASE_URL 이 필요합니다.'),
     OPENAI_API_KEY: z.string().min(1, 'OPENAI_API_KEY 가 필요합니다.'),
+    // 선택 — Gemini 모델(LLM_MODEL=gemini-*)을 쓸 때만 필요. 없으면 OpenAI 만 동작.
+    GEMINI_API_KEY: z.string().min(1).optional(),
     JWT_SECRET: z.string().min(16, 'JWT_SECRET 은 최소 16자 이상이어야 합니다.'),
     JWT_ACCESS_TTL: z
       .string()

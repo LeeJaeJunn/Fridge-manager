@@ -2,7 +2,10 @@ packages:
   - 'apps/*'
   - 'packages/*'
 allowBuilds:
+  # genai/protobufjs 는 postinstall 빌드 스크립트가 런타임에 불필요함을 확인 → 실행 안 함(false)
+  '@google/genai': false
   '@prisma/engines': true
   prisma: true
+  protobufjs: false
   unrs-resolver: true
 nodeLinker: hoisted

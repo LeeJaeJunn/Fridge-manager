@@ -9,8 +9,8 @@ import type {
 } from '@companion/types';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CommerceService } from '../commerce/commerce.service';
 import { buildPersonaInstruction } from '../character/persona';
+import { CommerceService } from '../commerce/commerce.service';
 import { Prisma } from '../generated/prisma/client';
 import { LlmService, type LlmTool, type LlmToolExecutor } from '../llm/llm.service';
 import { MemoryService, type RecalledMemory } from '../memory/memory.service';
@@ -329,7 +329,7 @@ export class ConversationService {
     };
 
     const res = await this.llm.chatWithTools(
-      `${instruction}\n\n${PRODUCT_RECO_GUIDANCE}`,
+      `${instruction}\n${PRODUCT_RECO_GUIDANCE}`,
       messages,
       [SEARCH_PRODUCTS_TOOL],
       executors,
@@ -385,13 +385,7 @@ export class ConversationService {
         select: {
           id: true,
           name: true,
-          age: true,
-          gender: true,
-          relationship: true,
-          personality: true,
           speechStyle: true,
-          job: true,
-          actingRule: true,
           userNickname: true,
           user: { select: { name: true } },
         },

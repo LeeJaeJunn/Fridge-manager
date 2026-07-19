@@ -16,8 +16,6 @@ import { Button, ChipGroup, Field, Screen } from '@/components';
 import { useCharacter } from '@/context/character';
 import type {
   CharacterOptionsType,
-  GenderType,
-  RelationshipType,
   SpeechStyleType,
   UpdateCharacterRequestType,
 } from '@companion/types';
@@ -25,11 +23,7 @@ import type {
 const INPUT = 'rounded-xl bg-sand px-4 py-3 text-base text-ink';
 const PLACEHOLDER = '#A1A1AA'; // ink-faint
 
-const toOptions = (xs: string[]) => xs.map((x) => ({ value: x, label: x }));
 const trimOrNull = (s: string): string | null => s.trim() || null;
-/** 성격은 순서가 아니라 구성이 같으면 동일하다고 본다 */
-const sameSet = (a: string[], b: string[]) =>
-  a.length === b.length && a.every((x) => b.includes(x));
 
 export default function CharacterSettingsScreen() {
   const router = useRouter();
@@ -43,17 +37,9 @@ export default function CharacterSettingsScreen() {
 
   // 현재 캐릭터로 폼을 초기화한다 (문자열 입력은 전부 string 으로). 캐릭터는 이 화면 진입 시 고정.
   const [name, setName] = useState(character?.name ?? '');
-  const [age, setAge] = useState(character?.age != null ? String(character.age) : '');
-  const [gender, setGender] = useState<GenderType | null>(character?.gender ?? null);
-  const [relationship, setRelationship] = useState<RelationshipType | null>(
-    character?.relationship ?? null,
-  );
   const [speechStyle, setSpeechStyle] = useState<SpeechStyleType | null>(
     character?.speechStyle ?? null,
   );
-  const [personality, setPersonality] = useState<string[]>(character?.personality ?? []);
-  const [job, setJob] = useState(character?.job ?? '');
-  const [actingRule, setActingRule] = useState(character?.actingRule ?? '');
   const [userNickname, setUserNickname] = useState(character?.userNickname ?? '');
 
   const loadOptions = useCallback(() => {
@@ -73,19 +59,13 @@ export default function CharacterSettingsScreen() {
   }
 
   async function handleSave() {
-    if (!character || saving || !gender || !relationship || !speechStyle) return;
+    if (!character || saving || !speechStyle) return;
     setSaving(true);
     setError(null);
     try {
       const body: UpdateCharacterRequestType = {
         name: name.trim(),
-        gender,
-        relationship,
         speechStyle,
-        personality,
-        age: age ? Number(age) : null,
-        job: trimOrNull(job),
-        actingRule: trimOrNull(actingRule),
         userNickname: trimOrNull(userNickname),
       };
       const updated = await updateCharacter(body);
@@ -125,23 +105,13 @@ export default function CharacterSettingsScreen() {
   }
 
   const { limits } = options;
-  const ageNum = Number(age);
-  const ageValid =
-    age.length === 0 ||
-    (Number.isInteger(ageNum) && ageNum >= limits.ageMin && ageNum <= limits.ageMax);
 
   // 바뀐 게 있고, 필수값이 유효할 때만 저장을 연다.
   const changed =
     name.trim() !== character.name ||
-    (age ? Number(age) : null) !== character.age ||
-    gender !== character.gender ||
-    relationship !== character.relationship ||
     speechStyle !== character.speechStyle ||
-    trimOrNull(job) !== character.job ||
-    trimOrNull(actingRule) !== character.actingRule ||
-    trimOrNull(userNickname) !== character.userNickname ||
-    !sameSet(personality, character.personality);
-  const canSave = changed && name.trim().length > 0 && personality.length > 0 && ageValid;
+    trimOrNull(userNickname) !== character.userNickname;
+  const canSave = changed && name.trim().length > 0 && Boolean(speechStyle);
 
   return (
     <Screen edges={['bottom']} contentClassName="flex-1">
@@ -162,37 +132,6 @@ export default function CharacterSettingsScreen() {
             />
           </Field>
 
-          <Field
-            label="나이"
-            error={ageValid ? undefined : `${limits.ageMin}~${limits.ageMax} 사이로 입력해줘`}
-          >
-            <TextInput
-              className={INPUT}
-              value={age}
-              onChangeText={(v) => setAge(v.replace(/[^0-9]/g, ''))}
-              placeholder="비워두면 나이 없음"
-              placeholderTextColor={PLACEHOLDER}
-              keyboardType="number-pad"
-              maxLength={String(limits.ageMax).length}
-            />
-          </Field>
-
-          <Field label="성별">
-            <ChipGroup
-              options={options.genders}
-              value={gender}
-              onChange={(v) => setGender(v as GenderType)}
-            />
-          </Field>
-
-          <Field label="관계">
-            <ChipGroup
-              options={options.relationships}
-              value={relationship}
-              onChange={(v) => setRelationship(v as RelationshipType)}
-            />
-          </Field>
-
           <Field label="말투">
             <ChipGroup
               options={options.speechStyles}
@@ -201,49 +140,12 @@ export default function CharacterSettingsScreen() {
             />
           </Field>
 
-          <Field
-            label="성격"
-            hint={`최대 ${limits.personalityMax}개 (${personality.length}/${limits.personalityMax})`}
-          >
-            <ChipGroup
-              options={toOptions(options.personalityTraits)}
-              values={personality}
-              onChange={setPersonality}
-              max={limits.personalityMax}
-            />
-          </Field>
-
-          <Field label="직업">
-            <TextInput
-              className={INPUT}
-              value={job}
-              onChangeText={setJob}
-              placeholder="비워두면 직업 없음"
-              placeholderTextColor={PLACEHOLDER}
-              maxLength={limits.jobMax}
-              returnKeyType="done"
-            />
-          </Field>
-
-          <Field label="행동 규칙" hint={`${actingRule.length}/${limits.actingRuleMax}`}>
-            <TextInput
-              className={`${INPUT} h-24`}
-              value={actingRule}
-              onChangeText={setActingRule}
-              placeholder="예: 내 하루를 자주 물어봐줘"
-              placeholderTextColor={PLACEHOLDER}
-              maxLength={limits.actingRuleMax}
-              multiline
-              textAlignVertical="top"
-            />
-          </Field>
-
           <Field label="날 부르는 호칭">
             <TextInput
               className={INPUT}
               value={userNickname}
               onChangeText={setUserNickname}
-              placeholder="예: 오빠, ○○님, 자기야"
+              placeholder="예: ○○님, 오빠"
               placeholderTextColor={PLACEHOLDER}
               maxLength={limits.userNicknameMax}
               returnKeyType="done"

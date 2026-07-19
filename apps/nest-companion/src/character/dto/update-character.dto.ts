@@ -1,28 +1,6 @@
-import {
-  ArrayMaxSize,
-  ArrayMinSize,
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  Max,
-  MaxLength,
-  Min,
-  MinLength,
-} from 'class-validator';
-import type {
-  GenderType,
-  RelationshipType,
-  SpeechStyleType,
-  UpdateCharacterRequestType,
-} from '@companion/types';
-import {
-  GENDER_VALUES,
-  LIMITS,
-  PERSONALITY_VALUES,
-  RELATIONSHIP_VALUES,
-  SPEECH_STYLE_VALUES,
-} from '../persona';
+import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import type { SpeechStyleType, UpdateCharacterRequestType } from '@companion/types';
+import { LIMITS, SPEECH_STYLE_VALUES } from '../persona';
 
 /**
  * PATCH /characters/me 요청 본문 — 부분 수정 (보낸 필드만 갱신).
@@ -37,39 +15,8 @@ export class UpdateCharacterDto implements UpdateCharacterRequestType {
   name?: string;
 
   @IsOptional()
-  @IsIn(GENDER_VALUES)
-  gender?: GenderType;
-
-  @IsOptional()
-  @IsIn(RELATIONSHIP_VALUES)
-  relationship?: RelationshipType;
-
-  @IsOptional()
-  @IsString({ each: true })
-  @IsIn(PERSONALITY_VALUES, { each: true })
-  @ArrayMinSize(1)
-  @ArrayMaxSize(LIMITS.personalityMax)
-  personality?: string[];
-
-  @IsOptional()
   @IsIn(SPEECH_STYLE_VALUES)
   speechStyle?: SpeechStyleType;
-
-  @IsOptional()
-  @IsInt()
-  @Min(LIMITS.ageMin)
-  @Max(LIMITS.ageMax)
-  age?: number | null;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(LIMITS.jobMax)
-  job?: string | null;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(LIMITS.actingRuleMax)
-  actingRule?: string | null;
 
   @IsOptional()
   @IsString()

@@ -26,6 +26,8 @@
 
 ## 캐릭터 데이터
 
+> ⚠️ **방향 전환 예정 (루트 `README.md` 참고)**: 제품이 감정 컴패니언 → **구매 의사결정 에이전트**로 피벗했다. 이 캐릭터 시스템은 **"조언자 톤 + 사용자 프로필(취향·예산·구매이력)"** 로 축소될 예정이다 — 연인·성별·관계·상세 성격 필드는 의사결정에 안 쓰이므로 정리 대상. **아래는 현재 코드(피벗 전) 기준 설명**이니, 축소 작업 시 함께 갱신한다.
+
 - **유저당 캐릭터는 하나다** (여러 개 중 선택이 아님). DB에서 `User` ↔ `Character` 1:1 (`Character.userId @unique`).
 - 캐릭터는 **구조화 필드**로 상세 설정한다: `name`(필수) + `gender`/`relationship`/`personality[]`/`speechStyle`(온보딩 필수) + `age`/`job`/`actingRule`(≤100자)/`userNickname`(선택). 전부 사용자가 정하고 `PATCH me` 로 부분수정한다.
 - **`instruction`(시스템 프롬프트)은 저장하지 않는다** — 구조화 필드에서 **프롬프트 시점에 매번 조립**한다(`src/character/persona.ts` 의 `buildPersonaInstruction`, 단일 진실원천). 템플릿을 고치면 기존 캐릭터도 자동 반영. (신뢰 경계: 클라는 설정값을 보내지만 조립된 instruction/model 은 서버 소유·비노출.)

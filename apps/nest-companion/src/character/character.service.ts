@@ -2,8 +2,6 @@ import type {
   CharacterOptionsType,
   CharacterType,
   CreateCharacterRequestType,
-  GenderType,
-  RelationshipType,
   SpeechStyleType,
   UpdateCharacterRequestType,
 } from '@companion/types';
@@ -15,13 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 type CharacterRow = {
   id: string;
   name: string;
-  age: number | null;
-  gender: string | null;
-  relationship: string | null;
-  personality: string[];
   speechStyle: string | null;
-  job: string | null;
-  actingRule: string | null;
   userNickname: string | null;
   createdAt: Date;
 };
@@ -29,13 +21,7 @@ type CharacterRow = {
 const toDto = (c: CharacterRow): CharacterType => ({
   id: c.id,
   name: c.name,
-  age: c.age,
-  gender: c.gender as GenderType | null,
-  relationship: c.relationship as RelationshipType | null,
-  personality: c.personality,
   speechStyle: c.speechStyle as SpeechStyleType | null,
-  job: c.job,
-  actingRule: c.actingRule,
   userNickname: c.userNickname,
   createdAt: c.createdAt.toISOString(),
 });
@@ -43,13 +29,7 @@ const toDto = (c: CharacterRow): CharacterType => ({
 const SELECT = {
   id: true,
   name: true,
-  age: true,
-  gender: true,
-  relationship: true,
-  personality: true,
   speechStyle: true,
-  job: true,
-  actingRule: true,
   userNickname: true,
   createdAt: true,
 } as const;
@@ -61,7 +41,7 @@ const trimOrNull = (v: string | null | undefined): string | null | undefined =>
 export class CharacterService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** 온보딩 폼이 렌더할 선택지 vocab (성별/관계/말투/성격/관심사) — 서버 소유 단일 진실원천 */
+  /** 온보딩 폼이 렌더할 선택지 vocab (말투/관심사) — 서버 소유 단일 진실원천 */
   options(): CharacterOptionsType {
     return characterOptions();
   }
@@ -94,13 +74,7 @@ export class CharacterService {
         data: {
           userId,
           name: dto.name.trim(),
-          gender: dto.gender,
-          relationship: dto.relationship,
-          personality: dto.personality,
           speechStyle: dto.speechStyle,
-          age: dto.age ?? null,
-          job: trimOrNull(dto.job) || null,
-          actingRule: trimOrNull(dto.actingRule) || null,
           userNickname: trimOrNull(dto.userNickname) || null,
         },
         select: SELECT,
@@ -145,13 +119,7 @@ export class CharacterService {
     const isSet = (v: unknown): boolean => typeof v !== 'undefined';
     const data: Record<string, unknown> = {};
     if (isSet(dto.name)) data.name = (dto.name as string).trim();
-    if (isSet(dto.gender)) data.gender = dto.gender;
-    if (isSet(dto.relationship)) data.relationship = dto.relationship;
-    if (isSet(dto.personality)) data.personality = dto.personality;
     if (isSet(dto.speechStyle)) data.speechStyle = dto.speechStyle;
-    if (isSet(dto.age)) data.age = dto.age;
-    if (isSet(dto.job)) data.job = trimOrNull(dto.job) || null;
-    if (isSet(dto.actingRule)) data.actingRule = trimOrNull(dto.actingRule) || null;
     if (isSet(dto.userNickname)) data.userNickname = trimOrNull(dto.userNickname) || null;
 
     const row = await this.prisma.character.update({

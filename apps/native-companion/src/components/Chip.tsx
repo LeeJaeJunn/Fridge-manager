@@ -9,7 +9,7 @@ type Props = {
 };
 
 /**
- * 선택형 칩 — 온보딩/설정의 성별·관계·말투·성격·관심사 선택에 쓴다.
+ * 선택형 칩 — 온보딩/설정의 말투·관심사 선택에 쓴다.
  * 색은 토큰만 쓴다(선택=lavender, 비선택=sand). 보통 ChipGroup 을 통해 쓴다.
  */
 export function Chip({ label, selected = false, disabled = false, onPress }: Props) {

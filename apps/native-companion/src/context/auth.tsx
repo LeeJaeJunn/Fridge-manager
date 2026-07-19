@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
 import {
+  deleteAccount as apiDeleteAccount,
   fetchMe,
   login as apiLogin,
   logout as apiLogout,
@@ -23,6 +24,8 @@ type AuthContextValue = {
   login: (body: LoginRequestType) => Promise<void>;
   signup: (body: SignupRequestType) => Promise<void>;
   logout: () => Promise<void>;
+  /** 회원탈퇴 → 서버 계정 삭제 후 로컬 세션 내림 (실패 시 throw, 로그인 유지) */
+  deleteAccount: () => Promise<void>;
   /** 내 이름 수정 → 전역 user 즉시 갱신 (홈 인사 등 반영) */
   updateName: (name: string) => Promise<void>;
 };
@@ -104,13 +107,29 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   };
 
+  const deleteAccount = async () => {
+    // 서버 삭제가 성공해야 로컬 세션을 내린다 (apiDeleteAccount 가 성공 시에만 토큰을 지움).
+    await apiDeleteAccount();
+    setUser(null);
+    setStatus('unauthenticated');
+  };
+
   const updateName = async (name: string) => {
     setUser(await updateMyName({ name }));
   };
 
   return (
     <AuthContext.Provider
-      value={{ user, status, isLoading: status === 'loading', login, signup, logout, updateName }}
+      value={{
+        user,
+        status,
+        isLoading: status === 'loading',
+        login,
+        signup,
+        logout,
+        deleteAccount,
+        updateName,
+      }}
     >
       {children}
     </AuthContext.Provider>
