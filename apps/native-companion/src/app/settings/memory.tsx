@@ -17,7 +17,12 @@ const CATEGORY_META: Record<
 > = {
   PREFERENCE: { label: '선호', emoji: '✨', iconBg: 'bg-blush-soft', iconText: 'text-blush' },
   PROFILE: { label: '프로필·성향', emoji: '🧩', iconBg: 'bg-sky-soft', iconText: 'text-sky-deep' },
-  OWNERSHIP: { label: '보유·이력', emoji: '📦', iconBg: 'bg-mint-soft', iconText: 'text-mint-deep' },
+  OWNERSHIP: {
+    label: '보유·이력',
+    emoji: '📦',
+    iconBg: 'bg-mint-soft',
+    iconText: 'text-mint-deep',
+  },
   ETC: { label: '기타', emoji: '📎', iconBg: 'bg-sand', iconText: 'text-ink-soft' },
 };
 const CATEGORY_ORDER = Object.keys(CATEGORY_META) as MemoryCategoryType[];

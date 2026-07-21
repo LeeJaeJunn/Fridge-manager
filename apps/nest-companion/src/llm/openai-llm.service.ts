@@ -101,7 +101,6 @@ export class OpenAiLlmProvider implements LlmProvider {
     model: string,
     maxRounds = 3,
   ): Promise<ChatResType> {
-    console.log('openai');
     try {
       const toolParams: OpenAI.Responses.Tool[] = tools.map((t) => ({
         type: 'function',

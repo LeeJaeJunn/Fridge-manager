@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, Param, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { MemoryService } from './memory.service';
@@ -20,11 +20,5 @@ export class MemoryController {
   @HttpCode(204)
   remove(@CurrentUser() userId: string, @Param('id') id: string) {
     return this.memories.remove(userId, id);
-  }
-
-  @Post('test')
-  async test() {
-    const res = await this.memories.extractMemory('dev-user', 'cmquhu43l00023az5ggqwhjpb');
-    return res;
   }
 }

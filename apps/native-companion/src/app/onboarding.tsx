@@ -122,10 +122,7 @@ export default function OnboardingScreen() {
 
   const isLast = step === STEPS.length - 1;
   // 스텝별 필수값 — 채워야 '다음'이 열린다 (마지막 스텝은 전부 선택이라 항상 열림)
-  const canProceed = [
-    form.name.trim().length > 0 && Boolean(form.speechStyle),
-    true,
-  ][step];
+  const canProceed = [form.name.trim().length > 0 && Boolean(form.speechStyle), true][step];
 
   return (
     <Screen edges={['top', 'bottom']} contentClassName="flex-1">

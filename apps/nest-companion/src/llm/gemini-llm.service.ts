@@ -125,7 +125,6 @@ export class GeminiLlmProvider implements LlmProvider {
         },
       });
       accumulate(interaction.usage);
-      console.log('1:', JSON.stringify(interaction));
 
       // 모델이 툴을 더 안 부를 때까지(또는 상한까지) 반복
       for (let round = 0; round < maxRounds; round++) {
@@ -182,7 +181,6 @@ export class GeminiLlmProvider implements LlmProvider {
           },
         });
         accumulate(interaction.usage);
-        console.log('2: ', JSON.stringify(interaction));
       }
 
       return {

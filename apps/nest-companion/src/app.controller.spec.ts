@@ -1,4 +1,3 @@
-import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -9,8 +8,7 @@ describe('AppController', () => {
   beforeEach(async () => {
     const app: TestingModule = await Test.createTestingModule({
       controllers: [AppController],
-      // AppController 는 임시 /gemini 테스트용으로 ConfigService 를 주입받는다 (mock 제공).
-      providers: [AppService, { provide: ConfigService, useValue: { get: () => undefined } }],
+      providers: [AppService],
     }).compile();
 
     appController = app.get<AppController>(AppController);
