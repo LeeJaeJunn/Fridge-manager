@@ -1,4 +1,5 @@
 import type {
+  AddIngredientInputType,
   ChatMessageType,
   ChatRoleType,
   ConversationDetailType,
@@ -12,6 +13,12 @@ import { ConfigService } from '@nestjs/config';
 import { buildPersonaInstruction } from '../character/persona';
 import { CommerceService } from '../commerce/commerce.service';
 import { Prisma } from '../generated/prisma/client';
+import {
+  InventoryService,
+  type ConsumeItem,
+  type RecalledIngredient,
+} from '../inventory/inventory.service';
+import { CATEGORY_VALUES, STORAGE_VALUES } from '../inventory/shelf-life';
 import { LlmService, type LlmTool, type LlmToolExecutor } from '../llm/llm.service';
 import { MemoryService, type RecalledMemory } from '../memory/memory.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -19,7 +26,12 @@ import { PrismaService } from '../prisma/prisma.service';
 /**
  * 채팅 중 상품추천용 툴. 모델이 "쇼핑/추천이 필요하다" 판단할 때만 부른다(description 이 그 판단 근거).
  * 실행기는 exchangeWithTools 에서 commerce.search 로 연결한다.
+ *
+ * ⚠️ v1 에서는 **등록만 해제**했다(실행기·상품 카드 저장 경로는 그대로 살아 있다).
+ * v1 의 검증 대상은 "유저가 재고를 넣고 유지하는가" 라서 툴셋을 냉장고만으로 좁혔다.
+ * 부족한 재료 쇼핑 추천을 붙이는 v1.2 에서 tools 배열에 다시 넣으면 된다.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- v1.2 에서 되살릴 예정
 const SEARCH_PRODUCTS_TOOL: LlmTool = {
   name: 'search_products',
   description:
@@ -42,9 +54,111 @@ const SEARCH_PRODUCTS_TOOL: LlmTool = {
 };
 
 /**
+ * 냉장고에 재료를 넣는 툴. "계란이랑 우유 사왔어" 같은 말에서 모델이 재료를 뽑아 호출한다.
+ * 이게 이 앱의 주 입력 경로다 — 사진보다 마찰이 낮고, 유저가 폼을 채우지 않아도 재고가 쌓인다.
+ * 만료일은 서버가 카테고리×보관위치로 추정해 채우므로, 모델은 모르면 그냥 비워두면 된다.
+ */
+const ADD_INGREDIENTS_TOOL: LlmTool = {
+  name: 'add_ingredients',
+  description:
+    '사용자가 식재료를 샀거나 냉장고에 있다고 말하면 재고에 넣는다. 여러 개면 한 번에 배열로 넣어라. 이미 있는 재료를 다시 말하면 서버가 알아서 병합하므로 중복 걱정은 하지 마라. 요리 얘기만 하거나 재료 보유와 무관한 대화에서는 호출하지 않는다.',
+  parameters: {
+    type: 'object',
+    properties: {
+      items: {
+        type: 'array',
+        description: '넣을 재료 목록',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: '재료명. 짧은 일반명으로 ("계란", "대파")' },
+            category: {
+              type: 'string',
+              enum: CATEGORY_VALUES,
+              description: '재료 분류. 소비기한 추정에 쓰이니 되도록 채워라',
+            },
+            quantityNote: {
+              type: 'string',
+              description: '수량을 사용자가 말한 그대로 ("한 판", "1L", "두 봉지"). 없으면 생략',
+            },
+            storage: {
+              type: 'string',
+              enum: STORAGE_VALUES,
+              description: '보관 위치. 냉동/실온이라고 말했을 때만 채우고 기본은 생략(냉장)',
+            },
+            expiresAt: {
+              type: 'string',
+              description:
+                '사용자가 유통기한·소비기한을 직접 말한 경우에만 ISO 날짜로. 모르면 반드시 생략해라(서버가 추정한다). 지어내지 마라',
+            },
+          },
+          required: ['name'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['items'],
+    additionalProperties: false,
+  },
+};
+
+/**
+ * 재료를 소비 처리하는 툴.
+ * **얼마를 썼는지가 아니라 뭐가 남았는지**(remaining)를 받는다 — 산수는 재고를 프롬프트로 받은
+ * 모델이 하고 서버는 결과만 저장한다. 자동 차감은 틀리면 신뢰를 깎으므로,
+ * 사용자가 실제로 먹었다/썼다고 말했을 때만 부르게 description 에 못박는다.
+ */
+const CONSUME_INGREDIENTS_TOOL: LlmTool = {
+  name: 'consume_ingredients',
+  description:
+    '사용자가 재료를 실제로 먹었거나 다 썼다고 말했을 때만 호출한다("만들었어", "다 먹었어", "3개 썼어"). 요리를 추천만 하고 아직 안 만들었으면 절대 호출하지 마라. 일부만 썼으면 remaining 에 남은 양을 적고, 다 썼으면 remaining 을 생략해라.',
+  parameters: {
+    type: 'object',
+    properties: {
+      items: {
+        type: 'array',
+        description: '소비한 재료 목록',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: '재고에 있는 재료명 그대로' },
+            remaining: {
+              type: 'string',
+              description:
+                '쓰고 남은 양 ("2개", "반 팩"). 남은 게 있을 때만. 다 썼으면 생략해라 — 생략하면 냉장고에서 빠진다',
+            },
+          },
+          required: ['name'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['items'],
+    additionalProperties: false,
+  },
+};
+
+/**
+ * 레시피 답변 지침 — 툴 경로에서 instruction 에 덧붙인다.
+ * v1 은 외부 레시피 검색 없이 모델 내장 지식으로 답한다(네이버·유튜브는 v1.1).
+ */
+const RECIPE_GUIDANCE = [
+  '[요리를 추천할 때]',
+  '- 냉장고에 있는 재료로 만들 수 있는 걸 우선 제안해라. 없는 재료를 잔뜩 사야 하는 요리는 피해라.',
+  '- 곧 상하는 재료가 있으면 그걸 쓰는 요리를 먼저 권하고, 왜 권하는지 한마디로 짚어라. (예: "대파가 내일까지라 이거 먼저 쓰자")',
+  '- 부족한 재료가 있으면 숨기지 말고 "○○만 있으면 돼" 처럼 솔직히 말해라.',
+  '- 조리법은 핵심 순서만 짧게. 사용자가 더 물으면 그때 자세히 풀어라.',
+  '- 사용자가 못 먹는 재료·알레르기는 절대 넣지 마라. 대체 재료를 제안해라.',
+  '- 재료를 추천했다고 소비 처리하지 마라. 실제로 만들었다고 할 때만 consume_ingredients 를 불러라.',
+].join('\n');
+
+/**
  * 상품 추천 답변 지침 — 툴 경로에서만 instruction 에 덧붙인다.
  * 카드가 이미 사진·가격·링크를 보여주므로, LLM 텍스트는 그걸 반복하지 않고 이유만 간결히.
+ *
+ * ⚠️ SEARCH_PRODUCTS_TOOL 과 함께 v1.2 까지 대기 중. 지금은 RECIPE_GUIDANCE 가 그 자리를 쓴다.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- v1.2 에서 되살릴 예정
 const PRODUCT_RECO_GUIDANCE = [
   '[상품을 추천할 때]',
   '- 추천 상품은 이미 카드(사진·상품명·가격·구매 링크)로 사용자에게 함께 보여진다.',
@@ -113,6 +227,7 @@ export class ConversationService {
     private readonly prisma: PrismaService,
     private readonly llm: LlmService,
     private readonly memory: MemoryService,
+    private readonly inventory: InventoryService,
     private readonly commerce: CommerceService,
     config: ConfigService,
   ) {
@@ -166,14 +281,15 @@ export class ConversationService {
 
   /** 새 대화 시작 (지연 생성): 첫 메시지로 대화를 만들고 첫 교환까지 수행 */
   async start(userId: string, content: string): Promise<ConversationDetailType> {
-    const { character, memories } = await this.getPromptContext(userId);
+    const { character, memories, inventory } = await this.getPromptContext(userId);
     const convo = await this.prisma.conversation.create({
       data: { userId, characterId: character.id },
       select: { id: true },
     });
     const { messageCount } = await this.exchangeWithTools(
+      userId,
       convo.id,
-      this.buildInstruction(character, memories),
+      this.buildInstruction(character, memories, inventory),
       content,
     );
     this.triggerExtraction(userId, convo.id, messageCount);
@@ -189,10 +305,11 @@ export class ConversationService {
     if (!convo) {
       throw new NotFoundException('대화를 찾을 수 없습니다.');
     }
-    const { character, memories } = await this.getPromptContext(userId);
+    const { character, memories, inventory } = await this.getPromptContext(userId);
     const { reply, messageCount } = await this.exchangeWithTools(
+      userId,
       convo.id,
-      this.buildInstruction(character, memories),
+      this.buildInstruction(character, memories, inventory),
       content,
     );
     this.triggerExtraction(userId, conversationId, messageCount);
@@ -262,6 +379,7 @@ export class ConversationService {
    * 지금은 (i) 텍스트 답변만 — 검색된 상품 카드 첨부는 다음 단계.
    */
   private async exchangeWithTools(
+    userId: string,
     conversationId: string,
     instruction: string,
     content: string,
@@ -291,8 +409,29 @@ export class ConversationService {
     // 검색된 상품을 클로저로 캡처 (모델 답변과 별개로, 카드 스냅샷 저장용)
     const foundProducts: ProductType[] = [];
 
-    // 툴 실행기: more 면 저장된 커서에서 이어 검색, 아니면 새 검색(첫 페이지). 검색 후 커서 갱신.
     const executors: Record<string, LlmToolExecutor> = {
+      // 재고 추가 — 만료일 폴백·중복 병합은 서비스가 흡수하므로 여기선 인자만 정리해 넘긴다.
+      add_ingredients: async (args) => {
+        const items: AddIngredientInputType[] = Array.isArray(args.items) ? args.items : [];
+        const saved = await this.inventory.add(userId, items);
+        // 저장된 만료일을 모델에 돌려줘야 "계란은 8/11까지야" 처럼 확인해줄 수 있다.
+        return {
+          added: saved.map((i) => ({
+            name: i.name,
+            quantityNote: i.quantityNote,
+            expiresAt: i.expiresAt.slice(0, 10),
+            expiryIsEstimated: i.expirySource === 'ESTIMATED',
+          })),
+        };
+      },
+
+      // 소비 처리 — remaining 이 있으면 부분 소비(수량만 갱신), 없으면 냉장고에서 제거.
+      consume_ingredients: (args) => {
+        const items: ConsumeItem[] = Array.isArray(args.items) ? args.items : [];
+        return this.inventory.consumeByNames(userId, items);
+      },
+
+      // 툴 실행기: more 면 저장된 커서에서 이어 검색, 아니면 새 검색(첫 페이지). 검색 후 커서 갱신.
       search_products: async (args) => {
         const more = args.more === true;
         let criteria: ProductSearchCriteriaType;
@@ -328,10 +467,12 @@ export class ConversationService {
       },
     };
 
+    // v1 툴셋 = 냉장고 재고만. search_products 는 실행기·상품 카드까지 그대로 살아 있지만
+    // 등록만 빼둔다 — v1 검증(유저가 재고를 넣고 유지하는가)에 집중하고, v1.2 에서 되살린다.
     const res = await this.llm.chatWithTools(
-      `${instruction}\n${PRODUCT_RECO_GUIDANCE}`,
+      `${instruction}\n${RECIPE_GUIDANCE}`,
       messages,
-      [SEARCH_PRODUCTS_TOOL],
+      [ADD_INGREDIENTS_TOOL, CONSUME_INGREDIENTS_TOOL],
       executors,
       this.model,
     );
@@ -376,10 +517,12 @@ export class ConversationService {
    * 프롬프트 조립에 필요한 컨텍스트(내 캐릭터 + 소유 유저 이름 + 장기 메모리)를 읽는다.
    * 캐릭터 쿼리와 메모리 recall 을 병렬로 돌린다. 캐릭터가 없으면 에러.
    */
-  private async getPromptContext(
-    userId: string,
-  ): Promise<{ character: CharacterPromptSource; memories: RecalledMemory[] }> {
-    const [row, memories] = await Promise.all([
+  private async getPromptContext(userId: string): Promise<{
+    character: CharacterPromptSource;
+    memories: RecalledMemory[];
+    inventory: RecalledIngredient[];
+  }> {
+    const [row, memories, inventory] = await Promise.all([
       this.prisma.character.findUnique({
         where: { userId },
         select: {
@@ -391,6 +534,7 @@ export class ConversationService {
         },
       }),
       this.memory.recall(userId), // ← 주입 seam
+      this.inventory.recall(userId), // ← 냉장고 재고 주입 seam
     ]);
     if (!row) {
       throw new BadRequestException('먼저 캐릭터를 만들어 주세요.');
@@ -402,11 +546,21 @@ export class ConversationService {
       instruction: buildPersonaInstruction(row),
       user: row.user,
     };
-    return { character, memories };
+    return { character, memories, inventory };
   }
 
-  /** LLM 에 넘길 최종 캐릭터 instruction 을 조립한다 (캐릭터 + 유저 이름 + 장기 메모리). */
-  private buildInstruction(c: CharacterPromptSource, memories: RecalledMemory[]): string {
+  /**
+   * LLM 에 넘길 최종 instruction 조립 (캐릭터 + 유저 이름 + 장기 메모리 + **냉장고 재고**).
+   *
+   * 재고는 전량 주입한다 — 수십 개 규모라 이게 더 싸고 정확하다(memories 와 같은 판단).
+   * 남은 일수를 **서버가 계산해서** 넣는 게 중요하다: 모델은 오늘 날짜를 모르거나 틀리게 알고 있어서
+   * 날짜만 주면 "곧 상해요" 판단을 못 한다. 조회 툴이 따로 필요 없어지는 것도 이 주입 덕분이다.
+   */
+  private buildInstruction(
+    c: CharacterPromptSource,
+    memories: RecalledMemory[],
+    inventory: RecalledIngredient[],
+  ): string {
     const lines = [`너의 이름은 ${c.name}이야.`];
     if (c.user.name) {
       lines.push(`대화 상대(사용자)의 이름은 ${c.user.name}이야.`);
@@ -415,7 +569,38 @@ export class ConversationService {
       const facts = memories.map((m) => `- ${m.content}`).join('\n');
       lines.push(`사용자에 대해 기억하는 것:\n${facts}`);
     }
+    lines.push(formatInventory(inventory));
     lines.push(c.instruction);
     return lines.join('\n');
   }
+}
+
+/** 자정 기준 남은 일수 — 시:분 차이로 "0일 남음/1일 남음"이 흔들리지 않게 날짜만 비교한다. */
+function daysLeft(expiresAt: Date, now: Date): number {
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  return Math.round((startOfDay(expiresAt) - startOfDay(now)) / 86_400_000);
+}
+
+/** 재고 → 프롬프트 블록. 비어 있으면 "비었다"고 명시해야 모델이 재료를 지어내지 않는다. */
+function formatInventory(inventory: RecalledIngredient[], now = new Date()): string {
+  if (inventory.length === 0) {
+    return '냉장고: 아직 등록된 재료가 없어. 있는 재료를 물어보고 add_ingredients 로 넣어줘.';
+  }
+
+  const lines = inventory.map((i) => {
+    const left = daysLeft(i.expiresAt, now);
+    const when =
+      left < 0
+        ? `${Math.abs(left)}일 지남`
+        : left === 0
+          ? '오늘까지'
+          : left === 1
+            ? '내일까지'
+            : `${left}일 남음`;
+    const qty = i.quantityNote ? ` (${i.quantityNote})` : '';
+    // 추정치는 "쯤"으로 표시 — 모델이 단정적으로 말하지 않게 한다
+    const hedge = i.expirySource === 'ESTIMATED' ? ' 쯤' : '';
+    return `- ${i.name}${qty} · ${when}${hedge}`;
+  });
+  return `지금 냉장고에 있는 재료 (임박순):\n${lines.join('\n')}`;
 }

@@ -35,6 +35,18 @@ export type {
   SendMessageRequestType,
 } from './conversation';
 
+export type {
+  AddIngredientInputType,
+  AddIngredientsRequestType,
+  ExpirySourceType,
+  IngredientCategoryType,
+  IngredientType,
+  InventoryOptionsType,
+  InventoryOptionType,
+  StorageAreaType,
+  UpdateIngredientRequestType,
+} from './ingredient';
+
 export type { MemoryCategoryType, MemoryType } from './memory';
 
 export type {

@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { CharacterModule } from './character/character.module';
 import { CommerceModule } from './commerce/commerce.module';
 import { ConversationModule } from './conversation/conversation.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { LlmModule } from './llm/llm.module';
 import { MemoryModule } from './memory/memory.module';
 import { validateEnv } from './config/env.validation';
@@ -20,6 +21,7 @@ import { PrismaModule } from './prisma/prisma.module';
     CharacterModule,
     LlmModule,
     MemoryModule,
+    InventoryModule,
     ConversationModule,
     CommerceModule,
   ],

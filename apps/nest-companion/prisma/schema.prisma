@@ -31,6 +31,7 @@ model User {
   character     Character? // 1:1 — 유저당 캐릭터 하나
   conversations Conversation[]
   memories      Memory[]
+  inventory     Ingredient[] // 냉장고 재고
   refreshSessions RefreshSession[]
 }
 
@@ -115,9 +116,9 @@ model Message {
 // 구매 의사결정에 실제로 쓰이는 기억만 담는다(루트 README). "사람에 묶이는" 지속 정보만 —
 // 특정 상품에만 성립하는 일회성 조건("이번 선풍기는 저소음/5만원")은 추출 단계에서 걸러진다.
 enum MemoryCategory {
-  PREFERENCE // 선호 (브랜드·제품·스타일, 소비 성향 — 여러 결정에 두루 적용)
-  PROFILE // 프로필·성향 (자취·전공·신체특성·성격·의사결정 스타일 등 지속 사실)
-  OWNERSHIP // 보유·이력 (지금 쓰는/가진 것, 구매 이력 — 재추천 방지·생태계 근거)
+  PREFERENCE // 식성 (매운거 좋아함, 오이 싫어함, 채식 등)
+  PROFILE // 프로필·성향 (알레르기, 요리 실력, 1인 가구, 자취 등)
+  OWNERSHIP // 조리도구, 주방 환경 (에어프라이어, 인덕션 등)
   ETC // 기타
 }
 
@@ -134,4 +135,61 @@ model Memory {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// 보관 위치 — 소비기한 추정에 영향을 준다(같은 재료도 냉동이 가장 길다).
+enum StorageArea {
+  FRIDGE // 냉장
+  FREEZER // 냉동
+  PANTRY // 실온·찬장
+}
+
+// expiresAt 의 출처. 사용자가 알려준 표기일(USER)은 신뢰하고, 추정치(ESTIMATED)는 참고로만 보여준다.
+// UI 가 "8/12까지" 와 "8/12쯤" 을 가르는 근거.
+enum ExpirySource {
+  USER
+  ESTIMATED
+}
+
+// 재료 분류 — 소비기한 추정 기준 + 냉장고 화면 그룹핑.
+enum IngredientCategory {
+  VEGETABLE // 채소
+  FRUIT // 과일
+  MEAT // 육류
+  SEAFOOD // 해산물
+  DAIRY // 유제품
+  EGG // 달걀
+  GRAIN // 곡물·면·빵
+  SAUCE // 양념·소스
+  PROCESSED // 가공식품·통조림
+  FROZEN // 냉동식품
+  ETC // 기타
+}
+
+// 냉장고 재고 한 건. 이 앱에서 "기억"이 장식이 아니라 필수가 되는 지점 —
+// 상태가 계속 변하므로 앱이 들고 있지 않으면 기능 자체가 성립하지 않는다.
+//
+// 쿼리가 필요한 것만 구조화한다: name(레시피 매칭)·expiresAt(임박 정렬)·consumedAt(소비 여부).
+// 수량은 quantityNote 자유텍스트 — 앱은 실제 소비를 관찰하지 못해서(김치찌개 하나에 대파가
+// 몇 단 줄었는지 알 수 없다) 숫자를 들고 있어도 금방 허구가 되고, 틀린 숫자는 신뢰를 깎는다.
+model Ingredient {
+  id           String             @id @default(cuid())
+  userId       String
+  name         String // 정규화된 재료명 "계란" — 레시피 매칭·중복 판정 키
+  category     IngredientCategory @default(ETC)
+  quantityNote String? // "한 판", "반 팩", "개봉함" — 표시 전용, 계산하지 않는다
+  storage      StorageArea        @default(FRIDGE)
+  addedAt      DateTime           @default(now()) // 등록(구입) 시점 — 추정의 기준점
+  // 항상 채운다(nullable 아님). 유저가 알려주면 그 값, 모르면 카테고리×보관위치 추정치.
+  // 읽을 때 분기하면 "곧 상하는 것" 조회·정렬하는 모든 경로가 분기를 떠안으므로 쓸 때 폴백한다.
+  expiresAt    DateTime
+  expirySource ExpirySource       @default(ESTIMATED)
+  // soft delete — LLM 이 잘못 차감했을 때 되돌리기가 UPDATE 한 번이고, 나중에 "자주 사는 재료" 근거가 된다.
+  consumedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, consumedAt, expiresAt]) // "안 먹은 것 중 임박순" 을 단일 인덱스로 커버
 }
