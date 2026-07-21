@@ -23,7 +23,7 @@ import { PrismaService } from '../prisma/prisma.service';
 const SEARCH_PRODUCTS_TOOL: LlmTool = {
   name: 'search_products',
   description:
-    '사용자가 상품 추천·구매·쇼핑을 원할 때만 상품을 검색한다. 일반 잡담이나 상품과 무관한 대화에서는 호출하지 않는다.',
+    '사용자에게 실제 상품을 추천할 준비가 됐을 때만 상품을 검색한다. 예산·용도 같은 추천에 필요한 핵심 조건이 아직 없으면 호출하지 말고, 먼저 대화로 그 조건을 물어 채운다(단, 사용자가 "그냥 추천해줘"라고 하거나 조건을 이미 충분히 줬으면 바로 호출한다). 일반 잡담이나 상품과 무관한 대화에서는 호출하지 않는다.',
   parameters: {
     type: 'object',
     properties: {

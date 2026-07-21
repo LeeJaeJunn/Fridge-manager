@@ -15,12 +15,9 @@ const CATEGORY_META: Record<
   MemoryCategoryType,
   { label: string; emoji: string; iconBg: string; iconText: string }
 > = {
-  INTEREST: { label: '관심사', emoji: '✨', iconBg: 'bg-blush-soft', iconText: 'text-blush' },
-  WORK: { label: '학습·업무', emoji: '📘', iconBg: 'bg-sky-soft', iconText: 'text-sky-deep' },
-  GOAL: { label: '목표', emoji: '🎯', iconBg: 'bg-lavender-soft', iconText: 'text-lavender-deep' },
-  LIFESTYLE: { label: '생활', emoji: '🌱', iconBg: 'bg-mint-soft', iconText: 'text-mint-deep' },
-  RELATIONSHIP: { label: '관계', emoji: '🤝', iconBg: 'bg-peach-soft', iconText: 'text-peach' },
-  TRAIT: { label: '특성', emoji: '🧩', iconBg: 'bg-amber-soft', iconText: 'text-amber-deep' },
+  PREFERENCE: { label: '선호', emoji: '✨', iconBg: 'bg-blush-soft', iconText: 'text-blush' },
+  PROFILE: { label: '프로필·성향', emoji: '🧩', iconBg: 'bg-sky-soft', iconText: 'text-sky-deep' },
+  OWNERSHIP: { label: '보유·이력', emoji: '📦', iconBg: 'bg-mint-soft', iconText: 'text-mint-deep' },
   ETC: { label: '기타', emoji: '📎', iconBg: 'bg-sand', iconText: 'text-ink-soft' },
 };
 const CATEGORY_ORDER = Object.keys(CATEGORY_META) as MemoryCategoryType[];

@@ -57,7 +57,7 @@ export class CharacterService {
 
   /**
    * 캐릭터 상세 생성 (유저당 1개).
-   * 캐릭터 생성 + 유저 관심사를 INTEREST 메모리로 시드하는 걸 **한 트랜잭션**으로 묶는다
+   * 캐릭터 생성 + 유저 관심사를 PREFERENCE 메모리로 시드하는 걸 **한 트랜잭션**으로 묶는다
    * (반쪽 생성 방지). instruction 은 저장하지 않는다 — 프롬프트 시점에 필드에서 조립.
    */
   async create(userId: string, dto: CreateCharacterRequestType): Promise<CharacterType> {
@@ -80,7 +80,7 @@ export class CharacterService {
         select: SELECT,
       });
 
-      // 유저 관심사 → INTEREST 메모리 시드 (기존과 정확일치 중복은 건너뜀 — 재생성 시 중복 방지)
+      // 유저 관심사 → PREFERENCE 메모리 시드 (기존과 정확일치 중복은 건너뜀 — 재생성 시 중복 방지)
       const contents = (dto.interests ?? []).map(interestToMemoryContent);
       if (contents.length > 0) {
         const known = await tx.memory.findMany({
@@ -90,7 +90,7 @@ export class CharacterService {
         const knownSet = new Set(known.map((k) => k.content));
         const fresh = contents
           .filter((c) => !knownSet.has(c))
-          .map((content) => ({ userId, category: 'INTEREST' as const, content, importance: 2 }));
+          .map((content) => ({ userId, category: 'PREFERENCE' as const, content, importance: 2 }));
         if (fresh.length > 0) {
           await tx.memory.createMany({ data: fresh });
         }

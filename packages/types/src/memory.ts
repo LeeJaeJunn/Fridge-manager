@@ -4,12 +4,9 @@
  */
 
 export type MemoryCategoryType =
-  | 'INTEREST' // 관심사·취향
-  | 'WORK' // 학습·업무
-  | 'GOAL' // 목표·계획
-  | 'LIFESTYLE' // 생활·건강
-  | 'RELATIONSHIP' // 인간관계
-  | 'TRAIT' // 개인 특성
+  | 'PREFERENCE' // 선호 (브랜드·제품·스타일·소비 성향)
+  | 'PROFILE' // 프로필·성향 (자취·전공·신체특성·성격 등 지속 사실)
+  | 'OWNERSHIP' // 보유·이력 (지금 쓰는/가진 것, 구매 이력)
   | 'ETC'; // 기타
 
 /** GET /memories 응답 항목 */
