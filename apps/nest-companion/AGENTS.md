@@ -26,56 +26,73 @@
 
 ## 캐릭터 데이터
 
-> ⚠️ **방향 전환 예정 (루트 `README.md` 참고)**: 제품이 감정 컴패니언 → **구매 의사결정 에이전트**로 피벗했다. 이 캐릭터 시스템은 **"조언자 톤 + 사용자 프로필(취향·예산·구매이력)"** 로 축소될 예정이다 — 연인·성별·관계·상세 성격 필드는 의사결정에 안 쓰이므로 정리 대상. **아래는 현재 코드(피벗 전) 기준 설명**이니, 축소 작업 시 함께 갱신한다.
+캐릭터는 **"내 냉장고를 아는 요리 조력자"** 톤으로 축소된 얇은 페르소나다. 유저가 정하는 건 이름·말투·호칭뿐이고, 정체성(조력자)은 고정이다. 연인·성별·관계·상세 성격 필드는 제거됐다.
 
 - **유저당 캐릭터는 하나다** (여러 개 중 선택이 아님). DB에서 `User` ↔ `Character` 1:1 (`Character.userId @unique`).
-- 캐릭터는 **구조화 필드**로 상세 설정한다: `name`(필수) + `gender`/`relationship`/`personality[]`/`speechStyle`(온보딩 필수) + `age`/`job`/`actingRule`(≤100자)/`userNickname`(선택). 전부 사용자가 정하고 `PATCH me` 로 부분수정한다.
-- **`instruction`(시스템 프롬프트)은 저장하지 않는다** — 구조화 필드에서 **프롬프트 시점에 매번 조립**한다(`src/character/persona.ts` 의 `buildPersonaInstruction`, 단일 진실원천). 템플릿을 고치면 기존 캐릭터도 자동 반영. (신뢰 경계: 클라는 설정값을 보내지만 조립된 instruction/model 은 서버 소유·비노출.)
-- `gender`/`relationship`/`speechStyle` 은 안정적 키를 **String 컬럼**에 저장한다(관계가 나중에 freeform 될 걸 대비해 DB enum 회피). 값→한국어 라벨, 선택지 vocab(성격/관심사), **입력 제한값(`LIMITS`)** 은 전부 **`persona.ts` 가 소유**하고 `GET options` 로 native 에 내려준다. DTO 검증(@IsIn/@MaxLength/@Min/@Max)도 같은 상수를 쓴다 — **DTO 에 숫자를 직접 쓰지 말 것**(숫자가 두 곳에 박히면 한쪽만 고쳐 어긋난다. 실제로 age 가 그렇게 어긋났었다).
-- **클라 검증은 UX, 서버 검증이 방어다.** 앱은 신뢰 경계 밖이라 curl 로 바로 API 를 때릴 수 있고, `personality`/`actingRule` 은 시스템 프롬프트에 그대로 들어간다 → `@IsIn`·`@MaxLength` 를 빼면 프롬프트 조작·토큰 비용 악용이 열린다. 클라 제한은 "미리 알려주기"일 뿐 자물쇠가 아니다.
+- 캐릭터의 구조화 필드는 `name`(필수) + `speechStyle`(온보딩 필수, `casual`/`formal`) + `userNickname`(선택)뿐이다. 전부 사용자가 정하고 `PATCH me` 로 부분수정한다.
+- **`instruction`(시스템 프롬프트)은 저장하지 않는다** — 구조화 필드에서 **프롬프트 시점에 매번 조립**한다(`src/character/persona.ts` 의 `buildPersonaInstruction` = 고정 조력자 정체성 + 말투 + 대화 규칙(능동적 구조화 질문) + 가드레일, 단일 진실원천). 템플릿을 고치면 기존 캐릭터도 자동 반영. (신뢰 경계: 클라는 설정값을 보내지만 조립된 instruction/model 은 서버 소유·비노출.)
+- `speechStyle` 은 안정적 키를 **String 컬럼**에 저장한다(DB enum 회피). 값→한국어 라벨, 선택지 vocab(말투/온보딩 태그), **입력 제한값(`LIMITS`)** 은 전부 **`persona.ts` 가 소유**하고 `GET options` 로 native 에 내려준다. DTO 검증(@IsIn/@MaxLength)도 같은 상수를 쓴다 — **DTO 에 숫자를 직접 쓰지 말 것**(숫자가 두 곳에 박히면 한쪽만 고쳐 어긋난다).
+- **클라 검증은 UX, 서버 검증이 방어다.** 앱은 신뢰 경계 밖이라 curl 로 바로 API 를 때릴 수 있고, 온보딩 태그는 메모리로 시드돼 프롬프트에 들어간다 → `@IsIn(TAG_VALUES)` 를 빼면 임의 문자열이 프롬프트에 섞인다. 클라 제한은 "미리 알려주기"일 뿐 자물쇠가 아니다.
 - ⚠️ **vocab·제한값을 `@companion/types` 에 상수로 옮기지 말 것.** 그 패키지는 타입 전용(런타임 엔트리 없음)이라 값을 import 하면 **tsc·CI 는 통과하는데 서버 부팅이 죽는다**(`ERR_PACKAGE_PATH_NOT_EXPORTED`). 실제로 확인함. 값은 API 로 내려주는 게 정답이고, 덤으로 앱 배포 없이 vocab·제한을 바꿀 수 있다. ⚠️ vocab 은 문자열-리터럴 유니온으로 좁히지 말 것(`as const` 금지) — `===`/`!==` 비교 시 `no-unsafe-enum-comparison` 규칙이 크래시한다. 같은 이유로 이 레포는 `x !== undefined` 대신 `typeof x !== 'undefined'` 를 쓴다.
-- **유저 관심사는 캐릭터가 아니라 유저 취향**이다 → 생성 시 `category=INTEREST` **Memory row 로 시드**한다(캐릭터·관심사 생성을 한 `$transaction`). 기존 recall 주입/표시 파이프라인을 그대로 타서 첫 대화부터 "나를 기억하는 AI" 로 작동하고, 관리(삭제)는 메모리 API 로 한다. 캐릭터엔 관심사 컬럼이 없다.
-- **파생 데이터는 저장하지 않는다.** instruction 과 같은 이유로 `description`(카드 한 줄 소개)도 없앴다 — 관계·성격을 이어붙인 파생 문자열이라 staleness 만 생기고, 클라가 이미 가진 `relationship`/`personality`(+`GET options` 라벨)로 직접 렌더하는 게 유연하다. `model` 도 캐릭터 데이터가 아니다(관리자 소유, env `LLM_MODEL`).
-- **프리셋 개념은 없다** (`characters.ts`·`presetId` 제거됨). 사용자가 처음부터 필드를 직접 채워 자기 캐릭터를 만든다 — "둘 중 하나 고르기"는 옛 모델이다. 나중에 "빠른 시작"이 필요하면 native 폼의 기본값으로 넣으면 되고, 백엔드 개념은 필요 없다.
-- API는 `src/character/` (`CharacterModule`): `GET options`(선택지 vocab), `GET me`, `POST`(필드 세트+관심사로 생성), `PATCH me`(부분수정), `DELETE me`. 표시용 필드만 내려주고 `instruction`/`model` 은 노출하지 않는다.
+- **온보딩 태그는 캐릭터가 아니라 유저 정보**다 → 생성 시 **Memory row 로 시드**한다(캐릭터·태그 생성을 한 `$transaction`). 태그는 **세 그룹**이고 그룹마다 카테고리·중요도가 다르다 — 식성→`PREFERENCE`, **알레르기→`PROFILE`(importance 3, 안전)**, 조리도구→`OWNERSHIP`. 매핑은 `persona.ts` 의 `TAG_GROUPS`/`tagToMemory` 가 소유하고, 요청 내 중복은 서비스에서 제거한다. recall 주입/표시 파이프라인을 그대로 타서 첫 대화부터 작동하고, 관리(삭제)는 메모리 API 로 한다. 캐릭터엔 태그 컬럼이 없다.
+- **파생 데이터는 저장하지 않는다.** `model` 도 캐릭터 데이터가 아니다(관리자 소유, env `LLM_MODEL`).
+- API는 `src/character/` (`CharacterModule`): `GET options`(선택지 vocab + 태그 그룹), `GET me`, `POST`(name·speechStyle·userNickname·tags 로 생성), `PATCH me`(부분수정), `DELETE me`. 표시용 필드만 내려주고 `instruction`/`model` 은 노출하지 않는다.
 
 ## 대화 저장 (Conversation)
 
-- 채팅은 **DB에 저장되는 대화**다. `src/conversation/` (`ConversationModule`)가 담당하며, MVP1 채팅의 정식 경로다. (구 stateless `src/chat/` 모듈은 제거됨 — conversation이 유일한 채팅 경로다.)
+- 채팅은 **DB에 저장되는 대화**다. `src/conversation/` (`ConversationModule`)가 담당하며, 채팅의 정식 경로다. (구 stateless `src/chat/` 모듈은 제거됨 — conversation이 유일한 채팅 경로다.)
 - 데이터: `Conversation`(유저당 N개) ↔ `Message`(role `user|assistant`). 대화 목록은 `updatedAt desc` 정렬 + 마지막 메시지 preview.
 - API는 전부 **현재 유저 기준**이고 소유권 격리가 핵심 — 조회/수정/삭제는 항상 `where: { ..., userId }` 로 본인 것만 만진다 (남의 대화 접근 시 `NotFoundException`, 삭제는 `deleteMany`로 멱등).
   - `GET /conversations`(목록), `GET /conversations/:id`(상세+메시지), `POST /conversations`(첫 메시지로 **지연 생성**), `POST /conversations/:id/messages`(이어가기), `DELETE /conversations/:id`, `DELETE /conversations/:id/messages/:messageId`.
 - **지연 생성(lazy)**: "새 채팅" 버튼은 빈 화면만 열고, 첫 메시지를 보낼 때 비로소 `Conversation` 을 만든다 (빈 대화가 DB에 안 쌓이게).
 - 매 교환마다 서버가 DB에서 **해당 대화의 전체 히스토리를 읽어** LLM에 넘긴다. 히스토리·instruction을 클라이언트가 보내지 않는다(신뢰 경계).
-- 최종 instruction 은 `buildInstruction` 이 조립한다: 캐릭터 이름 + **유저 이름** + **장기 메모리(`MemoryService.recall`)** + **캐릭터 페르소나**(`getPromptContext` 가 구조화 필드로 `buildPersonaInstruction` 조립 — 저장된 instruction 컬럼은 없다). 메모리 선택은 반드시 `recall()` 만 거친다(아래 "장기 메모리" 참고). model은 env에서 해석.
-- 매 교환 후 **N메시지마다 백그라운드로 메모리를 추출**한다(`MEMORY_EXTRACT_EVERY_N`). 판단은 `exchange` 가 반환하는 `messageCount`(= 이미 읽은 히스토리 길이 + 1)로 하며 **별도 count 쿼리를 하지 않는다**.
+- 최종 instruction 은 `buildInstruction` 이 조립한다: 캐릭터 이름 + **유저 이름** + **장기 메모리(`MemoryService.recall`)** + **냉장고 재고(`InventoryService.recall`)** + 캐릭터 페르소나 + 레시피 지침 + **알레르기 경고**. 순서 통제는 `buildInstruction` 한 곳에 있다.
+  - **재고 주입**: 재료마다 **남은 일수를 서버가 계산해** 넣는다(`- 대파 · 내일까지`). 모델은 오늘 날짜를 모르거나 틀리게 알아서 날짜만 주면 "곧 상해요" 판단을 못 한다. 추정 만료일은 "쯤"으로 흐린다. 비면 "재료 없음"을 명시해 모델이 지어내지 않게 한다.
+  - **알레르기 안전**: 알레르기·못 먹는 것은 `splitAllergies` 로 떼어 **맨 끝 경고 블록** + **재고 목록 인라인 표시** 이중으로 넣는다. 중간에 두면 "임박한 재료 먼저" 지침에 밀려 실제로 알레르기 재료를 1순위 추천하는 걸 확인했다. 순수 함수(`splitAllergies`/`formatInventory`/`daysLeft`)라 `conversation.prompt.spec.ts` 로 고정한다.
+- 매 교환 후 **N메시지마다 백그라운드로 메모리를 추출**한다(`MEMORY_EXTRACT_EVERY_N`). 판단은 반환된 `messageCount`(= 이미 읽은 히스토리 길이 + 1)로 하며 **별도 count 쿼리를 하지 않는다**.
 - nested write 만 하면 `@updatedAt` 이 안 올라가므로 답변 저장 시 `updatedAt: new Date()` 를 명시 갱신한다(목록 최근순 정렬용).
-- **상품추천(대화 중)**: `exchangeWithTools` 가 `search_products` 툴을 붙여(`chatWithTools`) 대화한다. 모델이 쇼핑 의도로 판단하면 툴을 부르고(인자=검색조건), 실행기가 `CommerceService.search` 로 후보를 가져와 재주입 → **같은 채팅 LLM이 이유 있는 답**을 쓴다 (별도 추천 서비스·구조화 없음 — 검색조건 도출·이유 생성 모두 채팅 LLM이 함). 툴 없는 순수 대화용 기본 `exchange` 는 재사용 위해 보존. 검색된 상품은 실행기 클로저로 붙잡아 `Message.products`(`Json?`)에 **`ProductType[]` 스냅샷**으로 저장한다 — 그 시점 가격·정보를 박제해 새로고침에도 카드가 유지되고 대화와 일관(참조·재조회 아님). 클라는 이 스냅샷을 버블 아래 카드로 렌더. **"다음/다른 상품"** 은 `search_products(more:true)` + `Conversation.lastSearch`(페이징 커서)로 이어 검색한다 — tool 결과는 턴 사이 DB 히스토리에 안 남아 모델이 `nextStart` 를 기억 못 하므로, 서버가 대화 단위로 커서를 저장·재사용한다(소진 시 `exhausted` 반환).
+- **냉장고 툴(대화 중)**: `exchangeWithTools` 가 `chatWithTools` 로 툴 두 개를 붙여 대화한다.
+  - `add_ingredients` — "계란 샀어" 같은 말에서 재료를 뽑아 재고에 넣는다(만료일 폴백·중복 병합은 `InventoryService` 가 흡수). 이게 주 입력 경로다.
+  - `consume_ingredients` — 실제로 먹었다고 할 때만 소비 처리. **얼마 썼는지가 아니라 뭐가 남았는지**(`remaining`)를 받아 부분 소비를 표현한다(산수는 재고를 프롬프트로 받은 모델이 하고 서버는 결과만 저장). 자동 차감은 틀리면 신뢰를 깎으므로 description 으로 못박는다.
+- **상품추천은 v1.2 대기**: `search_products` 툴·`PRODUCT_RECO_GUIDANCE`·실행기·`Message.products` 스냅샷 저장·`Conversation.lastSearch` 커서 페이징이 전부 코드에 **살아 있고 등록만 빠져 있다**(툴 배열에서 제외). 부족 재료 쇼핑을 붙일 때 툴 배열에 다시 넣으면 된다. `search_products` / `PRODUCT_RECO_GUIDANCE` 는 그때까지 `eslint-disable`(no-unused-vars) 로 표시돼 있다.
 
 ## 장기 메모리 (Memory)
 
-- MVP1 간판 기능 — "나를 기억하는 AI". `src/memory/`(`MemoryModule`). 대화에서 지속적 사실을 뽑아 저장하고 다음 대화 프롬프트에 주입한다.
+- 간판 기능 — "나를 기억하는 AI". `src/memory/`(`MemoryModule`). 대화에서 지속적 사실(식성·알레르기·조리도구·요리성향)을 뽑아 저장하고 다음 대화 프롬프트에 주입한다. **재고와 역할이 다르다** — 메모리는 "사람에 묶이는 지속 정보", 재고(`Ingredient`)는 "계속 변하는 상태". 아래 "냉장고 재고" 참고.
 - **주입(recall)과 표시(list)를 분리한다**:
   - `recall(userId)` = "프롬프트에 넣을 메모리 선택" — **벡터 교체 seam**이다. 지금은 importance 순 전부. 수가 많아지면 이 메서드 **내부만** top-N(importance) → 유사도 top-k(pgvector `vector` 컬럼 추가)로 바꾼다. 호출자(Conversation)는 안 바뀐다.
   - `list(userId)` = "AI가 기억하는 나" 화면용 — 항상 전부(+`id` 포함, 삭제용).
 - **추출(extractMemory)**: `ConversationService` 가 N메시지마다 **fire-and-forget** 호출(응답 지연 0). 최근 window개 메시지 → 기존 메모리와 함께 LLM 구조화 추출(`structured`) → 새 사실만 저장.
   - 방침: **지속적 사실만**(일회성 이벤트/약속 제외), **추가만**(갱신·모순 해결 안 함 — 사용자가 삭제로 교정), 중복은 **LLM(의미) + 코드(정확일치) 2중** 제거.
+  - ⚠️ **재료 재고는 뽑지 않는다** — "계란 있음"은 냉장고(`Ingredient`)가 관리하고 메모리에 또 저장하면 두 기록이 어긋난다. 추출 지침 맨 앞에서 `"계란 알레르기가 있음"`(사람) vs `"계란 있음"`(재고)을 구분하라고 못박는다. 알레르기는 안전 문제라 `importance` 3 을 강제한다.
   - 프롬프트·zod 스키마는 `memory.prompt.ts`(순수). category는 enum 강제, importance는 1~3 코드 클램프.
   - 백그라운드라 `extractMemory` 안에서 try/catch 로 에러를 삼키고 로깅만 한다 (위 "에러 처리" 원칙의 **의도적 예외** — 채팅 응답에 영향 0).
-- 데이터: `Memory`(userId, `category`=`MemoryCategory` enum 7개, content, importance). content는 짧은 사실 1개 = row 1개, 주입·표시 겸용.
+- 데이터: `Memory`(userId, `category`=`MemoryCategory` enum 4개 — `PREFERENCE`(식성)/`PROFILE`(알레르기·체질·요리성향)/`OWNERSHIP`(조리도구)/`ETC`, content, importance). content는 짧은 사실 1개 = row 1개, 주입·표시 겸용.
 - **벡터는 지금 안 넣는다**: 메모리 소수라 전부 주입이 더 싸고 정확. recall seam + 루트 AGENTS.md 방침 덕에 나중에 컬럼 추가 + recall 내부 교체로 붙는다.
 - 튜닝 env(나중에 Settings 테이블로 이전): `MEMORY_EXTRACT_WINDOW`, `MEMORY_EXTRACT_EVERY_N`, `MEMORY_EXTRACT_MODEL`(비우면 `LLM_MODEL`). 읽는 곳은 서비스 생성자 **1곳**(env→DB 전환 seam).
 - API(`MemoryModule`): `GET /memories`(내 전체), `DELETE /memories/:id`(교정용, 본인 것만 멱등). 전부 현재 유저 기준.
 
-## 커머스 — 상품 검색 (Commerce)
+## 냉장고 재고 (Inventory)
 
-- MVP2 상품추천의 **검색 계층**. `src/commerce/`(`CommerceModule`). `CommerceService.search(criteria)` 가 **네이버 쇼핑검색 API**를 호출해 **정규화된 `ProductType[]`**(packages/types) 로 반환한다.
+- v1 핵심 기능. `src/inventory/`(`InventoryModule`). **메모리와 달리 별도 테이블(`Ingredient`)** 이다 — 상태가 계속 변하고 "유통기한 임박" 같은 날짜 쿼리가 필요해서 자유텍스트로는 둘 다 안 된다.
+- **쿼리가 필요한 것만 구조화**한다: `name`(정규화, 레시피 매칭·중복 판정), `category`(소비기한 추정·그룹핑), `expiresAt`, `consumedAt`. 수량은 `quantityNote` **자유텍스트**다 — 앱은 실제 소비를 관찰 못 해서(김치찌개 하나에 대파가 몇 단 줄었는지 모른다) 숫자를 들고 있어도 금방 허구가 되고, 틀린 숫자는 신뢰를 깎는다.
+- **`expiresAt` 은 쓸 때 폴백해서 항상 채운다**(nullable 아님): 유저가 표기일을 주면 그 값(`expirySource=USER`), 모르면 `shelf-life.ts` 의 카테고리×보관위치 추정(`ESTIMATED`). 읽을 때 분기하면 "곧 상하는 것" 조회·정렬 경로가 전부 분기를 떠안으므로 쓸 때 한 번 채운다. UI 는 `expirySource` 로 "8/12까지" vs "8/12쯤"을 가른다.
+- **soft delete**: `consume` 은 삭제가 아니라 `consumedAt` 을 찍는다. 모든 조회에 `consumedAt: null` 이 붙어(list/recall/expiringSoon/중복검사) 먹은 재료가 목록·프롬프트에서 빠진다 — `recall` 이 유령 재료를 흘리지 않는지 테스트로 고정. 되돌리기(`restore`)가 UPDATE 한 번이고, 소비 이력은 나중에 "자주 사는 재료" 근거가 된다. 잘못 등록한 건 `DELETE :id/hard` 로 진짜 지운다("다 먹음"과 "잘못 등록"은 의미가 달라 이력에 남길지가 갈린다).
+- **병합**: 같은 이름을 다시 넣으면 새 row 가 아니라 기존 미소비 재고에 병합한다. 만료일·보관·분류는 **새로 넣은 값으로 갱신**한다(재입고 = 방금 산 게 주). 수량을 개별 추적하지 않으므로 옛 재고 기준으로 잡을 근거가 없다. 수량 메모는 이번에 안 적었으면 기존 표시를 유지.
+- `shelf-life.ts` = 소비기한 추정 + 카테고리·보관위치 vocab·라벨·`LIMITS` 의 **단일 진실원천**(persona.ts 와 같은 패턴, `GET /inventory/options` 로 내려줌). 순수 로직이라 DB·LLM 없이 테스트된다.
+- 채팅 툴(`add_ingredients`/`consume_ingredients`)이 `InventoryService` 를 **직접** 호출한다(HTTP 안 탐). 아래 컨트롤러는 냉장고 화면의 **수동 교정 경로**다.
+- API(`InventoryModule`, 전부 현재 유저 기준): `GET /inventory`(임박순), `GET /inventory/expiring?days=N`(홈 "먼저 먹어요"), `GET /inventory/options`, `POST /inventory`(여러 건), `PATCH /inventory/:id`(교정 — 만료일 고치면 `USER` 승격), `DELETE /inventory/:id`(=consume, soft), `POST /inventory/:id/restore`, `DELETE /inventory/:id/hard`. `:id` 라우트는 반드시 리터럴 경로(`options`/`expiring`) **아래**에 둔다(Nest 는 선언순 매칭).
+
+## 커머스 — 상품 검색 (Commerce, v1.2 대기)
+
+- ⚠️ **부족 재료 쇼핑 추천(v1.2)용으로 코드는 완성돼 있고 채팅 등록만 빠져 있다**(위 Conversation 참고). 아래는 그 검색 계층 설명이다.
+- `src/commerce/`(`CommerceModule`). `CommerceService.search(criteria)` 가 **네이버 쇼핑검색 API**를 호출해 **정규화된 `ProductType[]`**(packages/types) 로 반환한다.
 - **벤더(네이버) 격리**: 네이버 원본(HTML `<b>` title, 문자열 `lprice`, `category1~4`)과 호출 에러는 이 서비스 안에서 흡수해 `ProductType` 으로 변환한다 — `openai` 가 `llm/`에 갇히듯 **naver는 `commerce/`에만** 안다. 소비처(Conversation)는 `ProductType` 만 본다.
 - **catalog 아니라 search seam**: 실제 커머스 API는 "우리 소유 카탈로그"가 아니라 검색 엔드포인트다. 그래서 `search(criteria)` 형태로 모델링. 프로바이더가 **2개 이상(쿠팡/아마존)** 되면 그때 인터페이스+DI토큰으로 분리한다 — 지금은 단일이라 안 만든다(과한 추상화 지양).
 - **정규화 타입은 공통분모 + 옵셔널 신호**: `ProductType` 은 세 API 공통분모(id·title·price·currency·imageUrl·productUrl·mall·brand·category). `rating?`/`reviewCount?`/`isRocket?` 는 옵셔널 — 프로바이더별로 있는 것만 채우고 소비처는 present 필드만 쓴다.
 - **필터·페이징**: 네이버는 `sort`(정확도/가격/날짜)만 있고 가격·카테고리 필터 파라미터가 없어 **후처리**한다. `start`(1~1000)·`display`(≤100)는 **독립 제약**(합계 제한 없음). `search` 는 raw 를 스캔하며 필터 통과분을 `limit` 까지 모으고 **커서(`nextStart`)를 실제 스캔한 raw 개수만큼만 전진**(slice 유실·중복 방지). `ProductSearchResultType`(products·nextStart·hasMore) 반환, 클라는 `nextStart` 를 opaque 커서로 에코백(무상태).
 - **호출량**: 네이버 쿼터는 호출 1회 = 1카운트(개수 무관). 페이징 절약이 필요하면 나중에 **배치 캐싱**(한 번에 받아 캐시에서 페이지 서빙) — 지금은 무상태라 잉여분 재사용 안 됨.
-- `GET /products` 는 **임시 테스트용**(LLM 없음). 정식 소비 경로는 채팅 tool-use(위 Conversation "상품추천").
+- `GET /products` 는 **임시 테스트용**(LLM 없음). 정식 소비 경로는 채팅 tool-use(위 Conversation "상품추천은 v1.2 대기").
 
 ## 인증 — 로그인(JWT access + refresh)
 

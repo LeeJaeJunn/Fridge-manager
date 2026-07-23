@@ -107,10 +107,9 @@ export class InventoryService {
 
       const prev = byName.get(normalize(item.name));
       if (prev) {
-        // 병합 시 만료일은 **더 임박한 쪽**을 남긴다(유저가 표기일을 직접 준 경우는 예외).
-        // 재입고했다고 만료일을 미뤄버리면, 남아 있던 오래된 재고의 "곧 상해" 경고가 조용히 사라진다.
-        // 상하는 걸 놓치는 쪽이 중복 경고보다 나쁘므로 안전한 쪽으로 기운다.
-        const keepEarlier = !hasUserExpiry && prev.expiresAt < expiresAt;
+        // 재입고 = 방금 산 게 주가 된다. 만료일·보관·분류를 **새로 넣은 값으로 갱신**한다
+        // (수량을 개별 추적하지 않으므로 옛 재고 기준으로 잡을 근거가 없다 — 새 물건 기준이 직관적).
+        // 수량 메모는 이번에 안 적었으면 기존 표시를 유지한다.
         const row = await this.prisma.ingredient.update({
           where: { id: prev.id },
           data: {
@@ -118,8 +117,8 @@ export class InventoryService {
             storage,
             quantityNote: quantityNote ?? prev.quantityNote,
             addedAt,
-            expiresAt: keepEarlier ? prev.expiresAt : expiresAt,
-            expirySource: hasUserExpiry ? 'USER' : keepEarlier ? prev.expirySource : 'ESTIMATED',
+            expiresAt,
+            expirySource: hasUserExpiry ? 'USER' : 'ESTIMATED',
           },
           select: SELECT,
         });

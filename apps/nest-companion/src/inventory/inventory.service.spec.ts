@@ -143,8 +143,8 @@ describe('InventoryService', () => {
       expect(writeArg(prisma.ingredient.update).where).toEqual({ id: 'existing' });
     });
 
-    it('병합 시 더 임박한 만료일을 남긴다 — 재입고로 오래된 재고 경고가 사라지면 안 된다', async () => {
-      const soon = new Date(Date.now() + 1 * MS_PER_DAY);
+    it('병합 시 만료일을 새로 산 것 기준으로 갱신한다 (재입고 = 새 물건이 주)', async () => {
+      const oldExpiry = new Date(Date.now() + 1 * MS_PER_DAY);
       prisma.ingredient.findMany.mockResolvedValue([
         {
           id: 'existing',
@@ -153,21 +153,22 @@ describe('InventoryService', () => {
           quantityNote: null,
           storage: 'FRIDGE',
           addedAt: new Date(),
-          expiresAt: soon,
+          expiresAt: oldExpiry,
           expirySource: 'ESTIMATED',
           consumedAt: null,
         },
       ]);
 
-      // EGG/FRIDGE 추정은 3주라 새 만료일이 훨씬 뒤 → 임박한 기존 값이 남아야 한다
+      // EGG/FRIDGE 추정은 3주 → 옛 만료일(1일)이 아니라 새로 추정한 값으로 갱신돼야 한다
       await service.add('u1', [{ name: '계란', category: 'EGG' }]);
 
       const { data } = writeArg(prisma.ingredient.update);
-      expect(data.expiresAt).toEqual(soon);
+      const days = Math.round((data.expiresAt.getTime() - Date.now()) / MS_PER_DAY);
+      expect(days).toBe(shelfLifeDays('EGG', 'FRIDGE'));
+      expect(data.expiresAt).not.toEqual(oldExpiry);
     });
 
-    it('단, 사용자가 표기일을 직접 주면 그 값이 이긴다', async () => {
-      const soon = new Date(Date.now() + 1 * MS_PER_DAY);
+    it('병합에서도 사용자가 준 표기일이면 USER 로 표시한다', async () => {
       const stated = new Date(Date.now() + 10 * MS_PER_DAY);
       prisma.ingredient.findMany.mockResolvedValue([
         {
@@ -177,7 +178,7 @@ describe('InventoryService', () => {
           quantityNote: null,
           storage: 'FRIDGE',
           addedAt: new Date(),
-          expiresAt: soon,
+          expiresAt: new Date(Date.now() + 1 * MS_PER_DAY),
           expirySource: 'ESTIMATED',
           consumedAt: null,
         },
@@ -188,6 +189,26 @@ describe('InventoryService', () => {
       const { data } = writeArg(prisma.ingredient.update);
       expect(data.expiresAt.toISOString()).toBe(stated.toISOString());
       expect(data.expirySource).toBe('USER');
+    });
+
+    it('병합 시 이번에 수량을 안 적으면 기존 수량 메모를 유지한다', async () => {
+      prisma.ingredient.findMany.mockResolvedValue([
+        {
+          id: 'existing',
+          name: '계란',
+          category: 'EGG',
+          quantityNote: '한 판',
+          storage: 'FRIDGE',
+          addedAt: new Date(),
+          expiresAt: new Date(Date.now() + 5 * MS_PER_DAY),
+          expirySource: 'ESTIMATED',
+          consumedAt: null,
+        },
+      ]);
+
+      await service.add('u1', [{ name: '계란', category: 'EGG' }]);
+
+      expect(writeArg(prisma.ingredient.update).data.quantityNote).toBe('한 판');
     });
 
     it('한 번에 넣을 수 있는 개수를 상한선으로 자른다', async () => {
