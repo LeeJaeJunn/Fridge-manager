@@ -15,11 +15,11 @@ const CATEGORY_META: Record<
   MemoryCategoryType,
   { label: string; emoji: string; iconBg: string; iconText: string }
 > = {
-  PREFERENCE: { label: '선호', emoji: '✨', iconBg: 'bg-blush-soft', iconText: 'text-blush' },
-  PROFILE: { label: '프로필·성향', emoji: '🧩', iconBg: 'bg-sky-soft', iconText: 'text-sky-deep' },
+  PREFERENCE: { label: '식성', emoji: '🍽️', iconBg: 'bg-blush-soft', iconText: 'text-blush' },
+  PROFILE: { label: '체질·성향', emoji: '🧩', iconBg: 'bg-sky-soft', iconText: 'text-sky-deep' },
   OWNERSHIP: {
-    label: '보유·이력',
-    emoji: '📦',
+    label: '조리도구',
+    emoji: '🍳',
     iconBg: 'bg-mint-soft',
     iconText: 'text-mint-deep',
   },

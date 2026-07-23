@@ -11,6 +11,7 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: '홈' }} />
+      <Tabs.Screen name="fridge" options={{ title: '냉장고' }} />
       <Tabs.Screen name="chat" options={{ title: '채팅' }} />
       <Tabs.Screen name="profile" options={{ title: '프로필' }} />
     </Tabs>

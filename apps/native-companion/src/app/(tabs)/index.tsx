@@ -1,9 +1,13 @@
-import { Link } from 'expo-router';
+import { Link, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { Text, View } from 'react-native';
 
+import { fetchExpiring } from '@/api/inventory';
 import { Avatar, Button, Card, Screen } from '@/components';
 import { useAuth } from '@/context/auth';
 import { useCharacter } from '@/context/character';
+import { expiryLabel, freshness, FRESHNESS_STYLE } from '@/lib/expiry';
+import type { IngredientType } from '@companion/types';
 
 /** 시간대에 맞춘 인사 */
 function greeting(): string {
@@ -14,13 +18,54 @@ function greeting(): string {
   return '좋은 저녁이에요';
 }
 
-// 홈에서 바로 대화를 시작할 수 있는 가벼운 시작 문구들
-const PROMPTS = ['오늘 하루 어땠어?', '고민이 있어', '뭐 추천해줘'];
+// 홈에서 바로 대화를 시작할 수 있는 가벼운 시작 문구들 (요리 중심)
+const PROMPTS = ['오늘 뭐 해먹지?', '장 보고 왔어', '냉장고 털어줘'];
+
+/** "먼저 먹어요" — 오늘까지거나 이미 지난 재료. 앱을 열 이유를 만드는 자리라 맨 위에 둔다. */
+function NudgeSection({ items }: { items: IngredientType[] }) {
+  if (items.length === 0) return null;
+  return (
+    <Card radius="3xl" className="gap-3 px-5 py-4">
+      <Text className="text-base font-bold text-ink">🍅 먼저 먹어요</Text>
+      <View className="gap-2">
+        {items.slice(0, 5).map((item) => {
+          const tint = FRESHNESS_STYLE[freshness(item.expiresAt)];
+          return (
+            <View key={item.id} className="flex-row items-center justify-between">
+              <Text className="text-[15px] text-ink">
+                {item.name}
+                {item.quantityNote ? (
+                  <Text className="text-ink-faint"> {item.quantityNote}</Text>
+                ) : null}
+              </Text>
+              <View className={`rounded-full px-2.5 py-0.5 ${tint.bg}`}>
+                <Text className={`text-xs font-medium ${tint.text}`}>{expiryLabel(item)}</Text>
+              </View>
+            </View>
+          );
+        })}
+      </View>
+      <Link href="/fridge" asChild>
+        <Text className="text-sm font-medium text-lavender">냉장고 전체 보기 ›</Text>
+      </Link>
+    </Card>
+  );
+}
 
 export default function HomeScreen() {
   const { user } = useAuth();
   const { character } = useCharacter();
   const characterName = character?.name ?? '컴패니언';
+  const [nudge, setNudge] = useState<IngredientType[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // 실패해도 홈은 떠야 하므로 조용히 무시한다(부가 정보).
+      fetchExpiring(1)
+        .then(setNudge)
+        .catch(() => {});
+    }, []),
+  );
 
   return (
     <Screen scroll contentClassName="gap-7 px-6 pb-10 pt-4">
@@ -30,6 +75,9 @@ export default function HomeScreen() {
         <Text className="text-base text-ink-soft">{greeting()}</Text>
       </View>
 
+      {/* 먼저 먹어야 할 재료 (있을 때만) */}
+      <NudgeSection items={nudge} />
+
       {/* 컴패니언 히어로 카드 */}
       <Card elevated className="items-center gap-4 px-6 py-8">
         <Avatar name={characterName} />
@@ -38,7 +86,7 @@ export default function HomeScreen() {
           <Text className="text-xl font-bold text-ink">{characterName}</Text>
           <View className="flex-row items-center gap-1.5">
             <View className="h-2 w-2 rounded-full bg-peach" />
-            <Text className="text-sm text-ink-soft">당신을 기억하고 있어요</Text>
+            <Text className="text-sm text-ink-soft">냉장고를 같이 관리해요</Text>
           </View>
         </View>
 
