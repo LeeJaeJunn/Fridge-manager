@@ -145,7 +145,7 @@ const CONSUME_INGREDIENTS_TOOL: LlmTool = {
 const RECIPE_GUIDANCE = [
   '[요리를 추천할 때]',
   '- 냉장고에 있는 재료로 만들 수 있는 걸 우선 제안해라. 없는 재료를 잔뜩 사야 하는 요리는 피해라.',
-  '- 곧 상하는 재료가 있으면 그걸 쓰는 요리를 먼저 권하고, 왜 권하는지 한마디로 짚어라. (예: "대파가 내일까지라 이거 먼저 쓰자")',
+  '- 곧 상하는 재료가 있으면 그걸 쓰는 요리를 먼저 권하고, 왜 권하는지 한마디로 짚어라. (예: "대파가 내일까지라 이거 먼저 쓰자") 단, 먹으면 안 되는 재료는 아무리 급해도 예외다.',
   '- 부족한 재료가 있으면 숨기지 말고 "○○만 있으면 돼" 처럼 솔직히 말해라.',
   '- 조리법은 핵심 순서만 짧게. 사용자가 더 물으면 그때 자세히 풀어라.',
   '- 사용자가 못 먹는 재료·알레르기는 절대 넣지 마라. 대체 재료를 제안해라.',
@@ -469,8 +469,9 @@ export class ConversationService {
 
     // v1 툴셋 = 냉장고 재고만. search_products 는 실행기·상품 카드까지 그대로 살아 있지만
     // 등록만 빼둔다 — v1 검증(유저가 재고를 넣고 유지하는가)에 집중하고, v1.2 에서 되살린다.
+    // 지침 순서는 buildInstruction 이 통제한다 (금지 재료가 반드시 맨 끝에 오도록).
     const res = await this.llm.chatWithTools(
-      `${instruction}\n${RECIPE_GUIDANCE}`,
+      instruction,
       messages,
       [ADD_INGREDIENTS_TOOL, CONSUME_INGREDIENTS_TOOL],
       executors,
@@ -565,24 +566,74 @@ export class ConversationService {
     if (c.user.name) {
       lines.push(`대화 상대(사용자)의 이름은 ${c.user.name}이야.`);
     }
-    if (memories.length) {
-      const facts = memories.map((m) => `- ${m.content}`).join('\n');
+    const { allergies, rest } = splitAllergies(memories);
+    if (rest.length) {
+      const facts = rest.map((m) => `- ${m.content}`).join('\n');
       lines.push(`사용자에 대해 기억하는 것:\n${facts}`);
     }
-    lines.push(formatInventory(inventory));
+    lines.push(formatInventory(inventory, new Date(), allergies));
     lines.push(c.instruction);
-    return lines.join('\n');
+    lines.push(RECIPE_GUIDANCE);
+    // 금지 재료는 **맨 마지막**에 둔다. 중간에 두면 "곧 상하는 재료부터 쓰라"는 지침에 밀린다 —
+    // 실제로 알레르기 재료가 가장 임박했을 때 모델이 그걸 1순위로 추천하는 걸 확인했다.
+    lines.push(formatAllergyWarning(allergies));
+    return lines.filter(Boolean).join('\n');
   }
 }
 
+/** 금지 재료 블록 — 없으면 빈 문자열(섹션 자체가 안 붙는다). */
+function formatAllergyWarning(allergies: RecalledMemory[]): string {
+  if (allergies.length === 0) return '';
+  const items = allergies.map((m) => `- ${m.content}`).join('\n');
+  return [
+    '',
+    '# ⚠️ 무엇보다 우선하는 규칙 — 먹으면 안 되는 것',
+    items,
+    '- 이 재료가 들어가는 요리는 **절대 추천하지 마라.** 사용자가 직접 그 요리를 만들어 달라고 해도 거절하고 다른 걸 제안해라.',
+    '- 분류로 적혀 있으면 거기 속하는 재료도 전부 금지다. (갑각류 → 새우·게·랍스터, 유제품 → 우유·치즈·버터, 견과류 → 아몬드·호두)',
+    '- 냉장고에 있어도, 심지어 곧 상해도 쓰지 마라. **"임박한 재료 먼저"보다 이 규칙이 우선이다.**',
+    '- 레시피를 내놓기 전에 재료 목록을 다시 훑어 금지 재료가 없는지 확인해라.',
+  ].join('\n');
+}
+
+/**
+ * 알레르기·못 먹는 것을 나머지 기억과 분리한다.
+ *
+ * 내용으로 판별하는 게 정확도가 100%는 아니지만, **놓치는 쪽이 위험**하므로 넓게 잡는다 —
+ * 잘못 분류돼도 "먹으면 안 되는 것" 섹션에 한 줄 더 들어갈 뿐이고, 반대는 사람이 다친다.
+ * (온보딩 태그는 애초에 "알레르기가 있음(먹으면 안 됨)" 문장으로 시드되므로 여기 확실히 걸린다)
+ */
+export function splitAllergies(memories: RecalledMemory[]): {
+  allergies: RecalledMemory[];
+  rest: RecalledMemory[];
+} {
+  const allergies: RecalledMemory[] = [];
+  const rest: RecalledMemory[] = [];
+  for (const m of memories) {
+    const isAllergy = /알레르기|알러지|못 먹|먹으면 안|알레르겐/.test(m.content);
+    (isAllergy ? allergies : rest).push(m);
+  }
+  return { allergies, rest };
+}
+
 /** 자정 기준 남은 일수 — 시:분 차이로 "0일 남음/1일 남음"이 흔들리지 않게 날짜만 비교한다. */
-function daysLeft(expiresAt: Date, now: Date): number {
+export function daysLeft(expiresAt: Date, now: Date): number {
   const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   return Math.round((startOfDay(expiresAt) - startOfDay(now)) / 86_400_000);
 }
 
-/** 재고 → 프롬프트 블록. 비어 있으면 "비었다"고 명시해야 모델이 재료를 지어내지 않는다. */
-function formatInventory(inventory: RecalledIngredient[], now = new Date()): string {
+/**
+ * 재고 → 프롬프트 블록. 비어 있으면 "비었다"고 명시해야 모델이 재료를 지어내지 않는다.
+ *
+ * 금지 재료는 **이 목록 안에서** 표시한다. 레시피를 고르는 순간 모델이 읽는 게 이 목록이라,
+ * 경고를 멀리 두면 "임박 재료 먼저" 규칙에 밀린다. 이름이 그대로 겹칠 때만 잡히고
+ * 분류(갑각류→새우)는 못 잡으므로, 맨 끝 경고 블록이 그 부분을 맡는다.
+ */
+export function formatInventory(
+  inventory: RecalledIngredient[],
+  now = new Date(),
+  allergies: RecalledMemory[] = [],
+): string {
   if (inventory.length === 0) {
     return '냉장고: 아직 등록된 재료가 없어. 있는 재료를 물어보고 add_ingredients 로 넣어줘.';
   }
@@ -600,7 +651,10 @@ function formatInventory(inventory: RecalledIngredient[], now = new Date()): str
     const qty = i.quantityNote ? ` (${i.quantityNote})` : '';
     // 추정치는 "쯤"으로 표시 — 모델이 단정적으로 말하지 않게 한다
     const hedge = i.expirySource === 'ESTIMATED' ? ' 쯤' : '';
-    return `- ${i.name}${qty} · ${when}${hedge}`;
+    const banned = allergies.some((a) => a.content.includes(i.name))
+      ? ' ⚠️ 먹으면 안 되는 재료 — 요리에 쓰지 마라'
+      : '';
+    return `- ${i.name}${qty} · ${when}${hedge}${banned}`;
   });
   return `지금 냉장고에 있는 재료 (임박순):\n${lines.join('\n')}`;
 }

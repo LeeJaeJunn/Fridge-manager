@@ -32,14 +32,26 @@ export interface CharacterOptionType {
 export interface CharacterLimitsType {
   nameMax: number;
   userNicknameMax: number;
-  interestsMax: number;
+}
+
+/**
+ * 온보딩 태그 한 그룹 (식성 / 알레르기 / 조리도구).
+ * 어떤 메모리 카테고리로 저장되는지는 서버 내부 사정이라 내려주지 않는다 — 화면은 라벨만 알면 된다.
+ */
+export interface CharacterTagGroupType {
+  key: string;
+  label: string;
+  /** 이 그룹을 왜 묻는지 한 줄 설명 (칩 위에 표시) */
+  hint: string;
+  /** 선택지. 값 자체가 표시 라벨이다 */
+  options: string[];
 }
 
 /** GET /characters/options — 온보딩 폼이 렌더할 선택지 + 입력 제한 (표시용) */
 export interface CharacterOptionsType {
   speechStyles: CharacterOptionType[];
-  /** 유저 관심사(선택형, 다중) */
-  interests: string[];
+  /** 식생활 태그 그룹 (선택형, 다중) */
+  tagGroups: CharacterTagGroupType[];
   limits: CharacterLimitsType;
 }
 
@@ -55,16 +67,18 @@ export interface CharacterType {
 /**
  * POST /characters — 캐릭터 생성.
  * 필수: name·speechStyle. 나머지는 선택.
- * interests 는 캐릭터에 저장되지 않고 장기 메모리(INTEREST)로 시드된다.
+ * tags 는 캐릭터에 저장되지 않고, 그룹에 따라 각기 다른 장기 메모리로 시드된다
+ * (식성→PREFERENCE / 알레르기→PROFILE / 조리도구→OWNERSHIP).
  */
 export interface CreateCharacterRequestType {
   name: string;
   speechStyle: SpeechStyleType;
   userNickname?: string;
-  interests?: string[];
+  /** 모든 그룹에서 고른 값을 한 배열로 (그룹 구분은 서버가 값으로 되찾는다) */
+  tags?: string[];
 }
 
-/** PATCH /characters/me — 부분 수정 (보낸 필드만 갱신). interests 는 메모리 API 로 관리. */
+/** PATCH /characters/me — 부분 수정 (보낸 필드만 갱신). tags 는 메모리 API 로 관리. */
 export interface UpdateCharacterRequestType {
   name?: string;
   speechStyle?: SpeechStyleType;

@@ -22,6 +22,7 @@ export type {
   CharacterLimitsType,
   CharacterOptionsType,
   CharacterOptionType,
+  CharacterTagGroupType,
   CharacterType,
   CreateCharacterRequestType,
   SpeechStyleType,

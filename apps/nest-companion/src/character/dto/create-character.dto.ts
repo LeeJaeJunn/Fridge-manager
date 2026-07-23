@@ -1,6 +1,6 @@
-import { ArrayMaxSize, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import type { CreateCharacterRequestType, SpeechStyleType } from '@companion/types';
-import { INTEREST_VALUES, LIMITS, SPEECH_STYLE_VALUES } from '../persona';
+import { LIMITS, SPEECH_STYLE_VALUES, TAG_VALUES } from '../persona';
 
 /**
  * POST /characters 요청 본문 — 캐릭터 생성.
@@ -22,9 +22,10 @@ export class CreateCharacterDto implements CreateCharacterRequestType {
   @MaxLength(LIMITS.userNicknameMax)
   userNickname?: string;
 
+  // 개수 상한은 두지 않는다 — @IsIn 이 값을 고정 vocab 으로 묶으므로 고를 수 있는 종류가 이미 유한하고,
+  // 같은 값이 반복돼도 서비스가 중복을 제거한다.
   @IsOptional()
   @IsString({ each: true })
-  @IsIn(INTEREST_VALUES, { each: true })
-  @ArrayMaxSize(LIMITS.interestsMax)
-  interests?: string[];
+  @IsIn(TAG_VALUES, { each: true })
+  tags?: string[];
 }

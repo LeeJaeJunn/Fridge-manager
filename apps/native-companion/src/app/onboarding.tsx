@@ -21,27 +21,31 @@ import type {
 
 const STEPS = [
   { title: '조언자를 정해줘', subtitle: '이름과 말투를 정하면 그 톤으로 대화해.' },
-  { title: '이제 네 얘기를 해줘', subtitle: '관심사를 기억해뒀다가 추천에 반영할 거야.' },
+  {
+    title: '이제 네 얘기를 해줘',
+    subtitle: '식성이랑 주방 사정을 기억해뒀다가 추천에 반영할 거야.',
+  },
 ];
 
 type Form = {
   name: string;
   speechStyle: SpeechStyleType | null;
   userNickname: string;
-  interests: string[];
+  /** 모든 그룹에서 고른 값을 한 배열로 (그룹 구분은 서버가 값으로 되찾는다) */
+  tags: string[];
 };
 
 const EMPTY: Form = {
   name: '',
   speechStyle: null,
   userNickname: '',
-  interests: [],
+  tags: [],
 };
 
 const INPUT = 'rounded-xl bg-sand px-4 py-3 text-base text-ink';
 const PLACEHOLDER = '#A1A1AA'; // ink-faint
 
-/** 문자열 목록 → 칩 옵션 (관심사는 한국어 라벨 자체가 값이다) */
+/** 문자열 목록 → 칩 옵션 (태그는 한국어 라벨 자체가 값이다) */
 const toOptions = (xs: string[]) => xs.map((x) => ({ value: x, label: x }));
 
 export default function OnboardingScreen() {
@@ -89,7 +93,7 @@ export default function OnboardingScreen() {
         speechStyle,
         // 선택 항목은 비었으면 아예 빼서 보낸다 (서버가 없는 필드는 null 로 둔다)
         ...(form.userNickname.trim() ? { userNickname: form.userNickname.trim() } : {}),
-        ...(form.interests.length > 0 ? { interests: form.interests } : {}),
+        ...(form.tags.length > 0 ? { tags: form.tags } : {}),
       };
       const created = await createCharacter(body);
       // 게이트 guard 가 뒤집혀 자동으로 홈(탭)으로 전환된다.
@@ -190,17 +194,21 @@ export default function OnboardingScreen() {
             </>
           )}
 
-          {/* 2. 유저 관심사 → 컴패니언의 첫 기억 */}
-          {step === 1 && (
-            <Field label="관심사 (선택)" hint="고른 관심사를 컴패니언이 기억해둬.">
-              <ChipGroup
-                options={toOptions(options.interests)}
-                values={form.interests}
-                onChange={(v) => set('interests', v)}
-                max={limits.interestsMax}
-              />
-            </Field>
-          )}
+          {/* 2. 식생활 태그 → 컴패니언의 첫 기억 (식성/알레르기/조리도구) */}
+          {step === 1 &&
+            options.tagGroups.map((g) => (
+              <Field key={g.key} label={`${g.label} (선택)`} hint={g.hint}>
+                <ChipGroup
+                  options={toOptions(g.options)}
+                  // 선택값은 그룹과 무관하게 한 배열로 모은다 — 다른 그룹의 선택을 지우지 않도록
+                  // 이 그룹에 속한 값만 넘기고, 변경분도 이 그룹 범위에서만 갈아끼운다.
+                  values={form.tags.filter((t) => g.options.includes(t))}
+                  onChange={(v) =>
+                    set('tags', [...form.tags.filter((t) => !g.options.includes(t)), ...v])
+                  }
+                />
+              </Field>
+            ))}
         </ScrollView>
 
         <View className="gap-2 px-6 pb-4">

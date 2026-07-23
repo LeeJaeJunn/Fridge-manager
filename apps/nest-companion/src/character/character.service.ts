@@ -6,7 +6,7 @@ import type {
   UpdateCharacterRequestType,
 } from '@companion/types';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { characterOptions, interestToMemoryContent } from './persona';
+import { characterOptions, tagToMemory } from './persona';
 import { PrismaService } from '../prisma/prisma.service';
 
 /** Prisma row → 클라이언트 계약(CharacterType) 변환. instruction 등 내부 필드는 애초에 없음(조립식). */
@@ -57,8 +57,10 @@ export class CharacterService {
 
   /**
    * 캐릭터 상세 생성 (유저당 1개).
-   * 캐릭터 생성 + 유저 관심사를 PREFERENCE 메모리로 시드하는 걸 **한 트랜잭션**으로 묶는다
-   * (반쪽 생성 방지). instruction 은 저장하지 않는다 — 프롬프트 시점에 필드에서 조립.
+   * 캐릭터 생성 + 온보딩 태그를 메모리로 시드하는 걸 **한 트랜잭션**으로 묶는다(반쪽 생성 방지).
+   * 태그는 그룹에 따라 서로 다른 카테고리·중요도로 들어간다
+   * (식성→PREFERENCE / 알레르기→PROFILE importance 3 / 조리도구→OWNERSHIP).
+   * instruction 은 저장하지 않는다 — 프롬프트 시점에 필드에서 조립.
    */
   async create(userId: string, dto: CreateCharacterRequestType): Promise<CharacterType> {
     const row = await this.prisma.$transaction(async (tx) => {
@@ -80,17 +82,18 @@ export class CharacterService {
         select: SELECT,
       });
 
-      // 유저 관심사 → PREFERENCE 메모리 시드 (기존과 정확일치 중복은 건너뜀 — 재생성 시 중복 방지)
-      const contents = (dto.interests ?? []).map(interestToMemoryContent);
-      if (contents.length > 0) {
+      // 온보딩 태그 → 메모리 시드 (기존과 정확일치 중복은 건너뜀 — 재생성 시 중복 방지)
+      // 요청 안의 중복도 먼저 제거한다 — DTO 는 값이 vocab 에 있는지만 보므로 같은 태그가 여러 번 올 수 있다.
+      const seeds = [...new Set(dto.tags ?? [])]
+        .map(tagToMemory)
+        .filter((s): s is NonNullable<typeof s> => s !== null);
+      if (seeds.length > 0) {
         const known = await tx.memory.findMany({
-          where: { userId, content: { in: contents } },
+          where: { userId, content: { in: seeds.map((s) => s.content) } },
           select: { content: true },
         });
         const knownSet = new Set(known.map((k) => k.content));
-        const fresh = contents
-          .filter((c) => !knownSet.has(c))
-          .map((content) => ({ userId, category: 'PREFERENCE' as const, content, importance: 2 }));
+        const fresh = seeds.filter((s) => !knownSet.has(s.content)).map((s) => ({ userId, ...s }));
         if (fresh.length > 0) {
           await tx.memory.createMany({ data: fresh });
         }
