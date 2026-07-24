@@ -49,3 +49,8 @@ export function consumeIngredient(id: string): Promise<void> {
 export function restoreIngredient(id: string): Promise<void> {
   return apiFetch<void>(`/inventory/${id}/restore`, { method: 'POST' });
 }
+
+/** 완전 삭제 (잘못 등록 — 이력에도 안 남긴다, 되돌리기 없음) */
+export function removeIngredient(id: string): Promise<void> {
+  return apiFetch<void>(`/inventory/${id}/hard`, { method: 'DELETE' });
+}

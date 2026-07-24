@@ -182,7 +182,14 @@ export class InventoryService {
     return rows.map(toDto);
   }
 
-  /** 교정용 부분 수정 (본인 것만). 유저가 만료일을 고치면 추정치가 USER 로 승격된다. */
+  /**
+   * 교정용 부분 수정 (본인 것만).
+   * 만료일 갱신 규칙 (우선순위 순):
+   *  1. 유저가 `expiresAt` 을 직접 주면 그 값 + `USER` 승격.
+   *  2. 표기일이 없고 **분류·보관이 실제로 바뀌면** 재추정 — 냉장 두부를 냉동으로 옮기면 더 오래가야
+   *     하는데, 유통기한 직접 편집이 없는 v1 에선 이게 유일한 조정 수단이다. (이미 USER 로 확정한 값은 건드리지 않는다)
+   *  3. 그 외엔 만료일 유지.
+   */
   async update(
     userId: string,
     id: string,
@@ -190,14 +197,26 @@ export class InventoryService {
   ): Promise<IngredientType> {
     const owned = await this.prisma.ingredient.findFirst({
       where: { id, userId },
-      select: { id: true },
+      select: { category: true, storage: true, addedAt: true, expirySource: true },
     });
     if (!owned) {
       throw new NotFoundException('재료를 찾을 수 없습니다.');
     }
 
-    const expiresAt = patch.expiresAt ? new Date(patch.expiresAt) : null;
-    const hasExpiry = expiresAt !== null && !Number.isNaN(expiresAt.getTime());
+    const userExpiry = patch.expiresAt ? new Date(patch.expiresAt) : null;
+    const hasUserExpiry = userExpiry !== null && !Number.isNaN(userExpiry.getTime());
+
+    const nextCategory = patch.category ?? owned.category;
+    const nextStorage = patch.storage ?? owned.storage;
+    const storageChanged = nextCategory !== owned.category || nextStorage !== owned.storage;
+    // 유저가 확정한 값(USER)은 존중하고, 추정치일 때만 분류·보관 변경에 맞춰 다시 추정한다.
+    const reEstimate = !hasUserExpiry && owned.expirySource !== 'USER' && storageChanged;
+
+    const expiryData = hasUserExpiry
+      ? { expiresAt: userExpiry, expirySource: 'USER' as const }
+      : reEstimate
+        ? { expiresAt: estimateExpiry(nextCategory, nextStorage, owned.addedAt) }
+        : {};
 
     const row = await this.prisma.ingredient.update({
       where: { id },
@@ -208,7 +227,7 @@ export class InventoryService {
           ? clip(patch.quantityNote, LIMITS.quantityNoteMax)
           : undefined,
         storage: patch.storage,
-        ...(hasExpiry ? { expiresAt, expirySource: 'USER' as const } : {}),
+        ...expiryData,
       },
       select: SELECT,
     });

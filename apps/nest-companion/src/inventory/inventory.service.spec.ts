@@ -364,6 +364,15 @@ describe('InventoryService', () => {
   });
 
   describe('update', () => {
+    // findFirst 는 재추정 판단에 쓸 현재 상태를 돌려준다(id 만이 아니다).
+    const ownedRow = (over: Record<string, unknown> = {}) => ({
+      category: 'PROCESSED',
+      storage: 'FRIDGE',
+      addedAt: new Date(),
+      expirySource: 'ESTIMATED',
+      ...over,
+    });
+
     it('남의 재료를 고치려 하면 NotFoundException', async () => {
       prisma.ingredient.findFirst.mockResolvedValue(null);
       await expect(service.update('u1', 'other', { name: 'x' })).rejects.toBeInstanceOf(
@@ -372,7 +381,7 @@ describe('InventoryService', () => {
     });
 
     it('만료일을 직접 고치면 추정치가 USER 로 승격된다', async () => {
-      prisma.ingredient.findFirst.mockResolvedValue({ id: 'i1' });
+      prisma.ingredient.findFirst.mockResolvedValue(ownedRow());
       const stated = new Date(Date.now() + 5 * MS_PER_DAY);
 
       await service.update('u1', 'i1', { expiresAt: stated.toISOString() });
@@ -382,10 +391,30 @@ describe('InventoryService', () => {
       expect(data.expiresAt.toISOString()).toBe(stated.toISOString());
     });
 
-    it('만료일을 안 건드리면 expirySource 를 바꾸지 않는다', async () => {
-      prisma.ingredient.findFirst.mockResolvedValue({ id: 'i1' });
+    it('분류·보관을 안 바꾸면 만료일·expirySource 를 건드리지 않는다', async () => {
+      prisma.ingredient.findFirst.mockResolvedValue(ownedRow());
       await service.update('u1', 'i1', { quantityNote: '반 팩' });
-      expect(writeArg(prisma.ingredient.update).data.expirySource).toBeUndefined();
+      const { data } = writeArg(prisma.ingredient.update);
+      expect(data.expirySource).toBeUndefined();
+      expect(data.expiresAt).toBeUndefined();
+    });
+
+    it('보관을 바꾸면 만료일을 재추정한다 (냉장→냉동은 더 오래간다)', async () => {
+      const addedAt = new Date();
+      prisma.ingredient.findFirst.mockResolvedValue(ownedRow({ category: 'MEAT', addedAt }));
+
+      await service.update('u1', 'i1', { storage: 'FREEZER' });
+
+      const { data } = writeArg(prisma.ingredient.update);
+      const days = Math.round((data.expiresAt.getTime() - addedAt.getTime()) / MS_PER_DAY);
+      expect(days).toBe(shelfLifeDays('MEAT', 'FREEZER'));
+      expect(days).toBeGreaterThan(shelfLifeDays('MEAT', 'FRIDGE'));
+    });
+
+    it('유저가 확정한 만료일(USER)은 보관을 바꿔도 재추정하지 않는다', async () => {
+      prisma.ingredient.findFirst.mockResolvedValue(ownedRow({ expirySource: 'USER' }));
+      await service.update('u1', 'i1', { storage: 'FREEZER' });
+      expect(writeArg(prisma.ingredient.update).data.expiresAt).toBeUndefined();
     });
   });
 });
