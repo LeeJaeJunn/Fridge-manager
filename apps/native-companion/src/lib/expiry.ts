@@ -30,12 +30,16 @@ export function freshness(expiresAt: string, now = new Date()): Freshness {
 /** 남은 기간 라벨. 추정치는 "쯤"을 붙여 단정하지 않는다(서버 표기와 일치). */
 export function expiryLabel(item: Pick<IngredientType, 'expiresAt' | 'expirySource'>): string {
   const d = daysLeft(item.expiresAt);
-  const approx = item.expirySource === 'ESTIMATED';
-  const suffix = approx ? '쯤' : '';
+  // 추정치에 "쯤"을 붙이는 표기는 잠시 꺼둠 — 되살리려면 아래 두 줄 주석을 푼다.
+  // const approx = item.expirySource === 'ESTIMATED';
+  // const suffix = approx ? '쯤' : '';
   if (d < 0) return `${-d}일 지남`;
-  if (d === 0) return `오늘까지${suffix}`;
-  if (d === 1) return `내일까지${suffix}`;
-  return `${d}일 남음${suffix}`;
+  // if (d === 0) return `오늘까지${suffix}`;
+  // if (d === 1) return `내일까지${suffix}`;
+  // return `${d}일 남음${suffix}`;
+  if (d === 0) return `오늘까지`;
+  if (d === 1) return `내일까지`;
+  return `${d}일 남음`;
 }
 
 /** 신선도 → 파스텔 틴트 토큰 (Chip/배지용). fresh 는 배지를 안 붙이는 게 보통이라 중립. */

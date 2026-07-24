@@ -1,19 +1,19 @@
-import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
-import {
-  addIngredients,
-  consumeIngredient,
-  fetchInventory,
-  fetchInventoryOptions,
-  removeIngredient,
-  restoreIngredient,
-  updateIngredient,
-} from '@/api/inventory';
 import { Button, Card, ChipGroup, Field, Screen } from '@/components';
+import { useInventory } from '@/context/inventory';
 import { expiryLabel, freshness, FRESHNESS_STYLE } from '@/lib/expiry';
 import type { IngredientType, InventoryOptionsType } from '@companion/types';
+
+/** FormValues → 서버 patch (문자열 값을 도메인 타입으로 좁힌다). */
+const toPatch = (v: FormValues) => ({
+  name: v.name,
+  category: v.category as IngredientType['category'],
+  storage: v.storage as IngredientType['storage'],
+  // 빈 문자열이면 서버가 미변경으로 처리 — v1 은 수량 비우기를 지원하지 않는다.
+  quantityNote: v.quantityNote,
+});
 
 /** 카테고리 이모지 — 라벨은 서버(options)가 주고, 글리프만 클라가 소유(정적·소수). */
 const CATEGORY_EMOJI: Record<string, string> = {
@@ -269,7 +269,7 @@ function UndoBanner({ name, onUndo }: { name: string; onUndo: () => void }) {
 }
 
 /** 재료 직접 추가 폼 (채팅이 주 입력이고, 이건 교정·보조 경로). */
-function AddForm({ options, onAdded }: { options: InventoryOptionsType; onAdded: () => void }) {
+function AddForm({ options, onAdd }: { options: InventoryOptionsType; onAdd: AddHandler }) {
   const [open, setOpen] = useState(false);
 
   if (!open) {
@@ -283,81 +283,42 @@ function AddForm({ options, onAdded }: { options: InventoryOptionsType; onAdded:
         submitLabel="추가"
         onCancel={() => setOpen(false)}
         onSubmit={async (v) => {
-          await addIngredients([
+          const patch = toPatch(v);
+          await onAdd([
             {
-              name: v.name,
-              category: v.category as IngredientType['category'],
-              storage: v.storage as IngredientType['storage'],
-              ...(v.quantityNote ? { quantityNote: v.quantityNote } : {}),
+              name: patch.name,
+              category: patch.category,
+              storage: patch.storage,
+              ...(patch.quantityNote ? { quantityNote: patch.quantityNote } : {}),
             },
           ]);
           setOpen(false);
-          onAdded();
         }}
       />
     </Card>
   );
 }
 
+type AddHandler = ReturnType<typeof useInventory>['add'];
+
 export default function FridgeScreen() {
-  const [items, setItems] = useState<IngredientType[]>([]);
-  const [options, setOptions] = useState<InventoryOptionsType | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // 재고는 전역 진실원천 — 이 화면은 구독만 하고, mutation 도 Provider 함수로 위임한다.
+  const { items, options, isLoading, error, consume, update, remove, restore, add } =
+    useInventory();
   const [undo, setUndo] = useState<{ id: string; name: string } | null>(null);
   const [filter, setFilter] = useState<string>('ALL'); // 'ALL' | 카테고리 value
 
-  const load = useCallback(() => {
-    Promise.all([fetchInventory(), fetchInventoryOptions()])
-      .then(([list, opts]) => {
-        setItems(list);
-        setOptions(opts);
-      })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : '오류'))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load]),
-  );
-
   async function handleConsume(item: IngredientType) {
-    // 목록에서 먼저 지워 반응성을 주고(낙관적), 되돌리기 배너를 띄운다.
-    setItems((prev) => prev.filter((i) => i.id !== item.id));
     setUndo({ id: item.id, name: item.name });
-    await consumeIngredient(item.id);
+    await consume(item.id);
   }
 
   async function handleUndo() {
     if (!undo) return;
-    await restoreIngredient(undo.id);
+    const { id } = undo;
     setUndo(null);
-    load();
+    await restore(id);
   }
-
-  async function handleUpdate(id: string, v: FormValues) {
-    const updated = await updateIngredient(id, {
-      name: v.name,
-      category: v.category as IngredientType['category'],
-      storage: v.storage as IngredientType['storage'],
-      // 빈 문자열이면 서버가 미변경으로 처리 — v1 은 수량 비우기를 지원하지 않는다.
-      quantityNote: v.quantityNote,
-    });
-    setItems((prev) => prev.map((i) => (i.id === id ? updated : i)));
-  }
-
-  async function handleDelete(id: string) {
-    // hard delete — 되돌리기 없음. 낙관적으로 지운다.
-    setItems((prev) => prev.filter((i) => i.id !== id));
-    await removeIngredient(id);
-  }
-
-  const sorted = useMemo(
-    () => [...items].sort((a, b) => a.expiresAt.localeCompare(b.expiresAt)),
-    [items],
-  );
 
   // 데이터에 실제로 있는 분류만 칩으로 (options 순서 유지 — 빈 필터 방지).
   const presentCategories = useMemo(() => {
@@ -371,8 +332,8 @@ export default function FridgeScreen() {
   // 상태(filter)를 직접 되돌리지 않고 파생값으로만 처리한다(effect 내 setState 금지 규칙 준수).
   const activeFilter =
     filter === 'ALL' || presentCategories.some((c) => c.value === filter) ? filter : 'ALL';
-  const visible =
-    activeFilter === 'ALL' ? sorted : sorted.filter((i) => i.category === activeFilter);
+  // items 는 Provider 가 이미 임박순으로 유지한다.
+  const visible = activeFilter === 'ALL' ? items : items.filter((i) => i.category === activeFilter);
 
   return (
     <Screen scroll edges={['top']} contentClassName="gap-5 px-6 py-6">
@@ -383,7 +344,7 @@ export default function FridgeScreen() {
         </Text>
       </View>
 
-      {loading ? (
+      {isLoading ? (
         <ActivityIndicator color="#A78BFA" className="mt-8" />
       ) : (
         <>
@@ -412,7 +373,7 @@ export default function FridgeScreen() {
             </ScrollView>
           ) : null}
 
-          {sorted.length === 0 ? (
+          {items.length === 0 ? (
             <Text className="mt-6 text-center text-ink-faint">
               아직 담긴 재료가 없어요.{'\n'}장 보고 와서 “뭐뭐 샀어”라고 말해보세요.
             </Text>
@@ -425,15 +386,15 @@ export default function FridgeScreen() {
                       item={item}
                       options={options}
                       onConsume={() => handleConsume(item)}
-                      onUpdate={(v) => handleUpdate(item.id, v)}
-                      onDelete={() => handleDelete(item.id)}
+                      onUpdate={(v) => update(item.id, toPatch(v))}
+                      onDelete={() => remove(item.id)}
                     />
                   ))
                 : null}
             </View>
           )}
 
-          {options ? <AddForm options={options} onAdded={load} /> : null}
+          {options ? <AddForm options={options} onAdd={add} /> : null}
         </>
       )}
 

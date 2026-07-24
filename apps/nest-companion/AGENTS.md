@@ -81,7 +81,7 @@
 - **병합**: 같은 이름을 다시 넣으면 새 row 가 아니라 기존 미소비 재고에 병합한다. 만료일·보관·분류는 **새로 넣은 값으로 갱신**한다(재입고 = 방금 산 게 주). 수량을 개별 추적하지 않으므로 옛 재고 기준으로 잡을 근거가 없다. 수량 메모는 이번에 안 적었으면 기존 표시를 유지.
 - `shelf-life.ts` = 소비기한 추정 + 카테고리·보관위치 vocab·라벨·`LIMITS` 의 **단일 진실원천**(persona.ts 와 같은 패턴, `GET /inventory/options` 로 내려줌). 순수 로직이라 DB·LLM 없이 테스트된다.
 - 채팅 툴(`add_ingredients`/`consume_ingredients`)이 `InventoryService` 를 **직접** 호출한다(HTTP 안 탐). 아래 컨트롤러는 냉장고 화면의 **수동 교정 경로**다.
-- API(`InventoryModule`, 전부 현재 유저 기준): `GET /inventory`(임박순), `GET /inventory/expiring?days=N`(홈 "먼저 먹어요"), `GET /inventory/options`, `POST /inventory`(여러 건), `PATCH /inventory/:id`(교정 — 만료일 고치면 `USER` 승격), `DELETE /inventory/:id`(=consume, soft), `POST /inventory/:id/restore`, `DELETE /inventory/:id/hard`. `:id` 라우트는 반드시 리터럴 경로(`options`/`expiring`) **아래**에 둔다(Nest 는 선언순 매칭).
+- API(`InventoryModule`, 전부 현재 유저 기준): `GET /inventory`(임박순), `GET /inventory/expiring?days=N`(홈 "먼저 먹어요"), `GET /inventory/options`, `POST /inventory`(여러 건), `PATCH /inventory/:id`(교정 — 만료일 직접 고치면 `USER` 승격, 표기일 없이 분류·보관만 바꾸면 만료일 재추정. 유통기한 직접 편집이 없는 앱에선 보관 변경이 유일한 간접 조정 수단), `DELETE /inventory/:id`(=consume, soft), `POST /inventory/:id/restore`, `DELETE /inventory/:id/hard`. `:id` 라우트는 반드시 리터럴 경로(`options`/`expiring`) **아래**에 둔다(Nest 는 선언순 매칭).
 
 ## 커머스 — 상품 검색 (Commerce, v1.2 대기)
 

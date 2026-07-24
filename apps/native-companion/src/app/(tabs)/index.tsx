@@ -1,11 +1,10 @@
-import { Link, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { Link } from 'expo-router';
 import { Text, View } from 'react-native';
 
-import { fetchExpiring } from '@/api/inventory';
 import { Avatar, Button, Card, Screen } from '@/components';
 import { useAuth } from '@/context/auth';
 import { useCharacter } from '@/context/character';
+import { useInventory } from '@/context/inventory';
 import { expiryLabel, freshness, FRESHNESS_STYLE } from '@/lib/expiry';
 import type { IngredientType } from '@companion/types';
 
@@ -55,17 +54,8 @@ function NudgeSection({ items }: { items: IngredientType[] }) {
 export default function HomeScreen() {
   const { user } = useAuth();
   const { character } = useCharacter();
+  const { expiring } = useInventory();
   const characterName = character?.name ?? '컴패니언';
-  const [nudge, setNudge] = useState<IngredientType[]>([]);
-
-  useFocusEffect(
-    useCallback(() => {
-      // 실패해도 홈은 떠야 하므로 조용히 무시한다(부가 정보).
-      fetchExpiring(1)
-        .then(setNudge)
-        .catch(() => {});
-    }, []),
-  );
 
   return (
     <Screen scroll contentClassName="gap-7 px-6 pb-10 pt-4">
@@ -76,7 +66,7 @@ export default function HomeScreen() {
       </View>
 
       {/* 먼저 먹어야 할 재료 (있을 때만) */}
-      <NudgeSection items={nudge} />
+      <NudgeSection items={expiring} />
 
       {/* 컴패니언 히어로 카드 */}
       <Card elevated className="items-center gap-4 px-6 py-8">

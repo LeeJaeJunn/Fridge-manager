@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider, useAuth } from '@/context/auth';
 import { CharacterProvider, useCharacter } from '@/context/character';
+import { InventoryProvider } from '@/context/inventory';
 
 // auth/캐릭터 로딩이 끝날 때까지 스플래시 유지 → 온보딩/홈 깜빡임 방지
 void SplashScreen.preventAutoHideAsync();
@@ -67,8 +68,10 @@ export default function RootLayout() {
       <StatusBar style="dark" />
       <AuthProvider>
         <CharacterProvider>
-          <SplashScreenController />
-          <RootNavigator />
+          <InventoryProvider>
+            <SplashScreenController />
+            <RootNavigator />
+          </InventoryProvider>
         </CharacterProvider>
       </AuthProvider>
     </SafeAreaProvider>

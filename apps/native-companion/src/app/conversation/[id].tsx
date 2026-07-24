@@ -13,6 +13,7 @@ import {
 
 import { fetchConversation, sendMessage, startConversation } from '@/api/conversation';
 import { Bubble, Button, ProductCard, Screen } from '@/components';
+import { useInventory } from '@/context/inventory';
 import type { MessageType } from '@companion/types';
 
 export default function ConversationScreen() {
@@ -27,6 +28,17 @@ export default function ConversationScreen() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+
+  // 채팅으로 재료가 추가·차감됐을 수 있다(서버 tool-use). 화면을 나갈 때 한 번만 전역 재고를 새로고침한다
+  // — 채팅 중엔 냉장고·홈이 안 보이니 매 메시지 갱신은 불필요하다. 실제로 대화했을 때만(dirty) 갱신한다.
+  // refresh 는 Provider 에서 useCallback 으로 안정화돼 있어 effect 가 재등록되지 않는다(언마운트 시 1회 cleanup).
+  const { refresh } = useInventory();
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    return () => {
+      if (dirtyRef.current) void refresh();
+    };
+  }, [refresh]);
 
   // 기존 대화면 메시지 로드 (새 대화는 빈 화면)
   useEffect(() => {
@@ -64,6 +76,7 @@ export default function ConversationScreen() {
         const assistant = await sendMessage(conversationId, { content });
         setMessages((prev) => [...prev, assistant]);
       }
+      dirtyRef.current = true; // 대화가 오갔으니 나갈 때 재고를 다시 확인한다
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '전송에 실패했습니다');
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
