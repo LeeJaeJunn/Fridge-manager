@@ -61,7 +61,7 @@ const SEARCH_PRODUCTS_TOOL: LlmTool = {
 const ADD_INGREDIENTS_TOOL: LlmTool = {
   name: 'add_ingredients',
   description:
-    '사용자가 식재료를 샀거나 냉장고에 있다고 말하면 재고에 넣는다. 여러 개면 한 번에 배열로 넣어라. 이미 있는 재료를 다시 말하면 서버가 알아서 병합하므로 중복 걱정은 하지 마라. 요리 얘기만 하거나 재료 보유와 무관한 대화에서는 호출하지 않는다.',
+    '사용자가 식재료를 샀거나 냉장고에 있다고 말하면 재고에 넣는다. 여러 개면 한 번에 배열로 넣어라. 이미 있는 재료를 다시 말하면 서버가 한 줄로 병합한다 — 단 수량은 서버가 더해주지 않으니, 재입고면 quantityNote 에 기존 재고와 이번에 산 양을 합친 현재 총량을 직접 적어라. 요리 얘기만 하거나 재료 보유와 무관한 대화에서는 호출하지 않는다.',
   parameters: {
     type: 'object',
     properties: {
@@ -79,7 +79,8 @@ const ADD_INGREDIENTS_TOOL: LlmTool = {
             },
             quantityNote: {
               type: 'string',
-              description: '수량을 사용자가 말한 그대로 ("한 판", "1L", "두 봉지"). 없으면 생략',
+              description:
+                '지금 냉장고에 있는 총량을 사용자 표현 그대로 ("한 판", "1L", "두 봉지"). 이미 있던 재료를 더 샀다면 프롬프트의 기존 재고 수량에 이번에 산 양을 더한 합계를 적어라 (예: 기존 5개 + 2개 구매 → "7개"). 서버는 이 값으로 덮어쓰며 수량을 더하지 않는다. 모르면 생략',
             },
             storage: {
               type: 'string',
