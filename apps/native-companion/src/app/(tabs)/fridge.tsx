@@ -1,19 +1,11 @@
+import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
-import { Button, Card, ChipGroup, Field, Screen } from '@/components';
+import { Card, IngredientForm, Screen, Sheet, toPatch, type FormValues } from '@/components';
 import { useInventory } from '@/context/inventory';
 import { expiryLabel, freshness, FRESHNESS_STYLE } from '@/lib/expiry';
 import type { IngredientType, InventoryOptionsType } from '@companion/types';
-
-/** FormValues → 서버 patch (문자열 값을 도메인 타입으로 좁힌다). */
-const toPatch = (v: FormValues) => ({
-  name: v.name,
-  category: v.category as IngredientType['category'],
-  storage: v.storage as IngredientType['storage'],
-  // 빈 문자열이면 서버가 미변경으로 처리 — v1 은 수량 비우기를 지원하지 않는다.
-  quantityNote: v.quantityNote,
-});
 
 /** 카테고리 이모지 — 라벨은 서버(options)가 주고, 글리프만 클라가 소유(정적·소수). */
 const CATEGORY_EMOJI: Record<string, string> = {
@@ -29,89 +21,6 @@ const CATEGORY_EMOJI: Record<string, string> = {
   FROZEN: '🧊',
   ETC: '📦',
 };
-
-const INPUT = 'rounded-xl bg-sand px-4 py-3 text-base text-ink';
-const PLACEHOLDER = '#A1A1AA';
-
-/** 폼이 돌려주는 값 — 추가·수정이 같은 모양을 쓴다(유통기한은 v1 편집 대상 아님). */
-type FormValues = {
-  name: string;
-  category: string;
-  storage: string;
-  quantityNote: string;
-};
-
-/** 재료 입력 필드 묶음 — 직접 추가와 수정이 공유한다. */
-function IngredientForm({
-  options,
-  initial,
-  submitLabel,
-  onSubmit,
-  onCancel,
-}: {
-  options: InventoryOptionsType;
-  initial?: Partial<FormValues>;
-  submitLabel: string;
-  onSubmit: (v: FormValues) => Promise<void>;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState(initial?.name ?? '');
-  const [category, setCategory] = useState(initial?.category ?? 'ETC');
-  const [storage, setStorage] = useState(initial?.storage ?? 'FRIDGE');
-  const [quantityNote, setQuantityNote] = useState(initial?.quantityNote ?? '');
-  const [saving, setSaving] = useState(false);
-
-  async function submit() {
-    if (saving || !name.trim()) return;
-    setSaving(true);
-    try {
-      await onSubmit({ name: name.trim(), category, storage, quantityNote: quantityNote.trim() });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <View className="gap-4">
-      <Field label="재료 이름">
-        <TextInput
-          className={INPUT}
-          value={name}
-          onChangeText={setName}
-          placeholder="예: 두부"
-          placeholderTextColor={PLACEHOLDER}
-          maxLength={options.limits.nameMax}
-          returnKeyType="done"
-        />
-      </Field>
-      <Field label="분류">
-        <ChipGroup options={options.categories} value={category} onChange={setCategory} />
-      </Field>
-      <Field label="보관">
-        <ChipGroup options={options.storages} value={storage} onChange={setStorage} />
-      </Field>
-      <Field label="수량 (선택)">
-        <TextInput
-          className={INPUT}
-          value={quantityNote}
-          onChangeText={setQuantityNote}
-          placeholder="예: 한 모, 2개, 반 팩"
-          placeholderTextColor={PLACEHOLDER}
-          maxLength={options.limits.quantityNoteMax}
-          returnKeyType="done"
-        />
-      </Field>
-      <View className="flex-row gap-2">
-        <View className="flex-1">
-          <Button label="취소" variant="secondary" onPress={onCancel} />
-        </View>
-        <View className="flex-1">
-          <Button label={submitLabel} onPress={submit} loading={saving} disabled={!name.trim()} />
-        </View>
-      </View>
-    </View>
-  );
-}
 
 function IngredientCard({
   item,
@@ -268,45 +177,87 @@ function UndoBanner({ name, onUndo }: { name: string; onUndo: () => void }) {
   );
 }
 
-/** 재료 직접 추가 폼 (채팅이 주 입력이고, 이건 교정·보조 경로). */
-function AddForm({ options, onAdd }: { options: InventoryOptionsType; onAdd: AddHandler }) {
-  const [open, setOpen] = useState(false);
+/**
+ * 재고 추가 수단 — 사진·영수증은 v1 이후 기능이라 지금은 `ready:false`("준비 중" 비활성).
+ * 나중에 구현되면 `ready:true` 로 바꾸고 아래 onPress 분기에 핸들러만 연결하면 된다.
+ */
+const ADD_METHODS = [
+  { key: 'photo', emoji: '📷', label: '사진 촬영', desc: '냉장고를 찍어 재료 인식', ready: false },
+  {
+    key: 'receipt',
+    emoji: '🧾',
+    label: '영수증 인식',
+    desc: '영수증으로 한 번에 등록',
+    ready: false,
+  },
+  { key: 'manual', emoji: '✏️', label: '직접 입력', desc: '이름·분류·수량을 직접', ready: true },
+] as const;
 
-  if (!open) {
-    return <Button label="+ 재료 직접 추가" variant="secondary" onPress={() => setOpen(true)} />;
-  }
-
+/**
+ * 재고 추가 방법 선택 바텀시트. + 를 누르면 올라온다.
+ * 지금은 "직접 입력"만 동작하고 사진·영수증은 자리만 잡아둔다(레이아웃 최종형 → 나중엔 핸들러만).
+ */
+function AddMethodSheet({
+  visible,
+  onClose,
+  onManual,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onManual: () => void;
+}) {
   return (
-    <Card radius="3xl" className="px-5 py-5">
-      <IngredientForm
-        options={options}
-        submitLabel="추가"
-        onCancel={() => setOpen(false)}
-        onSubmit={async (v) => {
-          const patch = toPatch(v);
-          await onAdd([
-            {
-              name: patch.name,
-              category: patch.category,
-              storage: patch.storage,
-              ...(patch.quantityNote ? { quantityNote: patch.quantityNote } : {}),
-            },
-          ]);
-          setOpen(false);
-        }}
-      />
-    </Card>
+    <Sheet visible={visible} onClose={onClose}>
+      <View className="mb-3 gap-0.5 px-1">
+        <Text className="text-lg font-bold text-ink">재고 추가</Text>
+        <Text className="text-sm text-ink-soft">어떻게 넣을까요?</Text>
+      </View>
+
+      <View className="gap-2">
+        {ADD_METHODS.map((m) => (
+          <Pressable
+            key={m.key}
+            disabled={!m.ready}
+            onPress={() => {
+              if (m.key === 'manual') onManual();
+            }}
+            className={`flex-row items-center gap-3 rounded-2xl border border-line px-4 py-3.5 ${
+              m.ready ? 'active:bg-sand' : 'opacity-55'
+            }`}
+          >
+            <Text className="text-2xl">{m.emoji}</Text>
+            <View className="flex-1 gap-0.5">
+              <View className="flex-row items-center gap-2">
+                <Text className="text-base font-semibold text-ink">{m.label}</Text>
+                {!m.ready ? (
+                  <View className="rounded-full bg-sand px-2 py-0.5">
+                    <Text className="text-[11px] font-medium text-ink-faint">준비 중</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text className="text-xs text-ink-faint">{m.desc}</Text>
+            </View>
+            {m.ready ? <Text className="text-lg text-lavender">›</Text> : null}
+          </Pressable>
+        ))}
+      </View>
+
+      {/* 주 입력은 채팅 — 상기시키는 힌트 */}
+      <Text className="mt-4 text-center text-xs text-ink-faint">
+        💬 채팅으로 “계란 샀어”라고 말해도 담겨요
+      </Text>
+    </Sheet>
   );
 }
 
-type AddHandler = ReturnType<typeof useInventory>['add'];
-
 export default function FridgeScreen() {
+  const router = useRouter();
   // 재고는 전역 진실원천 — 이 화면은 구독만 하고, mutation 도 Provider 함수로 위임한다.
-  const { items, options, isLoading, error, consume, update, remove, restore, add } =
-    useInventory();
+  const { items, options, isLoading, error, consume, update, remove, restore } = useInventory();
   const [undo, setUndo] = useState<{ id: string; name: string } | null>(null);
   const [filter, setFilter] = useState<string>('ALL'); // 'ALL' | 카테고리 value
+  // 추가 흐름: none → (+ 탭) picker(방법 선택 시트) → (직접 입력) /inventory/add 모달 라우트
+  const [picking, setPicking] = useState(false);
 
   async function handleConsume(item: IngredientType) {
     setUndo({ id: item.id, name: item.name });
@@ -337,12 +288,35 @@ export default function FridgeScreen() {
 
   return (
     <Screen scroll edges={['top']} contentClassName="gap-5 px-6 py-6">
-      <View className="gap-1">
-        <Text className="text-2xl font-bold text-ink">내 냉장고</Text>
-        <Text className="text-sm text-ink-soft">
-          채팅으로 “계란 샀어”라고 말해도 여기 담겨요. ⋯ 를 눌러 수정·삭제해요.
-        </Text>
+      <View className="flex-row items-start justify-between gap-3">
+        <View className="flex-1 gap-1">
+          <Text className="text-2xl font-bold text-ink">내 냉장고</Text>
+          <Text className="text-sm text-ink-soft">
+            채팅으로 “계란 샀어”라고 말해도 여기 담겨요. ⋯ 를 눌러 수정·삭제해요.
+          </Text>
+        </View>
+        {options ? (
+          <Pressable
+            onPress={() => setPicking(true)}
+            hitSlop={8}
+            accessibilityLabel="재고 추가"
+            // className="h-10 w-10 items-center justify-center rounded-full bg-lavender active:bg-lavender-deep"
+            className="items-center justify-center"
+          >
+            <Text className="text-2xl leading-none text-ink">+</Text>
+          </Pressable>
+        ) : null}
       </View>
+
+      {/* 추가 방법 선택 시트 (+ 탭) → "직접 입력" 고르면 모달 라우트로 이동 */}
+      <AddMethodSheet
+        visible={picking}
+        onClose={() => setPicking(false)}
+        onManual={() => {
+          setPicking(false);
+          router.push('/inventory/add');
+        }}
+      />
 
       {isLoading ? (
         <ActivityIndicator color="#A78BFA" className="mt-8" />
@@ -393,8 +367,6 @@ export default function FridgeScreen() {
                 : null}
             </View>
           )}
-
-          {options ? <AddForm options={options} onAdd={add} /> : null}
         </>
       )}
 

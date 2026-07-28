@@ -5,6 +5,7 @@
   "dependencies": {
     "@companion/types": "workspace:*",
     "@expo/ui": "~56.0.18",
+    "@react-native-community/datetimepicker": "9.1.0",
     "expo": "~56.0.12",
     "expo-constants": "~56.0.18",
     "expo-device": "~56.0.4",

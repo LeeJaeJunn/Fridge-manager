@@ -90,4 +90,13 @@ export interface InventoryOptionsType {
     quantityNoteMax: number;
     itemsMax: number;
   };
+  /**
+   * 카테고리×보관위치 → 소비기한 일수. 추가 폼에서 "기본값(자동 추정)" 만료일을
+   * 미리 보여주기 위한 것 — 서버 추정과 같은 표(shelf-life)를 내려준다.
+   * storage → category → days. 없는 조합은 defaultDays 로 폴백한다.
+   */
+  shelfLife: {
+    days: Record<string, Record<string, number>>;
+    defaultDays: number;
+  };
 }

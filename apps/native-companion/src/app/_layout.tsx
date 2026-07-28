@@ -43,6 +43,10 @@ function RootNavigator() {
       <Stack.Protected guard={isAuthed && !!character}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="conversation/[id]" />
+        <Stack.Screen
+          name="inventory/add"
+          options={{ ...THEMED_HEADER, title: '재료 추가', presentation: 'modal' }}
+        />
         <Stack.Screen name="settings/account" options={{ ...THEMED_HEADER, title: '계정' }} />
         <Stack.Screen
           name="settings/character"

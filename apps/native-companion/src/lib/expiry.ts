@@ -53,3 +53,26 @@ export const FRESHNESS_STYLE: Record<Freshness, { bg: string; text: string }> = 
 /** 홈 "먼저 먹어요" 섹션에 올릴지 — 오늘 이내이거나 이미 지난 것. */
 export const shouldNudge = (item: Pick<IngredientType, 'expiresAt'>): boolean =>
   daysLeft(item.expiresAt) <= 0;
+
+/**
+ * 홈 "냉장고 현황" 카드용 재고 요약.
+ * 버킷은 서로 겹치지 않아 today+week+rest = total 이다.
+ * `today` 는 오늘까지(지남 포함) — `shouldNudge` 와 같은 기준이라 "먼저 먹어요" 목록 개수와 일치한다.
+ */
+export type InventorySummary = { total: number; today: number; week: number; rest: number };
+
+export function summarize(
+  items: Pick<IngredientType, 'expiresAt'>[],
+  now = new Date(),
+): InventorySummary {
+  let today = 0;
+  let week = 0;
+  let rest = 0;
+  for (const item of items) {
+    const d = daysLeft(item.expiresAt, now);
+    if (d <= 0) today += 1;
+    else if (d <= 7) week += 1;
+    else rest += 1;
+  }
+  return { total: items.length, today, week, rest };
+}

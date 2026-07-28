@@ -130,5 +130,7 @@ export function inventoryOptions(): InventoryOptionsType {
     categories: CATEGORY_VALUES.map((value) => ({ value, label: CATEGORY_LABELS[value] })),
     storages: STORAGE_VALUES.map((value) => ({ value, label: STORAGE_LABELS[value] })),
     limits: { ...LIMITS },
+    // estimateExpiry 와 같은 표를 내려줘 클라가 "기본값" 만료일을 미리 계산해 보여준다.
+    shelfLife: { days: TABLES, defaultDays: DEFAULT_DAYS },
   };
 }

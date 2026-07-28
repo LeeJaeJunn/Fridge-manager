@@ -1,12 +1,14 @@
-import { Link } from 'expo-router';
-import { Text, View } from 'react-native';
+import { Link, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
 
+import { fetchConversations } from '@/api/conversation';
 import { Avatar, Button, Card, Screen } from '@/components';
 import { useAuth } from '@/context/auth';
 import { useCharacter } from '@/context/character';
 import { useInventory } from '@/context/inventory';
-import { expiryLabel, freshness, FRESHNESS_STYLE } from '@/lib/expiry';
-import type { IngredientType } from '@companion/types';
+import { expiryLabel, freshness, FRESHNESS_STYLE, summarize } from '@/lib/expiry';
+import type { ConversationSummaryType, IngredientType } from '@companion/types';
 
 /** 시간대에 맞춘 인사 */
 function greeting(): string {
@@ -19,6 +21,104 @@ function greeting(): string {
 
 // 홈에서 바로 대화를 시작할 수 있는 가벼운 시작 문구들 (요리 중심)
 const PROMPTS = ['오늘 뭐 해먹지?', '장 보고 왔어', '냉장고 털어줘'];
+
+// 현황 카드 3분할 타일 — key 는 summarize() 결과 필드와 맞춘다. 색은 급함 정도(peach→amber→mint).
+const STATUS_TILES = [
+  { key: 'today', label: '오늘까지', color: 'text-peach' },
+  { key: 'week', label: '이번주', color: 'text-amber-deep' },
+  { key: 'rest', label: '여유', color: 'text-mint-deep' },
+] as const;
+
+/** "냉장고 현황" — 전체 재고를 한눈에. 인사 바로 아래에서 앱을 연 순간 상태를 잡아준다. */
+function FridgeStatus({ items, isLoading }: { items: IngredientType[]; isLoading: boolean }) {
+  const summary = summarize(items);
+  const showEmpty = !isLoading && summary.total === 0;
+
+  return (
+    <Card radius="3xl" className="gap-4 px-5 py-4">
+      <View className="gap-0.5">
+        <Text className="text-base font-bold text-ink">🧊 냉장고 현황</Text>
+        <Text className="text-sm text-ink-soft">
+          {isLoading ? '불러오는 중…' : `총 ${summary.total}개 보관 중`}
+        </Text>
+      </View>
+
+      {showEmpty ? (
+        <View className="gap-1 py-1">
+          <Text className="text-[15px] text-ink">아직 등록된 재료가 없어요</Text>
+          <Text className="text-sm text-ink-faint">채팅으로 “계란 샀어”처럼 알려주세요</Text>
+        </View>
+      ) : (
+        <View className="flex-row">
+          {STATUS_TILES.map((tile, i) => {
+            const n = summary[tile.key];
+            const dim = isLoading || n === 0;
+            return (
+              <View
+                key={tile.key}
+                className={`flex-1 items-center gap-1 ${i > 0 ? 'border-l border-line' : ''}`}
+              >
+                <Text className={`text-3xl font-bold ${dim ? 'text-ink-faint' : tile.color}`}>
+                  {isLoading ? '–' : n}
+                </Text>
+                <Text className="text-xs text-ink-soft">{tile.label}</Text>
+              </View>
+            );
+          })}
+        </View>
+      )}
+    </Card>
+  );
+}
+
+/** 최근 대화 시각을 사람 말로 — "방금 / N분 전 / N시간 전 / N일 전 / M월 D일". */
+function relativeTime(iso: string, now = Date.now()): string {
+  const min = Math.floor((now - new Date(iso).getTime()) / 60_000);
+  if (min < 1) return '방금';
+  if (min < 60) return `${min}분 전`;
+  if (min < 60 * 24) return `${Math.floor(min / 60)}시간 전`;
+  if (min < 60 * 24 * 7) return `${Math.floor(min / (60 * 24))}일 전`;
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+}
+
+/** 홈에 보여줄 최근 대화 개수 — 넘치면 "전체 보기"로 넘긴다. */
+const RECENT_LIMIT = 3;
+
+/**
+ * "최근 대화" — 흰 카드 안에 최근 대화 몇 개를 디바이더로 구분해 담는다.
+ * 각 줄을 누르면 그 대화로 바로 들어간다. 대화가 없으면 아예 렌더하지 않는다(호출부에서 가드).
+ */
+function RecentConversations({ conversations }: { conversations: ConversationSummaryType[] }) {
+  const shown = conversations.slice(0, RECENT_LIMIT);
+  return (
+    <Card radius="3xl" className="px-5 py-4">
+      <Text className="mb-1 text-base font-bold text-ink">💬 최근 대화</Text>
+      {shown.map((c, i) => (
+        <Link key={c.id} href={`/conversation/${c.id}`} asChild>
+          <Pressable
+            className={`flex-row items-center gap-3 py-3 active:opacity-60 ${
+              i > 0 ? 'border-t border-line' : ''
+            }`}
+          >
+            <View className="flex-1 gap-0.5">
+              <Text numberOfLines={1} className="text-[15px] text-ink">
+                {c.preview ?? '새 대화'}
+              </Text>
+              <Text className="text-xs text-ink-faint">{relativeTime(c.updatedAt)}</Text>
+            </View>
+            <Text className="text-lg text-lavender">›</Text>
+          </Pressable>
+        </Link>
+      ))}
+      {conversations.length > RECENT_LIMIT ? (
+        <Link href="/chat" asChild>
+          <Text className="mt-3 text-sm font-medium text-lavender">대화 전체 보기 ›</Text>
+        </Link>
+      ) : null}
+    </Card>
+  );
+}
 
 /** "먼저 먹어요" — 오늘까지거나 이미 지난 재료. 앱을 열 이유를 만드는 자리라 맨 위에 둔다. */
 function NudgeSection({ items }: { items: IngredientType[] }) {
@@ -54,19 +154,30 @@ function NudgeSection({ items }: { items: IngredientType[] }) {
 export default function HomeScreen() {
   const { user } = useAuth();
   const { character } = useCharacter();
-  const { expiring } = useInventory();
+  const { items, expiring, isLoading } = useInventory();
   const characterName = character?.name ?? '컴패니언';
 
+  // 최근 대화 — 채팅 후 반영되게 focus 마다 갱신. 홈의 부가 섹션이라 실패해도 조용히 숨긴다.
+  const [recents, setRecents] = useState<ConversationSummaryType[]>([]);
+  useFocusEffect(
+    useCallback(() => {
+      void (async () => {
+        try {
+          setRecents(await fetchConversations());
+        } catch {
+          // 인벤토리 loadOptions 와 같은 방침 — 부가 정보라 실패해도 화면은 그대로.
+        }
+      })();
+    }, []),
+  );
+
   return (
-    <Screen scroll contentClassName="gap-7 px-6 pb-10 pt-4">
+    <Screen scroll contentClassName="gap-2 px-6 pb-10 pt-4">
       {/* 인사 */}
       <View className="gap-1">
         <Text className="text-3xl font-bold text-ink">안녕하세요, {user?.name}님!</Text>
         <Text className="text-base text-ink-soft">{greeting()}</Text>
       </View>
-
-      {/* 먼저 먹어야 할 재료 (있을 때만) */}
-      <NudgeSection items={expiring} />
 
       {/* 컴패니언 히어로 카드 */}
       <Card elevated className="items-center gap-4 px-6 py-8">
@@ -84,6 +195,15 @@ export default function HomeScreen() {
           <Button label="대화하기" className="mt-1 w-full" />
         </Link>
       </Card>
+
+      {/* 냉장고 현황 요약 */}
+      <FridgeStatus items={items} isLoading={isLoading} />
+
+      {/* 먼저 먹어야 할 재료 (있을 때만) */}
+      <NudgeSection items={expiring} />
+
+      {/* 최근 대화 (있을 때만) */}
+      {recents.length > 0 ? <RecentConversations conversations={recents} /> : null}
 
       {/* 빠른 대화 시작 */}
       <View className="gap-3">
