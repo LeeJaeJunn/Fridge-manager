@@ -99,7 +99,7 @@ export default function CharacterSettingsScreen() {
   if (!options || !character) {
     return (
       <Screen edges={['bottom']} contentClassName="items-center justify-center">
-        <ActivityIndicator color="#A78BFA" />
+        <ActivityIndicator color="#8B5CF6" />
       </Screen>
     );
   }

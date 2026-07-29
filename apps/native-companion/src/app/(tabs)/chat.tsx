@@ -48,7 +48,7 @@ export default function ConversationListScreen() {
 
       {loading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#A78BFA" />
+          <ActivityIndicator color="#8B5CF6" />
         </View>
       ) : conversations.length === 0 ? (
         <View className="flex-1 items-center justify-center gap-4 px-6">

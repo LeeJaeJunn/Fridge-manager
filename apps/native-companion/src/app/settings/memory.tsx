@@ -142,7 +142,7 @@ export default function MemoryScreen() {
       )}
 
       {loading ? (
-        <ActivityIndicator color="#A78BFA" />
+        <ActivityIndicator color="#8B5CF6" />
       ) : memories.length === 0 ? (
         <Text className="mt-8 text-center text-ink-faint">
           아직 기억하는 게 없어요.{'\n'}대화를 나누면 조금씩 알아가요.

@@ -17,7 +17,7 @@ export function Bubble({ role, content, pending = false }: Props) {
       }`}
     >
       {pending ? (
-        <ActivityIndicator color="#A78BFA" />
+        <ActivityIndicator color="#8B5CF6" />
       ) : (
         <Text className={`text-base ${isUser ? 'text-white' : 'text-ink'}`}>{content}</Text>
       )}

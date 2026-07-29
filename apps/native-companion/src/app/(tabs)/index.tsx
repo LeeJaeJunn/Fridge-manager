@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { fetchConversations } from '@/api/conversation';
-import { Avatar, Button, Card, Screen } from '@/components';
+import { Avatar, Card, Screen } from '@/components';
 import { useAuth } from '@/context/auth';
 import { useCharacter } from '@/context/character';
 import { useInventory } from '@/context/inventory';
@@ -175,26 +175,21 @@ export default function HomeScreen() {
     <Screen scroll contentClassName="gap-2 px-6 pb-10 pt-4">
       {/* 인사 */}
       <View className="gap-1">
-        <Text className="text-3xl font-bold text-ink">안녕하세요, {user?.name}님!</Text>
-        <Text className="text-base text-ink-soft">{greeting()}</Text>
+        <Text className="text-xl font-bold text-ink">안녕하세요, {user?.name}님!</Text>
+        <Text className="text-bold text-ink-soft">{greeting()}</Text>
       </View>
 
-      {/* 컴패니언 히어로 카드 */}
-      <Card elevated className="items-center gap-4 px-6 py-8">
-        <Avatar name={characterName} />
-
-        <View className="items-center gap-1">
-          <Text className="text-xl font-bold text-ink">{characterName}</Text>
-          <View className="flex-row items-center gap-1.5">
-            <View className="h-2 w-2 rounded-full bg-peach" />
-            <Text className="text-sm text-ink-soft">냉장고를 같이 관리해요</Text>
+      {/* 컴패니언 — 슬림한 채팅 바로가기 (캐릭터챗이 아니라 조력자 톤이라 크게 두지 않는다) */}
+      <Link href="/chat" asChild>
+        <Card onPress={() => {}} className="flex-row items-center gap-3 px-5 py-3.5">
+          <Avatar name={characterName} size={44} />
+          <View className="flex-1">
+            <Text className="text-base font-bold text-ink">{characterName}</Text>
+            <Text className="text-xs text-ink-soft">냉장고를 같이 관리해요</Text>
           </View>
-        </View>
-
-        <Link href="/chat" asChild>
-          <Button label="대화하기" className="mt-1 w-full" />
-        </Link>
-      </Card>
+          <Text className="text-xl text-lavender">›</Text>
+        </Card>
+      </Link>
 
       {/* 냉장고 현황 요약 */}
       <FridgeStatus items={items} isLoading={isLoading} />

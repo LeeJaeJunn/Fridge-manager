@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 
 import { Card, IngredientForm, Screen, Sheet, toPatch, type FormValues } from '@/components';
 import { useInventory } from '@/context/inventory';
+import { ADD_METHODS } from '@/lib/addMethods';
 import { expiryLabel, freshness, FRESHNESS_STYLE } from '@/lib/expiry';
 import type { IngredientType, InventoryOptionsType } from '@companion/types';
 
@@ -178,22 +179,6 @@ function UndoBanner({ name, onUndo }: { name: string; onUndo: () => void }) {
 }
 
 /**
- * 재고 추가 수단 — 사진·영수증은 v1 이후 기능이라 지금은 `ready:false`("준비 중" 비활성).
- * 나중에 구현되면 `ready:true` 로 바꾸고 아래 onPress 분기에 핸들러만 연결하면 된다.
- */
-const ADD_METHODS = [
-  { key: 'photo', emoji: '📷', label: '사진 촬영', desc: '냉장고를 찍어 재료 인식', ready: false },
-  {
-    key: 'receipt',
-    emoji: '🧾',
-    label: '영수증 인식',
-    desc: '영수증으로 한 번에 등록',
-    ready: false,
-  },
-  { key: 'manual', emoji: '✏️', label: '직접 입력', desc: '이름·분류·수량을 직접', ready: true },
-] as const;
-
-/**
  * 재고 추가 방법 선택 바텀시트. + 를 누르면 올라온다.
  * 지금은 "직접 입력"만 동작하고 사진·영수증은 자리만 잡아둔다(레이아웃 최종형 → 나중엔 핸들러만).
  */
@@ -319,7 +304,7 @@ export default function FridgeScreen() {
       />
 
       {isLoading ? (
-        <ActivityIndicator color="#A78BFA" className="mt-8" />
+        <ActivityIndicator color="#8B5CF6" className="mt-8" />
       ) : (
         <>
           {undo ? <UndoBanner name={undo.name} onUndo={handleUndo} /> : null}

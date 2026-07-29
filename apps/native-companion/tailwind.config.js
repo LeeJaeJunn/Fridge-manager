@@ -17,10 +17,10 @@ module.exports = {
           soft: '#6E6E78', // 보조 텍스트
           faint: '#A1A1AA', // 흐린 텍스트/플레이스홀더
         },
-        // 메인 포인트 (라벤더)
+        // 메인 포인트 (라벤더 — 진한 바이올렛)
         lavender: {
-          DEFAULT: '#A78BFA',
-          deep: '#8B6FE8', // 눌림/강조
+          DEFAULT: '#8B5CF6',
+          deep: '#7C3AED', // 눌림/강조
           soft: '#EDE9FE', // 옅은 배경
         },
         // 보조 포인트

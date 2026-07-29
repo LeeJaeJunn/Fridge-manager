@@ -116,7 +116,7 @@ export default function OnboardingScreen() {
   if (!options) {
     return (
       <Screen edges={['top', 'bottom']} contentClassName="items-center justify-center">
-        <ActivityIndicator color="#A78BFA" />
+        <ActivityIndicator color="#8B5CF6" />
       </Screen>
     );
   }

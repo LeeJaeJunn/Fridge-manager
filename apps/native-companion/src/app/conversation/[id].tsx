@@ -116,7 +116,7 @@ export default function ConversationScreen() {
 
         {loading ? (
           <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color="#A78BFA" />
+            <ActivityIndicator color="#8B5CF6" />
           </View>
         ) : (
           <ScrollView
