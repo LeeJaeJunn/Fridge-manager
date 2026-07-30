@@ -1,5 +1,7 @@
 import { apiFetch } from '@/api/client';
 import type {
+  ApplyProposalRequestType,
+  ApplyProposalResultType,
   ConversationDetailType,
   ConversationSummaryType,
   MessageType,
@@ -41,5 +43,24 @@ export function deleteConversation(id: string): Promise<void> {
 export function deleteMessage(conversationId: string, messageId: string): Promise<void> {
   return apiFetch<void>(`/conversations/${conversationId}/messages/${messageId}`, {
     method: 'DELETE',
+  });
+}
+
+/** 소비 제안 확정 — 사용자가 편집한 값으로 반영. 갱신된 메시지(+선택 완료 답변) 반환 */
+export function applyProposal(
+  conversationId: string,
+  messageId: string,
+  body: ApplyProposalRequestType,
+): Promise<ApplyProposalResultType> {
+  return apiFetch<ApplyProposalResultType>(
+    `/conversations/${conversationId}/messages/${messageId}/apply`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}
+
+/** 소비 제안 취소 — 반영하지 않고 dismissed 처리. 갱신된 메시지 반환 */
+export function dismissProposal(conversationId: string, messageId: string): Promise<MessageType> {
+  return apiFetch<MessageType>(`/conversations/${conversationId}/messages/${messageId}/dismiss`, {
+    method: 'POST',
   });
 }

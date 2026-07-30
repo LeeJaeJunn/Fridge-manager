@@ -6,6 +6,7 @@ export { Chip } from './Chip';
 export { ChipGroup, type ChipOption } from './ChipGroup';
 export { Field } from './Field';
 export { IngredientForm, toPatch, type FormValues } from './IngredientForm';
+export { InventoryConfirmCard } from './InventoryConfirmCard';
 export { ProductCard } from './ProductCard';
 export { Screen } from './Screen';
 export { Sheet } from './Sheet';

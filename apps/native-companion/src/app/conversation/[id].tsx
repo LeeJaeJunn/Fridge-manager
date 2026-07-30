@@ -11,10 +11,16 @@ import {
   View,
 } from 'react-native';
 
-import { fetchConversation, sendMessage, startConversation } from '@/api/conversation';
-import { Bubble, Button, ProductCard, Screen } from '@/components';
+import {
+  applyProposal,
+  dismissProposal,
+  fetchConversation,
+  sendMessage,
+  startConversation,
+} from '@/api/conversation';
+import { Bubble, Button, InventoryConfirmCard, ProductCard, Screen } from '@/components';
 import { useInventory } from '@/context/inventory';
-import type { MessageType } from '@companion/types';
+import type { ApplyProposalRequestType, MessageType } from '@companion/types';
 
 export default function ConversationScreen() {
   const router = useRouter();
@@ -27,6 +33,7 @@ export default function ConversationScreen() {
   const [loading, setLoading] = useState(!isNew);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resolvingId, setResolvingId] = useState<string | null>(null); // 확인/취소 진행 중인 제안 메시지
   const scrollRef = useRef<ScrollView>(null);
 
   // 채팅으로 재료가 추가·차감됐을 수 있다(서버 tool-use). 화면을 나갈 때 한 번만 전역 재고를 새로고침한다
@@ -85,6 +92,38 @@ export default function ConversationScreen() {
     }
   }
 
+  // 소비 제안 확정 — 편집값으로 반영하고, 갱신된 메시지(+선택 완료 답변)로 교체 후 전 화면 재고 새로고침.
+  async function handleApply(messageId: string, items: ApplyProposalRequestType['items']) {
+    if (!conversationId || resolvingId) return;
+    setResolvingId(messageId);
+    try {
+      const result = await applyProposal(conversationId, messageId, { items });
+      setMessages((prev) => {
+        const next = prev.map((m) => (m.id === messageId ? result.message : m));
+        return result.completion ? [...next, result.completion] : next;
+      });
+      void refresh(); // 냉장고·홈에 즉시 반영
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '반영에 실패했어요');
+    } finally {
+      setResolvingId(null);
+    }
+  }
+
+  // 소비 제안 취소 — 반영하지 않고 dismissed 로만 갱신.
+  async function handleDismiss(messageId: string) {
+    if (!conversationId || resolvingId) return;
+    setResolvingId(messageId);
+    try {
+      const updated = await dismissProposal(conversationId, messageId);
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? updated : m)));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '취소에 실패했어요');
+    } finally {
+      setResolvingId(null);
+    }
+  }
+
   function handleSend() {
     const content = input.trim();
     if (!content || sending) return;
@@ -139,6 +178,14 @@ export default function ConversationScreen() {
                       <ProductCard key={p.id} product={p} />
                     ))}
                   </View>
+                )}
+                {m.pendingChange && (
+                  <InventoryConfirmCard
+                    proposal={m.pendingChange}
+                    busy={resolvingId === m.id}
+                    onApply={(items) => void handleApply(m.id, items)}
+                    onDismiss={() => void handleDismiss(m.id)}
+                  />
                 )}
               </View>
             ))}
