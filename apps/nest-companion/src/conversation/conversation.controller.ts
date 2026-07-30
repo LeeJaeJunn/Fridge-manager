@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Post, UseGuards } from 
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ConversationService } from './conversation.service';
+import { ApplyProposalDto } from './dto/apply-proposal.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 
 /** 전부 현재 유저 기준. 입력 검증은 전역 ValidationPipe가 처리. */
@@ -50,5 +51,26 @@ export class ConversationController {
     @Param('messageId') messageId: string,
   ) {
     return this.conversations.deleteMessage(userId, id, messageId);
+  }
+
+  /** POST /conversations/:id/messages/:messageId/apply — 소비 제안 확정(편집값 반영) */
+  @Post(':id/messages/:messageId/apply')
+  applyProposal(
+    @CurrentUser() userId: string,
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+    @Body() body: ApplyProposalDto,
+  ) {
+    return this.conversations.applyProposal(userId, id, messageId, body.items);
+  }
+
+  /** POST /conversations/:id/messages/:messageId/dismiss — 소비 제안 취소 */
+  @Post(':id/messages/:messageId/dismiss')
+  dismissProposal(
+    @CurrentUser() userId: string,
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+  ) {
+    return this.conversations.dismissProposal(userId, id, messageId);
   }
 }

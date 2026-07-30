@@ -1,5 +1,6 @@
 import type {
   AddIngredientInputType,
+  ConsumeProposalItemType,
   IngredientCategoryType,
   IngredientType,
   StorageAreaType,
@@ -304,6 +305,78 @@ export class InventoryService {
       `재고 소비 (user=${userId}) 다씀=[${consumed.join(', ')}] 일부=[${updated.join(', ')}] 없음=[${notFound.join(', ')}]`,
     );
     return { consumed, updated, notFound };
+  }
+
+  /**
+   * 소비 "제안" 생성 — 채팅 소비 툴의 **비-mutating** 버전 (확인 카드용).
+   * `consumeByNames` 와 같은 이름 매칭을 쓰되 아무것도 쓰지 않고, 현재 수량 + 제안된 남은 양을 돌려준다.
+   * 실제 반영은 사용자 확인 후 `applyConsume` 가 id 기준으로 한다.
+   * 같은 행에 중복 제안이 오면(모델이 같은 재료를 두 번) 하나로 합친다.
+   */
+  async resolveConsume(
+    userId: string,
+    items: ConsumeItem[],
+  ): Promise<{ matched: ConsumeProposalItemType[]; notFound: string[] }> {
+    const wanted = items
+      .map((it) => ({ name: it.name?.trim() ?? '', remaining: it.remaining?.trim() }))
+      .filter((it) => it.name.length > 0);
+    if (wanted.length === 0) return { matched: [], notFound: [] };
+
+    const rows = await this.prisma.ingredient.findMany({
+      where: { userId, consumedAt: null },
+      select: { id: true, name: true, quantityNote: true },
+    });
+    const byName = new Map(rows.map((r) => [normalize(r.name), r]));
+
+    const matched: ConsumeProposalItemType[] = [];
+    const notFound: string[] = [];
+    const seen = new Set<string>();
+
+    for (const item of wanted) {
+      const hit = byName.get(normalize(item.name));
+      if (!hit) {
+        notFound.push(item.name);
+        continue;
+      }
+      if (seen.has(hit.id)) continue; // 같은 행 중복 제안 방지
+      seen.add(hit.id);
+      matched.push({
+        ingredientId: hit.id,
+        name: hit.name,
+        currentQuantityNote: hit.quantityNote,
+        remaining: item.remaining ? clip(item.remaining, LIMITS.quantityNoteMax) : null,
+      });
+    }
+    return { matched, notFound };
+  }
+
+  /**
+   * 확인된 소비 제안을 실제로 반영 — id 기준 (사용자가 확인·편집한 최종 값).
+   * `remaining=null` → 소비(soft delete), 값 → `quantityNote` 갱신. 전부 본인(userId) 것만, 멱등.
+   */
+  async applyConsume(
+    userId: string,
+    items: { ingredientId: string; remaining: string | null }[],
+  ): Promise<{ consumedIds: string[]; updatedIds: string[] }> {
+    const usedUpIds: string[] = [];
+    const updatedIds: string[] = [];
+
+    for (const item of items) {
+      if (item.remaining === null) {
+        usedUpIds.push(item.ingredientId);
+      } else {
+        const res = await this.prisma.ingredient.updateMany({
+          where: { id: item.ingredientId, userId, consumedAt: null },
+          data: { quantityNote: clip(item.remaining, LIMITS.quantityNoteMax) },
+        });
+        if (res.count > 0) updatedIds.push(item.ingredientId);
+      }
+    }
+    const consumedCount = await this.consume(userId, usedUpIds); // userId + consumedAt:null 로 격리
+    this.logger.log(
+      `재고 소비 확정 (user=${userId}) 다씀=${consumedCount} 부분갱신=${updatedIds.length}`,
+    );
+    return { consumedIds: usedUpIds, updatedIds };
   }
 
   /** 소비 취소 (오차감 되돌리기). soft delete 라 UPDATE 한 번. 멱등. */

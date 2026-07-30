@@ -30,8 +30,12 @@ export type {
 } from './character';
 
 export type {
+  ApplyProposalRequestType,
+  ApplyProposalResultType,
+  ConsumeProposalItemType,
   ConversationDetailType,
   ConversationSummaryType,
+  InventoryProposalType,
   MessageType,
   SendMessageRequestType,
 } from './conversation';

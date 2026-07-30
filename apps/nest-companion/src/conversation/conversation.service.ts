@@ -1,9 +1,13 @@
 import type {
   AddIngredientInputType,
+  ApplyProposalRequestType,
+  ApplyProposalResultType,
   ChatMessageType,
   ChatRoleType,
+  ConsumeProposalItemType,
   ConversationDetailType,
   ConversationSummaryType,
+  InventoryProposalType,
   MessageType,
   ProductSearchCriteriaType,
   ProductType,
@@ -112,7 +116,7 @@ const ADD_INGREDIENTS_TOOL: LlmTool = {
 const CONSUME_INGREDIENTS_TOOL: LlmTool = {
   name: 'consume_ingredients',
   description:
-    '사용자가 재료를 실제로 먹었거나 다 썼다고 말했을 때만 호출한다("만들었어", "다 먹었어", "3개 썼어"). 요리를 추천만 하고 아직 안 만들었으면 절대 호출하지 마라. 일부만 썼으면 remaining 에 남은 양을 적고, 다 썼으면 remaining 을 생략해라.',
+    '사용자가 재료를 실제로 먹었거나 다 썼다고 말했을 때만 호출한다("만들었어", "다 먹었어", "3개 썼어"). 요리를 추천만 하고 아직 안 만들었으면 절대 호출하지 마라. 일부만 썼으면 remaining 에 남은 양을 적고, 다 썼으면 remaining 을 생략해라. **이 툴은 바로 반영하지 않고 사용자에게 확인 카드를 띄운다 — 그러니 "반영했어요/차감했어요"라고 말하지 말고, "이렇게 정리할게요, 아래에서 확인해 주세요"처럼 확인을 요청하는 톤으로 답해라. 구체적 숫자는 카드가 보여주니 문장에 다시 박지 마라.**',
   parameters: {
     type: 'object',
     properties: {
@@ -186,6 +190,7 @@ const MESSAGE_SELECT = {
   content: true,
   products: true,
   hasMoreProducts: true,
+  pendingChange: true,
   createdAt: true,
 } as const;
 
@@ -195,6 +200,7 @@ type MessageRow = {
   content: string;
   products: Prisma.JsonValue | null;
   hasMoreProducts: boolean | null;
+  pendingChange: Prisma.JsonValue | null;
   createdAt: Date;
 };
 
@@ -214,6 +220,8 @@ const toMessage = (m: MessageRow): MessageType => ({
   // 저장은 Json 이지만 우리가 넣는 건 항상 ProductType[] (없으면 null → 카드 없음)
   products: (m.products as unknown as ProductType[] | null) ?? undefined,
   hasMoreProducts: m.hasMoreProducts ?? undefined,
+  // 저장은 Json 이지만 우리가 넣는 건 항상 InventoryProposalType (없으면 null → 확인 카드 없음)
+  pendingChange: (m.pendingChange as unknown as InventoryProposalType | null) ?? undefined,
 });
 
 @Injectable()
@@ -331,6 +339,67 @@ export class ConversationService {
     });
   }
 
+  /** 메시지의 pending 제안을 읽어 소유권 + pending 상태를 검증한다. 아니면 예외. */
+  private async loadPendingProposal(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+  ): Promise<InventoryProposalType> {
+    const msg = await this.prisma.message.findFirst({
+      where: { id: messageId, conversationId, conversation: { userId } },
+      select: { pendingChange: true },
+    });
+    if (!msg) throw new NotFoundException('메시지를 찾을 수 없어요.');
+    const proposal = (msg.pendingChange as unknown as InventoryProposalType | null) ?? null;
+    if (!proposal || proposal.status !== 'pending') {
+      throw new BadRequestException('이미 처리됐거나 확인할 제안이 없어요.');
+    }
+    return proposal;
+  }
+
+  /**
+   * 소비 제안 확정 — 사용자가 카드에서 확인·편집한 값으로 실제 반영한다.
+   * 소유권 격리 + pending 상태일 때만(멱등). 편집값은 제안에 실제 있던 id 만 반영(임의 주입 차단).
+   * 반영 뒤 pendingChange.status='applied' 로 갱신한 메시지를 돌려준다.
+   * (B-완료턴 승격 지점: 지금은 completion=null 로 클라가 템플릿 표시. 여기서 LLM 완료 답변을 만들어
+   *  completion 에 담으면 클라 변경 없이 "컴패니언이 결과에 반응" 으로 올라간다.)
+   */
+  async applyProposal(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+    items: ApplyProposalRequestType['items'],
+  ): Promise<ApplyProposalResultType> {
+    const proposal = await this.loadPendingProposal(userId, conversationId, messageId);
+    const allowed = new Set(proposal.items.map((it) => it.ingredientId));
+    const toApply = items.filter((it) => allowed.has(it.ingredientId));
+    await this.inventory.applyConsume(userId, toApply);
+
+    const applied: InventoryProposalType = { ...proposal, status: 'applied' };
+    const updated = await this.prisma.message.update({
+      where: { id: messageId },
+      data: { pendingChange: applied as unknown as Prisma.InputJsonValue },
+      select: MESSAGE_SELECT,
+    });
+    return { message: toMessage(updated), completion: null };
+  }
+
+  /** 소비 제안 취소 — 반영하지 않고 status='dismissed' 로만 표시한다. 소유권 + pending 검증. */
+  async dismissProposal(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+  ): Promise<MessageType> {
+    const proposal = await this.loadPendingProposal(userId, conversationId, messageId);
+    const dismissed: InventoryProposalType = { ...proposal, status: 'dismissed' };
+    const updated = await this.prisma.message.update({
+      where: { id: messageId },
+      data: { pendingChange: dismissed as unknown as Prisma.InputJsonValue },
+      select: MESSAGE_SELECT,
+    });
+    return toMessage(updated);
+  }
+
   /**
    * 공통 교환 로직:
    * 유저 메시지 저장 → 전체 히스토리로 LLM 호출 → 답변 저장(+대화 updatedAt 갱신) → 답변 반환.
@@ -409,6 +478,8 @@ export class ConversationService {
 
     // 검색된 상품을 클로저로 캡처 (모델 답변과 별개로, 카드 스냅샷 저장용)
     const foundProducts: ProductType[] = [];
+    // 소비 "제안"을 클로저로 캡처 — 바로 반영하지 않고 확인 카드 스냅샷으로 메시지에 붙인다.
+    const proposedConsume: ConsumeProposalItemType[] = [];
 
     const executors: Record<string, LlmToolExecutor> = {
       // 재고 추가 — 만료일 폴백·중복 병합은 서비스가 흡수하므로 여기선 인자만 정리해 넘긴다.
@@ -426,10 +497,18 @@ export class ConversationService {
         };
       },
 
-      // 소비 처리 — remaining 이 있으면 부분 소비(수량만 갱신), 없으면 냉장고에서 제거.
-      consume_ingredients: (args) => {
+      // 소비 "제안" — 바로 반영하지 않고 resolve 만 해서 확인 카드용 스냅샷을 캡처한다.
+      // 실제 반영은 사용자 확인 뒤 apply 엔드포인트(inventory.applyConsume)가 한다.
+      consume_ingredients: async (args) => {
         const items: ConsumeItem[] = Array.isArray(args.items) ? args.items : [];
-        return this.inventory.consumeByNames(userId, items);
+        const { matched, notFound } = await this.inventory.resolveConsume(userId, items);
+        proposedConsume.push(...matched);
+        // 모델엔 "제안됨"만 알려 확인을 요청하게 한다(반영했다고 답하지 않도록 description 으로 못박음).
+        return {
+          status: 'proposed',
+          proposed: matched.map((m) => ({ name: m.name, remaining: m.remaining })),
+          notFound,
+        };
       },
 
       // 툴 실행기: more 면 저장된 커서에서 이어 검색, 아니면 새 검색(첫 페이지). 검색 후 커서 갱신.
@@ -494,6 +573,14 @@ export class ConversationService {
               ? (foundProducts as unknown as Prisma.InputJsonValue)
               : undefined,
             hasMoreProducts: foundProducts.length ? Boolean(cursor?.hasMore) : undefined,
+            // 소비 제안이 있었으면 확인 카드용 스냅샷을 pending 상태로 저장 (없으면 null)
+            pendingChange: proposedConsume.length
+              ? ({
+                  kind: 'consume',
+                  status: 'pending',
+                  items: proposedConsume,
+                } satisfies InventoryProposalType as unknown as Prisma.InputJsonValue)
+              : undefined,
           },
         },
       },

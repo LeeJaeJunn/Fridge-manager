@@ -104,6 +104,9 @@ model Message {
   products       Json?
   // 이 검색에 이어볼 상품이 더 있는지(= 그 시점 커서의 hasMore). products 있을 때만 세팅. "더보기" 버튼 노출 판단용.
   hasMoreProducts Boolean?
+  // 재고 변경 "제안"(InventoryProposal) 스냅샷 — 소비 툴이 바로 반영하지 않고 확인 카드를 띄울 때.
+  // { kind:'consume', status:'pending'|'applied'|'dismissed', items:[...] }. 확인/취소 후 status 갱신. 없으면 null.
+  pendingChange   Json?
   createdAt      DateTime @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
