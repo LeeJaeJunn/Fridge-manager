@@ -1,7 +1,12 @@
 import type { ChatMessageType, ChatResType, StructuredResType } from '@companion/types';
 import { GoogleGenAI } from '@google/genai';
 import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import type { LlmProvider, LlmTool, LlmToolExecutor } from './llm-provider.interface';
+import type {
+  LlmProvider,
+  LlmTool,
+  LlmToolExecutor,
+  ToolChatResType,
+} from './llm-provider.interface';
 import { GEMINI_CLIENT } from './llm.constants';
 
 /** interactions.usage → 벤더 중립 usage(LlmUsageType) 변환용 (snake_case). */
@@ -90,7 +95,7 @@ export class GeminiLlmProvider implements LlmProvider {
     executors: Record<string, LlmToolExecutor>,
     model: string,
     maxRounds = 3,
-  ): Promise<ChatResType> {
+  ): Promise<ToolChatResType> {
     try {
       // interactions 툴 선언: { type:'function', name, description, parameters(JSON Schema) }
       const toolDefs = tools.map((t) => ({
@@ -99,6 +104,8 @@ export class GeminiLlmProvider implements LlmProvider {
         description: t.description,
         parameters: t.parameters,
       }));
+      // 종결 툴: 이 툴이 불리면 실행하지 않고 그 호출을 그대로 상위로 올린다(루프 중단).
+      const terminalNames = new Set(tools.filter((t) => t.terminal).map((t) => t.name));
 
       // 여러 왕복의 토큰을 누적한다 (마지막 호출만이 아니라 총합)
       let inputTokens = 0;
@@ -140,6 +147,19 @@ export class GeminiLlmProvider implements LlmProvider {
           }
         }
         if (calls.length === 0) break;
+
+        // 종결 툴이 하나라도 불렸으면 실행·재호출 없이 그 호출들을 올리고 끝낸다(텍스트 없음).
+        const terminal = calls.filter((c) => terminalNames.has(c.name));
+        if (terminal.length > 0) {
+          return {
+            id: interaction.id,
+            model,
+            status: 'completed',
+            text: '',
+            terminalCalls: terminal.map((c) => ({ name: c.name, arguments: c.args })),
+            usage: sawUsage ? { inputTokens, outputTokens, totalTokens } : undefined,
+          };
+        }
 
         // 각 툴 실행 → function_result 입력 구성 (result 는 문자열 허용).
         const resultInputs: Array<{

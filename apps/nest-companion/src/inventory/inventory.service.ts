@@ -1,5 +1,6 @@
 import type {
   AddIngredientInputType,
+  AddProposalItemType,
   ConsumeProposalItemType,
   IngredientCategoryType,
   IngredientType,
@@ -377,6 +378,37 @@ export class InventoryService {
       `재고 소비 확정 (user=${userId}) 다씀=${consumedCount} 부분갱신=${updatedIds.length}`,
     );
     return { consumedIds: usedUpIds, updatedIds };
+  }
+
+  /**
+   * 추가 "제안" 생성 — `add` 의 정규화(기본 분류·보관 + 만료일 추정)를 **쓰지 않고** 미리 계산만 한다.
+   * 확인 카드에 보여줄 값이며, 실제 저장(병합 포함)은 확인 후 `add` 가 그대로 다시 계산해 처리한다.
+   * DB·병합을 안 타는 순수 함수라 동기다.
+   */
+  previewAdd(items: AddIngredientInputType[]): AddProposalItemType[] {
+    const now = new Date();
+    return items
+      .map((it) => ({ ...it, name: clip(it.name ?? '', LIMITS.nameMax) }))
+      .filter((it) => it.name.length > 0)
+      .slice(0, LIMITS.itemsMax)
+      .map((item) => {
+        const category = item.category ?? 'ETC';
+        const storage = item.storage ?? 'FRIDGE';
+        const userExpiry = item.expiresAt ? new Date(item.expiresAt) : null;
+        const hasUserExpiry = userExpiry !== null && !Number.isNaN(userExpiry.getTime());
+        const expiresAt = hasUserExpiry ? userExpiry : estimateExpiry(category, storage, now);
+        const quantityNote = item.quantityNote
+          ? clip(item.quantityNote, LIMITS.quantityNoteMax)
+          : undefined;
+        return {
+          name: item.name,
+          category,
+          storage,
+          ...(quantityNote ? { quantityNote } : {}),
+          estimatedExpiry: expiresAt.toISOString(),
+          expirySource: hasUserExpiry ? 'USER' : 'ESTIMATED',
+        };
+      });
   }
 
   /** 소비 취소 (오차감 되돌리기). soft delete 라 UPDATE 한 번. 멱등. */

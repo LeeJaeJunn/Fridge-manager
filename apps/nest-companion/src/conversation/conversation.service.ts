@@ -1,5 +1,6 @@
 import type {
   AddIngredientInputType,
+  AddProposalItemType,
   ApplyProposalRequestType,
   ApplyProposalResultType,
   ChatMessageType,
@@ -23,7 +24,12 @@ import {
   type RecalledIngredient,
 } from '../inventory/inventory.service';
 import { CATEGORY_VALUES, STORAGE_VALUES } from '../inventory/shelf-life';
-import { LlmService, type LlmTool, type LlmToolExecutor } from '../llm/llm.service';
+import {
+  LlmService,
+  type LlmTool,
+  type LlmToolExecutor,
+  type TerminalToolCall,
+} from '../llm/llm.service';
 import { MemoryService, type RecalledMemory } from '../memory/memory.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -64,6 +70,7 @@ const SEARCH_PRODUCTS_TOOL: LlmTool = {
  */
 const ADD_INGREDIENTS_TOOL: LlmTool = {
   name: 'add_ingredients',
+  terminal: true, // 종결 툴 — 실행하지 않고 확인 카드로 올린다(실제 저장은 사용자 확인 후)
   description:
     '사용자가 식재료를 샀거나 냉장고에 있다고 말하면 재고에 넣는다. 여러 개면 한 번에 배열로 넣어라. 이미 있는 재료를 다시 말하면 서버가 한 줄로 병합한다 — 단 수량은 서버가 더해주지 않으니, 재입고면 quantityNote 에 기존 재고와 이번에 산 양을 합친 현재 총량을 직접 적어라. 요리 얘기만 하거나 재료 보유와 무관한 대화에서는 호출하지 않는다.',
   parameters: {
@@ -115,8 +122,9 @@ const ADD_INGREDIENTS_TOOL: LlmTool = {
  */
 const CONSUME_INGREDIENTS_TOOL: LlmTool = {
   name: 'consume_ingredients',
+  terminal: true, // 종결 툴 — 실행하지 않고 확인 카드로 올린다(실제 차감은 사용자 확인 후)
   description:
-    '사용자가 재료를 실제로 먹었거나 다 썼다고 말했을 때만 호출한다("만들었어", "다 먹었어", "3개 썼어"). 요리를 추천만 하고 아직 안 만들었으면 절대 호출하지 마라. 일부만 썼으면 remaining 에 남은 양을 적고, 다 썼으면 remaining 을 생략해라. **이 툴은 바로 반영하지 않고 사용자에게 확인 카드를 띄운다 — 그러니 "반영했어요/차감했어요"라고 말하지 말고, "이렇게 정리할게요, 아래에서 확인해 주세요"처럼 확인을 요청하는 톤으로 답해라. 구체적 숫자는 카드가 보여주니 문장에 다시 박지 마라.**',
+    '사용자가 재료를 실제로 먹었거나 다 썼다고 말했을 때만 호출한다("만들었어", "다 먹었어", "3개 썼어"). 요리를 추천만 하고 아직 안 만들었으면 절대 호출하지 마라. 일부만 썼으면 remaining 에 남은 양을 적고, 다 썼으면 remaining 을 생략해라. (실제 반영은 사용자 확인 카드를 거친다.)',
   parameters: {
     type: 'object',
     properties: {
@@ -371,9 +379,26 @@ export class ConversationService {
     items: ApplyProposalRequestType['items'],
   ): Promise<ApplyProposalResultType> {
     const proposal = await this.loadPendingProposal(userId, conversationId, messageId);
-    const allowed = new Set(proposal.items.map((it) => it.ingredientId));
-    const toApply = items.filter((it) => allowed.has(it.ingredientId));
-    await this.inventory.applyConsume(userId, toApply);
+
+    // 소비: 사용자가 편집한 값(items) 중 제안에 실제로 있던 id 만 반영(임의 id 주입 차단).
+    const allowed = new Set((proposal.consume ?? []).map((it) => it.ingredientId));
+    const toConsume = items.filter((it) => allowed.has(it.ingredientId));
+    if (toConsume.length > 0) await this.inventory.applyConsume(userId, toConsume);
+
+    // 추가: 확인-only 라 제안에 담긴 그대로 반영(병합·만료일 폴백은 inventory.add 가 처리).
+    // 사용자가 표기일을 준 경우(USER)만 expiresAt 을 넘겨 그 값을 유지하고, 추정치면 add 가 다시 추정한다.
+    if (proposal.add?.length) {
+      await this.inventory.add(
+        userId,
+        proposal.add.map((a) => ({
+          name: a.name,
+          category: a.category,
+          storage: a.storage,
+          ...(a.quantityNote ? { quantityNote: a.quantityNote } : {}),
+          ...(a.expirySource === 'USER' ? { expiresAt: a.estimatedExpiry } : {}),
+        })),
+      );
+    }
 
     const applied: InventoryProposalType = { ...proposal, status: 'applied' };
     const updated = await this.prisma.message.update({
@@ -478,39 +503,10 @@ export class ConversationService {
 
     // 검색된 상품을 클로저로 캡처 (모델 답변과 별개로, 카드 스냅샷 저장용)
     const foundProducts: ProductType[] = [];
-    // 소비 "제안"을 클로저로 캡처 — 바로 반영하지 않고 확인 카드 스냅샷으로 메시지에 붙인다.
-    const proposedConsume: ConsumeProposalItemType[] = [];
 
+    // add/consume 은 terminal 툴이라 실행기가 없다 — 모델이 부르면 chatWithTools 가 그 호출을
+    // 그대로 올려주고(res.terminalCalls), 아래 buildProposal 이 확인 제안으로 만든다.
     const executors: Record<string, LlmToolExecutor> = {
-      // 재고 추가 — 만료일 폴백·중복 병합은 서비스가 흡수하므로 여기선 인자만 정리해 넘긴다.
-      add_ingredients: async (args) => {
-        const items: AddIngredientInputType[] = Array.isArray(args.items) ? args.items : [];
-        const saved = await this.inventory.add(userId, items);
-        // 저장된 만료일을 모델에 돌려줘야 "계란은 8/11까지야" 처럼 확인해줄 수 있다.
-        return {
-          added: saved.map((i) => ({
-            name: i.name,
-            quantityNote: i.quantityNote,
-            expiresAt: i.expiresAt.slice(0, 10),
-            expiryIsEstimated: i.expirySource === 'ESTIMATED',
-          })),
-        };
-      },
-
-      // 소비 "제안" — 바로 반영하지 않고 resolve 만 해서 확인 카드용 스냅샷을 캡처한다.
-      // 실제 반영은 사용자 확인 뒤 apply 엔드포인트(inventory.applyConsume)가 한다.
-      consume_ingredients: async (args) => {
-        const items: ConsumeItem[] = Array.isArray(args.items) ? args.items : [];
-        const { matched, notFound } = await this.inventory.resolveConsume(userId, items);
-        proposedConsume.push(...matched);
-        // 모델엔 "제안됨"만 알려 확인을 요청하게 한다(반영했다고 답하지 않도록 description 으로 못박음).
-        return {
-          status: 'proposed',
-          proposed: matched.map((m) => ({ name: m.name, remaining: m.remaining })),
-          notFound,
-        };
-      },
-
       // 툴 실행기: more 면 저장된 커서에서 이어 검색, 아니면 새 검색(첫 페이지). 검색 후 커서 갱신.
       search_products: async (args) => {
         const more = args.more === true;
@@ -558,6 +554,10 @@ export class ConversationService {
       this.model,
     );
 
+    // add/consume 은 terminal 이라 여기서 res.terminalCalls 로 올라온다 → 확인 제안으로 변환.
+    // 이 경우 res.text 는 '' (텍스트 없이 카드만). 일반 대화/검색이면 terminalCalls 가 없어 기존대로 흐른다.
+    const proposal = await this.buildProposal(userId, res.terminalCalls);
+
     const updated = await this.prisma.conversation.update({
       where: { id: conversationId },
       data: {
@@ -573,14 +573,8 @@ export class ConversationService {
               ? (foundProducts as unknown as Prisma.InputJsonValue)
               : undefined,
             hasMoreProducts: foundProducts.length ? Boolean(cursor?.hasMore) : undefined,
-            // 소비 제안이 있었으면 확인 카드용 스냅샷을 pending 상태로 저장 (없으면 null)
-            pendingChange: proposedConsume.length
-              ? ({
-                  kind: 'consume',
-                  status: 'pending',
-                  items: proposedConsume,
-                } satisfies InventoryProposalType as unknown as Prisma.InputJsonValue)
-              : undefined,
+            // 종결 툴 제안이 있었으면 확인 카드용 스냅샷을 pending 으로 저장 (없으면 null)
+            pendingChange: proposal ? (proposal as unknown as Prisma.InputJsonValue) : undefined,
           },
         },
       },
@@ -589,6 +583,39 @@ export class ConversationService {
       },
     });
     return { reply: toMessage(updated.messages[0]), messageCount: history.length + 1 };
+  }
+
+  /**
+   * 종결 툴 호출(add/consume)을 확인 제안(pendingChange)으로 변환한다 — 아무것도 쓰지 않는다.
+   * consume 은 resolveConsume(이름→행+현재수량), add 는 previewAdd(정규화+만료일 추정). 둘 다 비면 undefined.
+   */
+  private async buildProposal(
+    userId: string,
+    calls: TerminalToolCall[] | undefined,
+  ): Promise<InventoryProposalType | undefined> {
+    if (!calls?.length) return undefined;
+    const consume: ConsumeProposalItemType[] = [];
+    const add: AddProposalItemType[] = [];
+    for (const call of calls) {
+      if (call.name === 'consume_ingredients') {
+        const items: ConsumeItem[] = Array.isArray(call.arguments.items)
+          ? call.arguments.items
+          : [];
+        const { matched } = await this.inventory.resolveConsume(userId, items);
+        consume.push(...matched);
+      } else if (call.name === 'add_ingredients') {
+        const items: AddIngredientInputType[] = Array.isArray(call.arguments.items)
+          ? call.arguments.items
+          : [];
+        add.push(...this.inventory.previewAdd(items));
+      }
+    }
+    if (consume.length === 0 && add.length === 0) return undefined;
+    return {
+      status: 'pending',
+      ...(consume.length > 0 ? { consume } : {}),
+      ...(add.length > 0 ? { add } : {}),
+    };
   }
 
   /**

@@ -2,11 +2,21 @@ import type { ChatMessageType, ChatResType, StructuredResType } from '@companion
 import { Injectable } from '@nestjs/common';
 import type { ZodType } from 'zod';
 import { GeminiLlmProvider } from './gemini-llm.service';
-import type { LlmProvider, LlmTool, LlmToolExecutor } from './llm-provider.interface';
+import type {
+  LlmProvider,
+  LlmTool,
+  LlmToolExecutor,
+  ToolChatResType,
+} from './llm-provider.interface';
 import { OpenAiLlmProvider } from './openai-llm.service';
 
 // 소비처(conversation/memory)는 계속 이 경로에서 타입을 import 하므로 그대로 재노출한다.
-export type { LlmTool, LlmToolExecutor } from './llm-provider.interface';
+export type {
+  LlmTool,
+  LlmToolExecutor,
+  TerminalToolCall,
+  ToolChatResType,
+} from './llm-provider.interface';
 
 /**
  * 앱 전체가 사용하는 LLM 진입점 — **벤더 라우터**다.
@@ -49,7 +59,7 @@ export class LlmService {
     executors: Record<string, LlmToolExecutor>,
     model: string,
     maxRounds = 3,
-  ): Promise<ChatResType> {
+  ): Promise<ToolChatResType> {
     return this.pick(model).chatWithTools(
       instructions,
       messages,

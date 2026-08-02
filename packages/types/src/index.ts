@@ -30,6 +30,7 @@ export type {
 } from './character';
 
 export type {
+  AddProposalItemType,
   ApplyProposalRequestType,
   ApplyProposalResultType,
   ConsumeProposalItemType,

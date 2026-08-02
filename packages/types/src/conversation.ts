@@ -4,10 +4,11 @@
  */
 
 import type { ChatRoleType } from './chat';
+import type { ExpirySourceType, IngredientCategoryType, StorageAreaType } from './ingredient';
 import type { ProductType } from './product';
 
 /**
- * 재고 변경 "제안"의 한 항목 (소비 확인 카드용).
+ * 소비 제안 한 항목 (소비 확인 카드용).
  * 서버가 이름→재고 행을 resolve 해 현재 수량과 제안된 남은 양을 담아 내려준다.
  */
 export interface ConsumeProposalItemType {
@@ -21,13 +22,28 @@ export interface ConsumeProposalItemType {
 }
 
 /**
+ * 추가 제안 한 항목 (추가 확인 카드용).
+ * 서버가 파싱·정규화하고 만료일을 추정해 담는다 — 저장은 확인 시 apply 가 한다.
+ */
+export interface AddProposalItemType {
+  name: string;
+  category: IngredientCategoryType;
+  storage: StorageAreaType;
+  quantityNote?: string;
+  /** 추정 만료일 (ISO). 사용자가 표기일을 줬으면 그 값 */
+  estimatedExpiry: string;
+  expirySource: ExpirySourceType;
+}
+
+/**
  * LLM 이 채팅에서 만든 재고 변경 제안 — 바로 반영하지 않고 사용자 확인 카드로 띄운다.
- * 확인/취소 결과를 status 에 박아 히스토리·재접속에서도 상태가 유지된다(products 스냅샷과 같은 방침).
+ * 한 제안에 소비/추가가 함께 올 수 있다. 확인/취소 결과를 status 에 박아 히스토리·재접속에서도
+ * 상태가 유지된다(products 스냅샷과 같은 방침).
  */
 export interface InventoryProposalType {
-  kind: 'consume';
   status: 'pending' | 'applied' | 'dismissed';
-  items: ConsumeProposalItemType[];
+  consume?: ConsumeProposalItemType[];
+  add?: AddProposalItemType[];
 }
 
 /** 저장된 메시지 한 건 */

@@ -3,8 +3,22 @@ import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import type { ZodType } from 'zod';
-import type { LlmProvider, LlmTool, LlmToolExecutor } from './llm-provider.interface';
+import type {
+  LlmProvider,
+  LlmTool,
+  LlmToolExecutor,
+  ToolChatResType,
+} from './llm-provider.interface';
 import { OPENAI_CLIENT } from './llm.constants';
+
+/** function_call 인자(JSON 문자열)를 안전하게 파싱한다. 손상되면 빈 객체로 흘려보낸다(크래시 방지). */
+function parseArgs(raw: string): Record<string, unknown> {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
 
 /**
  * OpenAI 벤더 구현. LlmService(라우터)가 모델 이름이 'gemini' 가 아닐 때 이 provider 로 위임한다.
@@ -100,7 +114,7 @@ export class OpenAiLlmProvider implements LlmProvider {
     executors: Record<string, LlmToolExecutor>,
     model: string,
     maxRounds = 3,
-  ): Promise<ChatResType> {
+  ): Promise<ToolChatResType> {
     try {
       const toolParams: OpenAI.Responses.Tool[] = tools.map((t) => ({
         type: 'function',
@@ -109,6 +123,8 @@ export class OpenAiLlmProvider implements LlmProvider {
         parameters: t.parameters,
         strict: false,
       }));
+      // 종결 툴: 이 툴이 불리면 실행하지 않고 그 호출을 그대로 상위로 올린다(루프 중단).
+      const terminalNames = new Set(tools.filter((t) => t.terminal).map((t) => t.name));
 
       const input: OpenAI.Responses.ResponseInput = messages.map((m) => ({
         role: m.role,
@@ -146,6 +162,22 @@ export class OpenAiLlmProvider implements LlmProvider {
           (o): o is OpenAI.Responses.ResponseFunctionToolCall => o.type === 'function_call',
         );
         if (calls.length === 0) break;
+
+        // 종결 툴이 하나라도 불렸으면 실행·재호출 없이 그 호출들을 올리고 끝낸다(텍스트 없음).
+        const terminal = calls.filter((c) => terminalNames.has(c.name));
+        if (terminal.length > 0) {
+          return {
+            id: res.id,
+            model: res.model,
+            status: res.status ?? 'failed',
+            text: '',
+            terminalCalls: terminal.map((c) => ({
+              name: c.name,
+              arguments: parseArgs(c.arguments),
+            })),
+            usage: sawUsage ? { inputTokens, outputTokens, totalTokens } : undefined,
+          };
+        }
 
         // 모델의 function_call 아이템들을 대화에 이어붙인다 (다음 호출이 맥락을 갖도록).
         // res.output 전체가 아니라 function_call 만 넣는다 (다른 출력 타입은 입력에 부적합).
