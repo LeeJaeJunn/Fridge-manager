@@ -64,21 +64,22 @@ const SEARCH_PRODUCTS_TOOL: LlmTool = {
 };
 
 /**
- * 냉장고에 재료를 넣는 툴. "계란이랑 우유 사왔어" 같은 말에서 모델이 재료를 뽑아 호출한다.
- * 이게 이 앱의 주 입력 경로다 — 사진보다 마찰이 낮고, 유저가 폼을 채우지 않아도 재고가 쌓인다.
- * 만료일은 서버가 카테고리×보관위치로 추정해 채우므로, 모델은 모르면 그냥 비워두면 된다.
+ * 냉장고 재고 변경 툴 — 추가(산 것)와 소비(먹은 것)를 **한 번에** 표현한다.
+ * "계란 샀어" 같은 추가가 이 앱의 주 입력 경로이고, "다 먹었어" 같은 소비도 같은 호출로 처리한다.
+ * 두 배열을 한 툴에 둔 이유: "김치찌개 만들고 두부 샀어"처럼 추가+소비가 동시에 오는 걸 한 번에 담기 위함.
+ * 만료일 폴백·병합·이름 매칭은 서버가 흡수하므로, 모델은 모르면 비워두면 된다.
  */
-const ADD_INGREDIENTS_TOOL: LlmTool = {
-  name: 'add_ingredients',
-  terminal: true, // 종결 툴 — 실행하지 않고 확인 카드로 올린다(실제 저장은 사용자 확인 후)
+const UPDATE_INVENTORY_TOOL: LlmTool = {
+  name: 'update_inventory',
+  terminal: true, // 종결 툴 — 실행하지 않고 확인 카드로 올린다(실제 반영은 사용자 확인 후)
   description:
-    '사용자가 식재료를 샀거나 냉장고에 있다고 말하면 재고에 넣는다. 여러 개면 한 번에 배열로 넣어라. 이미 있는 재료를 다시 말하면 서버가 한 줄로 병합한다 — 단 수량은 서버가 더해주지 않으니, 재입고면 quantityNote 에 기존 재고와 이번에 산 양을 합친 현재 총량을 직접 적어라. 요리 얘기만 하거나 재료 보유와 무관한 대화에서는 호출하지 않는다.',
+    '냉장고 재고 변경을 제안한다. 사용자가 재료를 샀거나 냉장고에 있다고 하면 add 에, 실제로 먹었거나 다 썼다고 하면 consume 에 넣는다("김치찌개 만들고 두부 샀어" 처럼 둘을 한 번에 담을 수 있다). 요리를 추천만 하고 아직 안 만들었으면 consume 하지 마라. 재료 보유·소비와 무관한 대화에서는 호출하지 않는다.',
   parameters: {
     type: 'object',
     properties: {
-      items: {
+      add: {
         type: 'array',
-        description: '넣을 재료 목록',
+        description: '새로 넣을(산) 재료 목록',
         items: {
           type: 'object',
           properties: {
@@ -108,29 +109,9 @@ const ADD_INGREDIENTS_TOOL: LlmTool = {
           additionalProperties: false,
         },
       },
-    },
-    required: ['items'],
-    additionalProperties: false,
-  },
-};
-
-/**
- * 재료를 소비 처리하는 툴.
- * **얼마를 썼는지가 아니라 뭐가 남았는지**(remaining)를 받는다 — 산수는 재고를 프롬프트로 받은
- * 모델이 하고 서버는 결과만 저장한다. 자동 차감은 틀리면 신뢰를 깎으므로,
- * 사용자가 실제로 먹었다/썼다고 말했을 때만 부르게 description 에 못박는다.
- */
-const CONSUME_INGREDIENTS_TOOL: LlmTool = {
-  name: 'consume_ingredients',
-  terminal: true, // 종결 툴 — 실행하지 않고 확인 카드로 올린다(실제 차감은 사용자 확인 후)
-  description:
-    '사용자가 재료를 실제로 먹었거나 다 썼다고 말했을 때만 호출한다("만들었어", "다 먹었어", "3개 썼어"). 요리를 추천만 하고 아직 안 만들었으면 절대 호출하지 마라. 일부만 썼으면 remaining 에 남은 양을 적고, 다 썼으면 remaining 을 생략해라. (실제 반영은 사용자 확인 카드를 거친다.)',
-  parameters: {
-    type: 'object',
-    properties: {
-      items: {
+      consume: {
         type: 'array',
-        description: '소비한 재료 목록',
+        description: '먹었거나 쓴 재료 목록',
         items: {
           type: 'object',
           properties: {
@@ -146,7 +127,6 @@ const CONSUME_INGREDIENTS_TOOL: LlmTool = {
         },
       },
     },
-    required: ['items'],
     additionalProperties: false,
   },
 };
@@ -162,7 +142,7 @@ const RECIPE_GUIDANCE = [
   '- 부족한 재료가 있으면 숨기지 말고 "○○만 있으면 돼" 처럼 솔직히 말해라.',
   '- 조리법은 핵심 순서만 짧게. 사용자가 더 물으면 그때 자세히 풀어라.',
   '- 사용자가 못 먹는 재료·알레르기는 절대 넣지 마라. 대체 재료를 제안해라.',
-  '- 재료를 추천했다고 소비 처리하지 마라. 실제로 만들었다고 할 때만 consume_ingredients 를 불러라.',
+  '- 재료를 추천했다고 소비 처리하지 마라. 실제로 만들었다고 할 때만 update_inventory 의 consume 으로 처리해라.',
 ].join('\n');
 
 /**
@@ -574,7 +554,7 @@ export class ConversationService {
     const res = await this.llm.chatWithTools(
       instruction,
       messages,
-      [ADD_INGREDIENTS_TOOL, CONSUME_INGREDIENTS_TOOL],
+      [UPDATE_INVENTORY_TOOL],
       executors,
       this.model,
     );
@@ -623,17 +603,17 @@ export class ConversationService {
     const consume: ConsumeProposalItemType[] = [];
     const add: AddProposalItemType[] = [];
     for (const call of calls) {
-      if (call.name === 'consume_ingredients') {
-        const items: ConsumeItem[] = Array.isArray(call.arguments.items)
-          ? call.arguments.items
-          : [];
-        const { matched } = await this.inventory.resolveConsume(userId, items);
+      if (call.name !== 'update_inventory') continue;
+      const addItems: AddIngredientInputType[] = Array.isArray(call.arguments.add)
+        ? call.arguments.add
+        : [];
+      const consumeItems: ConsumeItem[] = Array.isArray(call.arguments.consume)
+        ? call.arguments.consume
+        : [];
+      if (addItems.length > 0) add.push(...this.inventory.previewAdd(addItems));
+      if (consumeItems.length > 0) {
+        const { matched } = await this.inventory.resolveConsume(userId, consumeItems);
         consume.push(...matched);
-      } else if (call.name === 'add_ingredients') {
-        const items: AddIngredientInputType[] = Array.isArray(call.arguments.items)
-          ? call.arguments.items
-          : [];
-        add.push(...this.inventory.previewAdd(items));
       }
     }
     if (consume.length === 0 && add.length === 0) return undefined;
@@ -776,7 +756,7 @@ export function formatInventory(
   allergies: RecalledMemory[] = [],
 ): string {
   if (inventory.length === 0) {
-    return '냉장고: 아직 등록된 재료가 없어. 있는 재료를 물어보고 add_ingredients 로 넣어줘.';
+    return '냉장고: 아직 등록된 재료가 없어. 있는 재료를 물어보고 update_inventory 의 add 로 넣어줘.';
   }
 
   const lines = inventory.map((i) => {
