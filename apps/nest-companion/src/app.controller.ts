@@ -71,30 +71,35 @@ export class AppController {
     const query = '포른 휴대용 냉각 허리 선풍기 PCWF001';
     try {
       const client = new OpenAI({ apiKey });
-      const res = await client.responses.create({
-        // model: 'gpt-5.6-luna',
-        model: 'gpt-5.4-nano',
-        instructions: instruction,
-        tools: [
-          {
-            type: 'web_search',
-            search_context_size: 'low',
-            filters: {
-              allowed_domains: [
-                'danawa.com', // 스펙+가격비교+사용자 평 — 단일 최강 소스
-                'coupang.com', // 후기 물량 많음
-                'smartstore.naver.com',
-                'blog.naver.com', // 실사용 후기
-                'fmkorea.com', // 커뮤니티 실사용 평
-                'ppomppu.co.kr',
-                'clien.net',
-              ],
-            },
-          },
-        ],
-        input: query,
-      });
+      // const res = await client.responses.create({
+      //   // model: 'gpt-5.6-luna',
+      //   model: 'gpt-5.4-nano',
+      //   instructions: instruction,
+      //   tools: [
+      //     {
+      //       type: 'web_search',
+      //       search_context_size: 'low',
+      //       filters: {
+      //         allowed_domains: [
+      //           'danawa.com', // 스펙+가격비교+사용자 평 — 단일 최강 소스
+      //           'coupang.com', // 후기 물량 많음
+      //           'smartstore.naver.com',
+      //           'blog.naver.com', // 실사용 후기
+      //           'fmkorea.com', // 커뮤니티 실사용 평
+      //           'ppomppu.co.kr',
+      //           'clien.net',
+      //         ],
+      //       },
+      //     },
+      //   ],
+      //   input: query,
+      // });
       // text = 모델이 정리한 답, output = web_search_call 등 원본 스텝(무엇을 검색했는지 확인용)
+      const res = await client.responses.create({
+        model: 'gpt-5.4-nano',
+        input: '내 이름이 뭐라고?',
+        previous_response_id: 'resp_07fca13bb5238cc7006a6f7643c1fc819ab8098f64e430e2ef',
+      });
       console.log(JSON.stringify(res));
       return { query, text: res.output_text, output: res.output };
     } catch (e: unknown) {

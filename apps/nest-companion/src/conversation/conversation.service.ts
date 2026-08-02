@@ -232,6 +232,24 @@ const toMessage = (m: MessageRow): MessageType => ({
   pendingChange: (m.pendingChange as unknown as InventoryProposalType | null) ?? undefined,
 });
 
+/**
+ * 확인 카드 메시지의 **히스토리용 텍스트** — 클라엔 안 보이고(pendingChange 있으면 카드로 대체),
+ * LLM 히스토리에만 남아 "이 재고 변경이 처리됐다"는 맥락을 준다.
+ * 빈 문자열이면 모델이 다음 턴에 같은 소비/추가를 아직 안 한 줄 알고 툴을 또 부른다(재제안 버그).
+ * 정확한 수량은 매 턴 주입되는 재고를 따르게 하고, 여기선 무엇을 처리했는지만 남긴다.
+ */
+function proposalText(p: InventoryProposalType): string {
+  const parts: string[] = [];
+  if (p.consume?.length) parts.push(`소비 ${p.consume.map((c) => c.name).join(', ')}`);
+  if (p.add?.length) parts.push(`추가 ${p.add.map((a) => a.name).join(', ')}`);
+  const body = parts.join(', ');
+  if (p.status === 'applied') {
+    return `냉장고 재고에 반영했어요 (${body}). 정확한 남은 수량은 재고 목록을 따른다.`;
+  }
+  if (p.status === 'dismissed') return `재고 변경을 취소했어요 (${body}).`;
+  return `재고 변경을 제안하고 사용자 확인을 기다리는 중이에요 (${body}).`;
+}
+
 @Injectable()
 export class ConversationService {
   private readonly logger = new Logger(ConversationService.name);
@@ -403,7 +421,11 @@ export class ConversationService {
     const applied: InventoryProposalType = { ...proposal, status: 'applied' };
     const updated = await this.prisma.message.update({
       where: { id: messageId },
-      data: { pendingChange: applied as unknown as Prisma.InputJsonValue },
+      // content 도 "반영했어요"로 갱신 — 다음 턴 히스토리가 처리됨을 알아 툴을 다시 안 부른다.
+      data: {
+        pendingChange: applied as unknown as Prisma.InputJsonValue,
+        content: proposalText(applied),
+      },
       select: MESSAGE_SELECT,
     });
     return { message: toMessage(updated), completion: null };
@@ -419,7 +441,10 @@ export class ConversationService {
     const dismissed: InventoryProposalType = { ...proposal, status: 'dismissed' };
     const updated = await this.prisma.message.update({
       where: { id: messageId },
-      data: { pendingChange: dismissed as unknown as Prisma.InputJsonValue },
+      data: {
+        pendingChange: dismissed as unknown as Prisma.InputJsonValue,
+        content: proposalText(dismissed),
+      },
       select: MESSAGE_SELECT,
     });
     return toMessage(updated);
@@ -567,7 +592,8 @@ export class ConversationService {
         messages: {
           create: {
             role: 'assistant',
-            content: res.text,
+            // 제안이면 히스토리용 텍스트(클라엔 카드로 대체), 아니면 일반 답변.
+            content: proposal ? proposalText(proposal) : res.text,
             // 검색이 있었으면 그 시점 상품 스냅샷 + "더 있음" 플래그를 함께 저장 (없으면 null)
             products: foundProducts.length
               ? (foundProducts as unknown as Prisma.InputJsonValue)

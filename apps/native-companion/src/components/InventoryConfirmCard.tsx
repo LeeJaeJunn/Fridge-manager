@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
 import type {
+  AddProposalItemType,
   ApplyProposalRequestType,
   ConsumeProposalItemType,
   InventoryProposalType,
@@ -13,7 +14,7 @@ import { Card } from './Card';
 const PLACEHOLDER = '#A1A1AA';
 
 /** 소비 항목 한 줄 — 남은 양 편집 + "다 먹음" 토글(누르면 remaining=null → 제거). */
-function ConfirmItemRow({
+function ConsumeRow({
   item,
   value,
   onChange,
@@ -59,9 +60,36 @@ function ConfirmItemRow({
   );
 }
 
+/** 추가 항목 한 줄 — 확인-only(읽기전용). 이름·수량 + 추정 만료일. */
+function AddRow({ item }: { item: AddProposalItemType }) {
+  return (
+    <View className="flex-row items-center justify-between">
+      <Text className="text-[15px] text-ink">
+        {item.name}
+        {item.quantityNote ? <Text className="text-ink-faint"> {item.quantityNote}</Text> : null}
+      </Text>
+      <Text className="text-xs text-ink-faint">{formatExpiry(item)}</Text>
+    </View>
+  );
+}
+
+/** 추정 만료일 표기 — 추정치는 "쯤", 사용자가 준 날은 "까지". */
+function formatExpiry(item: AddProposalItemType): string {
+  const d = new Date(item.estimatedExpiry);
+  const label = `${d.getMonth() + 1}월 ${d.getDate()}일`;
+  return item.expirySource === 'ESTIMATED' ? `${label}쯤` : `${label}까지`;
+}
+
+/** 편집된 남은 양 정규화 — null(다 씀)은 그대로, 공백뿐이면 "다 씀"으로 본다. */
+function normalizeRemaining(v: string | null | undefined): string | null {
+  if (v === null || v === undefined) return null;
+  const trimmed = v.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 /**
- * 소비 "제안" 확인 카드 — 채팅에서 LLM 이 만든 소비 제안을 사용자가 확인·편집 후 반영한다.
- * pending 이면 편집 UI, applied/dismissed 면 결과 칩만. 각 줄은 남은 양을 고치거나 "다 먹음"으로 뺄 수 있다.
+ * 재고 변경 "제안" 확인 카드 — 채팅에서 LLM 이 만든 소비/추가 제안을 사용자가 확인 후 반영한다.
+ * pending 이면 편집 UI(소비=남은 양 편집, 추가=확인-only), applied/dismissed 면 결과 칩만.
  */
 export function InventoryConfirmCard({
   proposal,
@@ -74,9 +102,12 @@ export function InventoryConfirmCard({
   onDismiss: () => void;
   busy?: boolean;
 }) {
-  // 편집값: ingredientId → 남은 양(string) 또는 null(다 씀). 제안값으로 초기화.
+  const consume = proposal.consume ?? [];
+  const add = proposal.add ?? [];
+
+  // 소비 편집값: ingredientId → 남은 양(string) 또는 null(다 씀). 제안값으로 초기화.
   const [edits, setEdits] = useState<Record<string, string | null>>(() =>
-    Object.fromEntries(proposal.items.map((it) => [it.ingredientId, it.remaining])),
+    Object.fromEntries(consume.map((it) => [it.ingredientId, it.remaining])),
   );
 
   if (proposal.status !== 'pending') {
@@ -89,11 +120,11 @@ export function InventoryConfirmCard({
     );
   }
 
+  // 추가는 확인-only 라 편집 없이 서버가 제안 그대로 반영한다 → onApply 는 소비 편집값만 보낸다.
   const submit = () =>
     onApply(
-      proposal.items.map((it) => ({
+      consume.map((it) => ({
         ingredientId: it.ingredientId,
-        // 빈 문자열은 "다 씀"이 아니라 미입력이므로, 안전하게 기존 남은 양 또는 null 로 흐르지 않게 트림 처리
         remaining: normalizeRemaining(edits[it.ingredientId]),
       })),
     );
@@ -101,16 +132,29 @@ export function InventoryConfirmCard({
   return (
     <Card radius="3xl" className="gap-3 px-5 py-4">
       <Text className="text-sm font-bold text-ink">🥗 이렇게 정리할까요?</Text>
-      <View className="gap-3">
-        {proposal.items.map((it) => (
-          <ConfirmItemRow
-            key={it.ingredientId}
-            item={it}
-            value={edits[it.ingredientId] ?? null}
-            onChange={(v) => setEdits((prev) => ({ ...prev, [it.ingredientId]: v }))}
-          />
-        ))}
-      </View>
+
+      {consume.length > 0 ? (
+        <View className="gap-3">
+          {consume.map((it) => (
+            <ConsumeRow
+              key={it.ingredientId}
+              item={it}
+              value={edits[it.ingredientId] ?? null}
+              onChange={(v) => setEdits((prev) => ({ ...prev, [it.ingredientId]: v }))}
+            />
+          ))}
+        </View>
+      ) : null}
+
+      {add.length > 0 ? (
+        <View className="gap-2">
+          <Text className="text-xs font-medium text-ink-soft">➕ 냉장고에 넣기</Text>
+          {add.map((it, i) => (
+            <AddRow key={`${it.name}-${i}`} item={it} />
+          ))}
+        </View>
+      ) : null}
+
       <View className="flex-row gap-2">
         <View className="flex-1">
           <Button label="취소" variant="secondary" onPress={onDismiss} disabled={busy} />
@@ -121,11 +165,4 @@ export function InventoryConfirmCard({
       </View>
     </Card>
   );
-}
-
-/** 편집된 남은 양 정규화 — null(다 씀)은 그대로, 공백뿐이면 "다 씀"으로 본다. */
-function normalizeRemaining(v: string | null | undefined): string | null {
-  if (v === null || v === undefined) return null;
-  const trimmed = v.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }

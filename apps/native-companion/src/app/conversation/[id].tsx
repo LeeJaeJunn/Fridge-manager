@@ -171,7 +171,10 @@ export default function ConversationScreen() {
             )}
             {messages.map((m) => (
               <View key={m.id} className="gap-2">
-                <Bubble role={m.role} content={m.content} />
+                {/* 제안 카드가 있으면 말풍선을 숨긴다 — content 는 LLM 히스토리 전용이고 화면엔 카드만 */}
+                {m.content && !m.pendingChange ? (
+                  <Bubble role={m.role} content={m.content} />
+                ) : null}
                 {m.products && m.products.length > 0 && (
                   <View className="gap-2">
                     {m.products.map((p) => (
