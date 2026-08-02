@@ -384,31 +384,41 @@ export class InventoryService {
    * 추가 "제안" 생성 — `add` 의 정규화(기본 분류·보관 + 만료일 추정)를 **쓰지 않고** 미리 계산만 한다.
    * 확인 카드에 보여줄 값이며, 실제 저장(병합 포함)은 확인 후 `add` 가 그대로 다시 계산해 처리한다.
    * DB·병합을 안 타는 순수 함수라 동기다.
+   *
+   * 같은 이름이 한 호출 안에 두 번 오면 **첫 번째만** 남긴다 — `resolveConsume` 의 dedupe 와 같은 방향이라
+   * "같은 재료가 여러 번 오면 첫 번째가 이긴다" 한 규칙으로 제안 전체가 설명된다.
+   * (중복이 `itemsMax` 정원을 잡아먹지 않게 자르기 **전에** 제거한다)
    */
   previewAdd(items: AddIngredientInputType[]): AddProposalItemType[] {
     const now = new Date();
-    return items
+    const clean = items
       .map((it) => ({ ...it, name: clip(it.name ?? '', LIMITS.nameMax) }))
-      .filter((it) => it.name.length > 0)
-      .slice(0, LIMITS.itemsMax)
-      .map((item) => {
-        const category = item.category ?? 'ETC';
-        const storage = item.storage ?? 'FRIDGE';
-        const userExpiry = item.expiresAt ? new Date(item.expiresAt) : null;
-        const hasUserExpiry = userExpiry !== null && !Number.isNaN(userExpiry.getTime());
-        const expiresAt = hasUserExpiry ? userExpiry : estimateExpiry(category, storage, now);
-        const quantityNote = item.quantityNote
-          ? clip(item.quantityNote, LIMITS.quantityNoteMax)
-          : undefined;
-        return {
-          name: item.name,
-          category,
-          storage,
-          ...(quantityNote ? { quantityNote } : {}),
-          estimatedExpiry: expiresAt.toISOString(),
-          expirySource: hasUserExpiry ? 'USER' : 'ESTIMATED',
-        };
-      });
+      .filter((it) => it.name.length > 0);
+
+    const unique = new Map<string, (typeof clean)[number]>();
+    for (const it of clean) {
+      const key = normalize(it.name);
+      if (!unique.has(key)) unique.set(key, it);
+    }
+
+    return [...unique.values()].slice(0, LIMITS.itemsMax).map((item) => {
+      const category = item.category ?? 'ETC';
+      const storage = item.storage ?? 'FRIDGE';
+      const userExpiry = item.expiresAt ? new Date(item.expiresAt) : null;
+      const hasUserExpiry = userExpiry !== null && !Number.isNaN(userExpiry.getTime());
+      const expiresAt = hasUserExpiry ? userExpiry : estimateExpiry(category, storage, now);
+      const quantityNote = item.quantityNote
+        ? clip(item.quantityNote, LIMITS.quantityNoteMax)
+        : undefined;
+      return {
+        name: item.name,
+        category,
+        storage,
+        ...(quantityNote ? { quantityNote } : {}),
+        estimatedExpiry: expiresAt.toISOString(),
+        expirySource: hasUserExpiry ? 'USER' : 'ESTIMATED',
+      };
+    });
   }
 
   /** 소비 취소 (오차감 되돌리기). soft delete 라 UPDATE 한 번. 멱등. */

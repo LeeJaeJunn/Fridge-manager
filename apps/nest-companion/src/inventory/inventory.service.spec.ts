@@ -1,7 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { InventoryService } from './inventory.service';
-import { shelfLifeDays } from './shelf-life';
+import { LIMITS, shelfLifeDays } from './shelf-life';
 
 /** 인자를 unknown 으로 고정해 둔다 — 기본 jest.Mock 은 calls 가 any 라 lint 가 막는다. */
 type QueryMock = jest.Mock<Promise<unknown>, [unknown]>;
@@ -360,6 +360,30 @@ describe('InventoryService', () => {
       const res = await service.consumeByNames('u1', [{ name: '계란', remaining: '  ' }]);
       expect(res.consumed).toEqual(['계란']);
       expect(prisma.ingredient.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('previewAdd', () => {
+    it('같은 이름이 두 번 오면 첫 번째만 남긴다 (확인 카드에 두 줄로 안 뜨게)', () => {
+      const preview = service.previewAdd([
+        { name: '계란', quantityNote: '한 판' },
+        { name: ' 계란 ', quantityNote: '5개' },
+      ]);
+
+      expect(preview).toHaveLength(1);
+      expect(preview[0].quantityNote).toBe('한 판'); // first-wins — resolveConsume 과 같은 방향
+    });
+
+    it('중복은 itemsMax 정원을 잡아먹지 않는다 (자르기 전에 제거)', () => {
+      const dupes = Array.from({ length: LIMITS.itemsMax }, () => ({ name: '계란' }));
+      const preview = service.previewAdd([...dupes, { name: '대파' }]);
+
+      expect(preview.map((p) => p.name)).toEqual(['계란', '대파']);
+    });
+
+    it('이름이 다르면 그대로 둔다', () => {
+      const preview = service.previewAdd([{ name: '계란' }, { name: '대파' }]);
+      expect(preview.map((p) => p.name)).toEqual(['계란', '대파']);
     });
   });
 

@@ -92,7 +92,7 @@ const UPDATE_INVENTORY_TOOL: LlmTool = {
             quantityNote: {
               type: 'string',
               description:
-                '지금 냉장고에 있는 총량을 사용자 표현 그대로 ("한 판", "1L", "두 봉지"). 이미 있던 재료를 더 샀다면 프롬프트의 기존 재고 수량에 이번에 산 양을 더한 합계를 적어라 (예: 기존 5개 + 2개 구매 → "7개"). 서버는 이 값으로 덮어쓰며 수량을 더하지 않는다. 모르면 생략',
+                '지금 냉장고에 있는 총량을 사용자 표현 그대로 ("한 판", "1L", "두 봉지"). 이미 있던 재료를 더 샀다면 프롬프트의 기존 재고 수량에 이번에 산 양을 더한 합계를 적어라 (예: 기존 5개 + 2개 구매 → "7개"). 모르면 생략',
             },
             storage: {
               type: 'string',
@@ -599,23 +599,23 @@ export class ConversationService {
     userId: string,
     calls: TerminalToolCall[] | undefined,
   ): Promise<InventoryProposalType | undefined> {
-    if (!calls?.length) return undefined;
-    const consume: ConsumeProposalItemType[] = [];
-    const add: AddProposalItemType[] = [];
-    for (const call of calls) {
-      if (call.name !== 'update_inventory') continue;
-      const addItems: AddIngredientInputType[] = Array.isArray(call.arguments.add)
-        ? call.arguments.add
-        : [];
-      const consumeItems: ConsumeItem[] = Array.isArray(call.arguments.consume)
-        ? call.arguments.consume
-        : [];
-      if (addItems.length > 0) add.push(...this.inventory.previewAdd(addItems));
-      if (consumeItems.length > 0) {
-        const { matched } = await this.inventory.resolveConsume(userId, consumeItems);
-        consume.push(...matched);
-      }
+    const picked = pickInventoryCall(calls);
+    if (!picked) return undefined;
+    // 버린 호출이 있으면 남긴다 — 모델이 "정당하게 나눠 부르는" 경우가 실제로 나오는지
+    // 이 로그로만 알 수 있다(그런 호출이 잦으면 합치는 쪽으로 다시 판단한다).
+    if (picked.ignored > 0) {
+      this.logger.warn(
+        `update_inventory 가 ${picked.ignored + 1}번 호출돼 첫 호출만 반영 (user=${userId}, 무시=${picked.ignored})`,
+      );
     }
+
+    const add: AddProposalItemType[] =
+      picked.addItems.length > 0 ? this.inventory.previewAdd(picked.addItems) : [];
+    const consume: ConsumeProposalItemType[] =
+      picked.consumeItems.length > 0
+        ? (await this.inventory.resolveConsume(userId, picked.consumeItems)).matched
+        : [];
+
     if (consume.length === 0 && add.length === 0) return undefined;
     return {
       status: 'pending',
@@ -702,12 +702,45 @@ export class ConversationService {
   }
 }
 
+/**
+ * 종결 툴 호출들 중 **첫 `update_inventory` 하나만** 고른다. 나머지는 버린다.
+ *
+ * 벤더 기본값이 병렬 툴콜이라 모델이 한 턴에 `update_inventory` 를 여러 번 부른다. 실제로 관측된
+ * 호출들은 뒤로 갈수록 앞의 판단과 어긋났고(같은 소비가 두 번, 같은 재료가 add·consume 양쪽에),
+ * 전부 합치면 확인 카드에 같은 재고 행이 두 줄 올라와 `ingredientId` key 가 충돌했다.
+ * 그래서 합치지 않고 **첫 판단만 믿는다.**
+ *
+ * ⚠️ 대가: 모델이 정당하게 나눠 부르면(call1=add, call2=consume) 뒷부분이 유실된다.
+ * 그런 호출이 실제로 나오는지는 호출자가 `ignored` 로 남기는 경고 로그로만 알 수 있다.
+ */
+export function pickInventoryCall(calls: TerminalToolCall[] | undefined):
+  | {
+      addItems: AddIngredientInputType[];
+      consumeItems: ConsumeItem[];
+      /** 버려진 update_inventory 호출 수 (0 이면 단일 호출) */
+      ignored: number;
+    }
+  | undefined {
+  if (!calls?.length) return undefined;
+  const mine = calls.filter((c) => c.name === 'update_inventory');
+  const first = mine[0];
+  if (!first) return undefined;
+
+  // 인자는 모델이 만든 JSON 이라 모양을 믿지 않는다 — 배열이 아니면 없는 것으로 친다.
+  const addItems: AddIngredientInputType[] = Array.isArray(first.arguments.add)
+    ? first.arguments.add
+    : [];
+  const consumeItems: ConsumeItem[] = Array.isArray(first.arguments.consume)
+    ? first.arguments.consume
+    : [];
+  return { addItems, consumeItems, ignored: mine.length - 1 };
+}
+
 /** 금지 재료 블록 — 없으면 빈 문자열(섹션 자체가 안 붙는다). */
 function formatAllergyWarning(allergies: RecalledMemory[]): string {
   if (allergies.length === 0) return '';
   const items = allergies.map((m) => `- ${m.content}`).join('\n');
   return [
-    '',
     '# ⚠️ 무엇보다 우선하는 규칙 — 먹으면 안 되는 것',
     items,
     '- 이 재료가 들어가는 요리는 **절대 추천하지 마라.** 사용자가 직접 그 요리를 만들어 달라고 해도 거절하고 다른 걸 제안해라.',
