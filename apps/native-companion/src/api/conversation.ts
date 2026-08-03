@@ -1,10 +1,9 @@
 import { apiFetch } from '@/api/client';
 import type {
   ApplyProposalRequestType,
-  ApplyProposalResultType,
   ConversationDetailType,
   ConversationSummaryType,
-  MessageType,
+  ResolveProposalResultType,
   SendMessageRequestType,
 } from '@companion/types';
 
@@ -26,9 +25,15 @@ export function startConversation(body: SendMessageRequestType): Promise<Convers
   });
 }
 
-/** 기존 대화에 메시지 전송 → 답변 메시지 반환 */
-export function sendMessage(id: string, body: SendMessageRequestType): Promise<MessageType> {
-  return apiFetch<MessageType>(`/conversations/${id}/messages`, {
+/**
+ * 기존 대화에 메시지 전송 → **이번 턴에 새로 생긴 아이템들** 반환.
+ * 한 턴에 말풍선과 툴 호출(확인 카드)이 함께 나올 수 있어서 단건이 아니라 배열이다.
+ */
+export function sendMessage(
+  id: string,
+  body: SendMessageRequestType,
+): Promise<ResolveProposalResultType> {
+  return apiFetch<ResolveProposalResultType>(`/conversations/${id}/messages`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -46,21 +51,25 @@ export function deleteMessage(conversationId: string, messageId: string): Promis
   });
 }
 
-/** 소비 제안 확정 — 사용자가 편집한 값으로 반영. 갱신된 메시지(+선택 완료 답변) 반환 */
+/** 재고 변경 제안 확정 — 사용자가 편집한 값으로 반영. 새로 생긴 아이템들(툴 결과 등) 반환 */
 export function applyProposal(
   conversationId: string,
   messageId: string,
   body: ApplyProposalRequestType,
-): Promise<ApplyProposalResultType> {
-  return apiFetch<ApplyProposalResultType>(
+): Promise<ResolveProposalResultType> {
+  return apiFetch<ResolveProposalResultType>(
     `/conversations/${conversationId}/messages/${messageId}/apply`,
     { method: 'POST', body: JSON.stringify(body) },
   );
 }
 
-/** 소비 제안 취소 — 반영하지 않고 dismissed 처리. 갱신된 메시지 반환 */
-export function dismissProposal(conversationId: string, messageId: string): Promise<MessageType> {
-  return apiFetch<MessageType>(`/conversations/${conversationId}/messages/${messageId}/dismiss`, {
-    method: 'POST',
-  });
+/** 재고 변경 제안 취소 — 반영하지 않고 "취소됨" 결과만 남긴다 */
+export function dismissProposal(
+  conversationId: string,
+  messageId: string,
+): Promise<ResolveProposalResultType> {
+  return apiFetch<ResolveProposalResultType>(
+    `/conversations/${conversationId}/messages/${messageId}/dismiss`,
+    { method: 'POST' },
+  );
 }

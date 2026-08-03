@@ -18,8 +18,9 @@ import {
   sendMessage,
   startConversation,
 } from '@/api/conversation';
-import { Bubble, Button, InventoryConfirmCard, ProductCard, Screen } from '@/components';
+import { Bubble, Button, InventoryConfirmCard, Screen } from '@/components';
 import { useInventory } from '@/context/inventory';
+import { outcomesByCallId, toInventoryProposal } from '@/lib/messages';
 import type { ApplyProposalRequestType, MessageType } from '@companion/types';
 
 export default function ConversationScreen() {
@@ -67,6 +68,7 @@ export default function ConversationScreen() {
     // 낙관적: 유저 메시지를 즉시 표시
     const optimistic: MessageType = {
       id: `tmp-${Date.now()}`,
+      type: 'TEXT',
       role: 'user',
       content,
       createdAt: new Date().toISOString(),
@@ -80,8 +82,9 @@ export default function ConversationScreen() {
         setConversationId(convo.id);
         setMessages(convo.messages);
       } else {
-        const assistant = await sendMessage(conversationId, { content });
-        setMessages((prev) => [...prev, assistant]);
+        // 한 턴에 말풍선 + 확인 카드가 함께 올 수 있어 배열로 받는다
+        const res = await sendMessage(conversationId, { content });
+        setMessages((prev) => [...prev, ...res.messages]);
       }
       dirtyRef.current = true; // 대화가 오갔으니 나갈 때 재고를 다시 확인한다
     } catch (e: unknown) {
@@ -92,16 +95,14 @@ export default function ConversationScreen() {
     }
   }
 
-  // 소비 제안 확정 — 편집값으로 반영하고, 갱신된 메시지(+선택 완료 답변)로 교체 후 전 화면 재고 새로고침.
+  // 제안 확정 — 편집값으로 반영. 서버가 만든 아이템(툴 결과 등)을 **뒤에 덧붙인다**.
+  // 카드 자체는 그대로 두고, 결과 아이템이 생기면서 자동으로 "반영했어요" 칩으로 바뀐다.
   async function handleApply(messageId: string, items: ApplyProposalRequestType['items']) {
     if (!conversationId || resolvingId) return;
     setResolvingId(messageId);
     try {
-      const result = await applyProposal(conversationId, messageId, { items });
-      setMessages((prev) => {
-        const next = prev.map((m) => (m.id === messageId ? result.message : m));
-        return result.completion ? [...next, result.completion] : next;
-      });
+      const res = await applyProposal(conversationId, messageId, { items });
+      setMessages((prev) => [...prev, ...res.messages]);
       void refresh(); // 냉장고·홈에 즉시 반영
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '반영에 실패했어요');
@@ -110,13 +111,13 @@ export default function ConversationScreen() {
     }
   }
 
-  // 소비 제안 취소 — 반영하지 않고 dismissed 로만 갱신.
+  // 제안 취소 — 재고는 그대로 두고 "취소됨" 결과 아이템만 덧붙는다.
   async function handleDismiss(messageId: string) {
     if (!conversationId || resolvingId) return;
     setResolvingId(messageId);
     try {
-      const updated = await dismissProposal(conversationId, messageId);
-      setMessages((prev) => prev.map((m) => (m.id === messageId ? updated : m)));
+      const res = await dismissProposal(conversationId, messageId);
+      setMessages((prev) => [...prev, ...res.messages]);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '취소에 실패했어요');
     } finally {
@@ -131,13 +132,8 @@ export default function ConversationScreen() {
     void send(content);
   }
 
-  // 마지막 답변이 상품 카드 + "더 있음"이면 이어보기 버튼을 노출 (소진되면 자동으로 사라짐)
-  const last = messages[messages.length - 1];
-  const canLoadMore =
-    !sending &&
-    last?.role === 'assistant' &&
-    !!last.products?.length &&
-    last.hasMoreProducts === true;
+  // 어떤 제안이 이미 처리됐는지 — 짝이 되는 툴 결과 아이템으로 판정한다(서버와 같은 규칙).
+  const outcomes = outcomesByCallId(messages);
 
   return (
     <Screen edges={['top', 'bottom']}>
@@ -169,39 +165,29 @@ export default function ConversationScreen() {
                 메시지를 보내 대화를 시작하세요
               </Text>
             )}
-            {messages.map((m) => (
-              <View key={m.id} className="gap-2">
-                {/* 제안 카드가 있으면 말풍선을 숨긴다 — content 는 LLM 히스토리 전용이고 화면엔 카드만 */}
-                {m.content && !m.pendingChange ? (
-                  <Bubble role={m.role} content={m.content} />
-                ) : null}
-                {m.products && m.products.length > 0 && (
-                  <View className="gap-2">
-                    {m.products.map((p) => (
-                      <ProductCard key={p.id} product={p} />
-                    ))}
-                  </View>
-                )}
-                {m.pendingChange && (
+            {messages.map((m) => {
+              // 툴 결과는 자기 말풍선을 갖지 않는다 — 짝이 되는 카드의 상태로만 드러난다.
+              if (m.type === 'FUNCTION_CALL_OUTPUT') return null;
+
+              if (m.type === 'FUNCTION_CALL') {
+                const proposal = toInventoryProposal(m);
+                // 앱이 모르는 툴이면 조용히 건너뛴다 (백엔드에 툴이 늘어도 안 깨지게)
+                if (!proposal) return null;
+                return (
                   <InventoryConfirmCard
-                    proposal={m.pendingChange}
+                    key={m.id}
+                    proposal={proposal}
+                    outcome={outcomes.get(m.payload.callId) ?? null}
                     busy={resolvingId === m.id}
                     onApply={(items) => void handleApply(m.id, items)}
                     onDismiss={() => void handleDismiss(m.id)}
                   />
-                )}
-              </View>
-            ))}
-            {canLoadMore && (
-              <View className="items-start">
-                <Button
-                  label="다른 상품 보여줘"
-                  variant="secondary"
-                  size="sm"
-                  onPress={() => void send('다른 상품도 보여줘')}
-                />
-              </View>
-            )}
+                );
+              }
+
+              if (!m.content) return null;
+              return <Bubble key={m.id} role={m.role} content={m.content} />;
+            })}
             {sending && <Bubble role="assistant" pending />}
           </ScrollView>
         )}

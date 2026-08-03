@@ -8,6 +8,7 @@ import type {
   InventoryProposalType,
 } from '@companion/types';
 
+import type { ProposalOutcomeType } from '@/lib/messages';
 import { Button } from './Button';
 import { Card } from './Card';
 
@@ -89,15 +90,21 @@ function normalizeRemaining(v: string | null | undefined): string | null {
 
 /**
  * 재고 변경 "제안" 확인 카드 — 채팅에서 LLM 이 만든 소비/추가 제안을 사용자가 확인 후 반영한다.
- * pending 이면 편집 UI(소비=남은 양 편집, 추가=확인-only), applied/dismissed 면 결과 칩만.
+ * 미처리면 편집 UI(소비=남은 양 편집, 추가=확인-only), 처리됐으면 결과 칩만.
+ *
+ * 처리 여부는 카드가 스스로 알지 못한다 — 짝이 되는 툴 결과가 대화에 있는지로 정해지므로
+ * 부모가 `outcome` 으로 알려준다(`outcomesByCallId` 참고).
  */
 export function InventoryConfirmCard({
   proposal,
+  outcome = null,
   onApply,
   onDismiss,
   busy = false,
 }: {
   proposal: InventoryProposalType;
+  /** 이미 처리됐으면 그 결과, 아직이면 null */
+  outcome?: ProposalOutcomeType | null;
   onApply: (items: ApplyProposalRequestType['items']) => void;
   onDismiss: () => void;
   busy?: boolean;
@@ -110,11 +117,11 @@ export function InventoryConfirmCard({
     Object.fromEntries(consume.map((it) => [it.ingredientId, it.remaining])),
   );
 
-  if (proposal.status !== 'pending') {
+  if (outcome) {
     return (
       <View className="self-start rounded-full bg-sand px-3 py-1">
         <Text className="text-xs font-medium text-ink-soft">
-          {proposal.status === 'applied' ? '✓ 재고에 반영했어요' : '취소했어요'}
+          {outcome === 'applied' ? '✓ 재고에 반영했어요' : '취소했어요'}
         </Text>
       </View>
     );
