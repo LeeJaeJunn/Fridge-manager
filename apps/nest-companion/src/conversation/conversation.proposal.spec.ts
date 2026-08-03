@@ -1,7 +1,9 @@
 import type { TerminalToolCall } from '../llm/llm.service';
 import { pickInventoryCall } from './conversation.service';
 
+let seq = 0;
 const call = (args: Record<string, unknown>, name = 'update_inventory'): TerminalToolCall => ({
+  callId: `call_${++seq}`,
   name,
   arguments: args,
 });

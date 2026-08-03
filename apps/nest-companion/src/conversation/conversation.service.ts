@@ -2,16 +2,17 @@ import type {
   AddIngredientInputType,
   AddProposalItemType,
   ApplyProposalRequestType,
-  ApplyProposalResultType,
-  ChatMessageType,
   ChatRoleType,
   ConsumeProposalItemType,
   ConversationDetailType,
   ConversationSummaryType,
+  FunctionCallPayloadType,
+  FunctionOutputPayloadType,
   InventoryProposalType,
   MessageType,
   ProductSearchCriteriaType,
   ProductType,
+  ResolveProposalResultType,
 } from '@companion/types';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -26,6 +27,7 @@ import {
 import { CATEGORY_VALUES, STORAGE_VALUES } from '../inventory/shelf-life';
 import {
   LlmService,
+  type LlmInputItemType,
   type LlmTool,
   type LlmToolExecutor,
   type TerminalToolCall,
@@ -174,21 +176,22 @@ type LastSearch = {
 
 const MESSAGE_SELECT = {
   id: true,
+  type: true,
   role: true,
   content: true,
-  products: true,
-  hasMoreProducts: true,
-  pendingChange: true,
+  payload: true,
   createdAt: true,
 } as const;
 
+/** DB enum 을 문자열 유니온으로 받아 `===` 비교에서 no-unsafe-enum-comparison 이 안 터지게 한다(role 과 같은 패턴). */
+type MessageItemTypeValue = 'TEXT' | 'FUNCTION_CALL' | 'FUNCTION_CALL_OUTPUT';
+
 type MessageRow = {
   id: string;
-  role: ChatRoleType;
-  content: string;
-  products: Prisma.JsonValue | null;
-  hasMoreProducts: boolean | null;
-  pendingChange: Prisma.JsonValue | null;
+  type: MessageItemTypeValue;
+  role: ChatRoleType | null;
+  content: string | null;
+  payload: Prisma.JsonValue | null;
   createdAt: Date;
 };
 
@@ -200,34 +203,86 @@ type CharacterPromptSource = {
   user: { name: string | null };
 };
 
-const toMessage = (m: MessageRow): MessageType => ({
-  id: m.id,
-  role: m.role,
-  content: m.content,
-  createdAt: m.createdAt.toISOString(),
-  // 저장은 Json 이지만 우리가 넣는 건 항상 ProductType[] (없으면 null → 카드 없음)
-  products: (m.products as unknown as ProductType[] | null) ?? undefined,
-  hasMoreProducts: m.hasMoreProducts ?? undefined,
-  // 저장은 Json 이지만 우리가 넣는 건 항상 InventoryProposalType (없으면 null → 확인 카드 없음)
-  pendingChange: (m.pendingChange as unknown as InventoryProposalType | null) ?? undefined,
-});
+/** 저장 행 → 클라 계약(판별 유니온). payload 는 우리가 쓴 모양이 보장된다. */
+const toMessage = (m: MessageRow): MessageType => {
+  const createdAt = m.createdAt.toISOString();
+  if (m.type === 'FUNCTION_CALL') {
+    return {
+      id: m.id,
+      type: 'FUNCTION_CALL',
+      createdAt,
+      payload: m.payload as unknown as FunctionCallPayloadType,
+    };
+  }
+  if (m.type === 'FUNCTION_CALL_OUTPUT') {
+    return {
+      id: m.id,
+      type: 'FUNCTION_CALL_OUTPUT',
+      createdAt,
+      payload: m.payload as unknown as FunctionOutputPayloadType,
+    };
+  }
+  return {
+    id: m.id,
+    type: 'TEXT',
+    role: m.role ?? 'assistant',
+    content: m.content ?? '',
+    createdAt,
+  };
+};
 
 /**
- * 확인 카드 메시지의 **히스토리용 텍스트** — 클라엔 안 보이고(pendingChange 있으면 카드로 대체),
- * LLM 히스토리에만 남아 "이 재고 변경이 처리됐다"는 맥락을 준다.
- * 빈 문자열이면 모델이 다음 턴에 같은 소비/추가를 아직 안 한 줄 알고 툴을 또 부른다(재제안 버그).
- * 정확한 수량은 매 턴 주입되는 재고를 따르게 하고, 여기선 무엇을 처리했는지만 남긴다.
+ * 저장 행들 → LLM 재생용 아이템.
+ *
+ * ⚠️ **미확인 호출에는 자리표시 결과를 붙인다.** OpenAI 는 짝 없는 `function_call` 이 입력에 있으면
+ * 400(No tool output found for function call ...)으로 거절한다. 사용자가 확인 카드를 무시한 채
+ * 다음 메시지를 보내면 정확히 그 상태가 되므로, 재생 시점에 `{ pending: true }` 결과를 만들어 짝을 채운다.
+ * DB 에는 쓰지 않는다 — 실제 결과는 확인/취소 때 별도 행으로 남는다.
+ * 덤으로 모델이 "저 제안은 아직 대기 중"임을 알게 돼 같은 제안을 반복할 이유가 줄어든다.
  */
-function proposalText(p: InventoryProposalType): string {
-  const parts: string[] = [];
-  if (p.consume?.length) parts.push(`소비 ${p.consume.map((c) => c.name).join(', ')}`);
-  if (p.add?.length) parts.push(`추가 ${p.add.map((a) => a.name).join(', ')}`);
-  const body = parts.join(', ');
-  if (p.status === 'applied') {
-    return `냉장고 재고에 반영했어요 (${body}). 정확한 남은 수량은 재고 목록을 따른다.`;
+function toLlmItems(rows: MessageRow[]): LlmInputItemType[] {
+  const resolvedCallIds = new Set(
+    rows
+      .filter((r) => r.type === 'FUNCTION_CALL_OUTPUT')
+      .map((r) => (r.payload as unknown as FunctionOutputPayloadType | null)?.callId)
+      .filter((id): id is string => typeof id === 'string'),
+  );
+
+  const items: LlmInputItemType[] = [];
+  for (const row of rows) {
+    if (row.type === 'FUNCTION_CALL') {
+      const p = row.payload as unknown as FunctionCallPayloadType | null;
+      if (!p) continue;
+      items.push({
+        type: 'function_call',
+        callId: p.callId,
+        name: p.name,
+        arguments: p.arguments,
+      });
+      if (!resolvedCallIds.has(p.callId)) {
+        items.push({
+          type: 'function_call_output',
+          callId: p.callId,
+          name: p.name,
+          output: { pending: true, note: '사용자 확인 대기 중 — 아직 반영되지 않았다' },
+        });
+      }
+      continue;
+    }
+    if (row.type === 'FUNCTION_CALL_OUTPUT') {
+      const p = row.payload as unknown as FunctionOutputPayloadType | null;
+      if (!p) continue;
+      items.push({
+        type: 'function_call_output',
+        callId: p.callId,
+        name: p.name,
+        output: p.output,
+      });
+      continue;
+    }
+    items.push({ type: 'text', role: row.role ?? 'assistant', content: row.content ?? '' });
   }
-  if (p.status === 'dismissed') return `재고 변경을 취소했어요 (${body}).`;
-  return `재고 변경을 제안하고 사용자 확인을 기다리는 중이에요 (${body}).`;
+  return items;
 }
 
 @Injectable()
@@ -259,7 +314,9 @@ export class ConversationService {
         id: true,
         title: true,
         updatedAt: true,
+        // 미리보기는 **말풍선만** 본다 — 마지막 아이템이 툴 호출이면 보여줄 텍스트가 없다.
         messages: {
+          where: { type: 'TEXT' },
           orderBy: { createdAt: 'desc' },
           take: 1,
           select: { content: true },
@@ -311,8 +368,15 @@ export class ConversationService {
     return this.get(userId, convo.id);
   }
 
-  /** 기존 대화에 메시지 전송 → 답변 반환 (본인 것만) */
-  async sendMessage(userId: string, conversationId: string, content: string): Promise<MessageType> {
+  /**
+   * 기존 대화에 메시지 전송 → **이번 턴에 새로 생긴 아이템들** 반환 (본인 것만).
+   * 한 턴에 텍스트와 툴 호출이 함께 나올 수 있어서 단건이 아니라 배열이다.
+   */
+  async sendMessage(
+    userId: string,
+    conversationId: string,
+    content: string,
+  ): Promise<ResolveProposalResultType> {
     const convo = await this.prisma.conversation.findFirst({
       where: { id: conversationId, userId },
       select: { id: true },
@@ -321,14 +385,14 @@ export class ConversationService {
       throw new NotFoundException('대화를 찾을 수 없습니다.');
     }
     const { character, memories, inventory } = await this.getPromptContext(userId);
-    const { reply, messageCount } = await this.exchangeWithTools(
+    const { created, messageCount } = await this.exchangeWithTools(
       userId,
       convo.id,
       this.buildInstruction(character, memories, inventory),
       content,
     );
     this.triggerExtraction(userId, conversationId, messageCount);
-    return reply;
+    return { messages: created };
   }
 
   /** 대화 삭제 (본인 것만, 메시지는 cascade 로 함께 삭제). 멱등. */
@@ -345,22 +409,63 @@ export class ConversationService {
     });
   }
 
-  /** 메시지의 pending 제안을 읽어 소유권 + pending 상태를 검증한다. 아니면 예외. */
-  private async loadPendingProposal(
+  /**
+   * 확인 대상 툴 호출을 읽어 **소유권 + 아직 미처리** 를 검증한다. 아니면 예외.
+   *
+   * "미처리" 판정은 상태 필드가 아니라 **같은 callId 의 FUNCTION_CALL_OUTPUT 이 없는 것**이다
+   * (상태를 따로 들고 있으면 두 기록이 어긋난다). 같은 확인 요청이 두 번 와도 두 번째는 여기서 막힌다.
+   */
+  private async loadPendingCall(
     userId: string,
     conversationId: string,
     messageId: string,
-  ): Promise<InventoryProposalType> {
+  ): Promise<FunctionCallPayloadType> {
     const msg = await this.prisma.message.findFirst({
-      where: { id: messageId, conversationId, conversation: { userId } },
-      select: { pendingChange: true },
+      where: { id: messageId, conversationId, conversation: { userId }, type: 'FUNCTION_CALL' },
+      select: { payload: true },
     });
     if (!msg) throw new NotFoundException('메시지를 찾을 수 없어요.');
-    const proposal = (msg.pendingChange as unknown as InventoryProposalType | null) ?? null;
-    if (!proposal || proposal.status !== 'pending') {
-      throw new BadRequestException('이미 처리됐거나 확인할 제안이 없어요.');
-    }
-    return proposal;
+    const call = (msg.payload as unknown as FunctionCallPayloadType | null) ?? null;
+    if (!call) throw new BadRequestException('확인할 제안이 없어요.');
+
+    const done = await this.prisma.message.findFirst({
+      where: {
+        conversationId,
+        type: 'FUNCTION_CALL_OUTPUT',
+        payload: { path: ['callId'], equals: call.callId },
+      },
+      select: { id: true },
+    });
+    if (done) throw new BadRequestException('이미 처리된 제안이에요.');
+    return call;
+  }
+
+  /** 툴 결과 아이템을 저장하고(+대화 updatedAt 갱신) 새로 생긴 아이템들을 돌려준다. */
+  private async appendOutput(
+    conversationId: string,
+    call: FunctionCallPayloadType,
+    output: Record<string, unknown>,
+  ): Promise<ResolveProposalResultType> {
+    const updated = await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        updatedAt: new Date(),
+        messages: {
+          create: {
+            type: 'FUNCTION_CALL_OUTPUT',
+            payload: {
+              callId: call.callId,
+              name: call.name,
+              output,
+            } as unknown as Prisma.InputJsonValue,
+          },
+        },
+      },
+      select: {
+        messages: { orderBy: { createdAt: 'desc' }, take: 1, select: MESSAGE_SELECT },
+      },
+    });
+    return { messages: updated.messages.map(toMessage) };
   }
 
   /**
@@ -375,13 +480,24 @@ export class ConversationService {
     conversationId: string,
     messageId: string,
     items: ApplyProposalRequestType['items'],
-  ): Promise<ApplyProposalResultType> {
-    const proposal = await this.loadPendingProposal(userId, conversationId, messageId);
+  ): Promise<ResolveProposalResultType> {
+    const call = await this.loadPendingCall(userId, conversationId, messageId);
+    const proposal = (call.resolved as InventoryProposalType | undefined) ?? {};
 
     // 소비: 사용자가 편집한 값(items) 중 제안에 실제로 있던 id 만 반영(임의 id 주입 차단).
     const allowed = new Set((proposal.consume ?? []).map((it) => it.ingredientId));
     const toConsume = items.filter((it) => allowed.has(it.ingredientId));
-    if (toConsume.length > 0) await this.inventory.applyConsume(userId, toConsume);
+    const consumed: string[] = [];
+    const updatedQty: string[] = [];
+    if (toConsume.length > 0) {
+      await this.inventory.applyConsume(userId, toConsume);
+      const byId = new Map((proposal.consume ?? []).map((c) => [c.ingredientId, c.name]));
+      for (const it of toConsume) {
+        const name = byId.get(it.ingredientId) ?? '';
+        if (it.remaining === null) consumed.push(name);
+        else updatedQty.push(`${name} → ${it.remaining}`);
+      }
+    }
 
     // 추가: 확인-only 라 제안에 담긴 그대로 반영(병합·만료일 폴백은 inventory.add 가 처리).
     // 사용자가 표기일을 준 경우(USER)만 expiresAt 을 넘겨 그 값을 유지하고, 추정치면 add 가 다시 추정한다.
@@ -398,78 +514,27 @@ export class ConversationService {
       );
     }
 
-    const applied: InventoryProposalType = { ...proposal, status: 'applied' };
-    const updated = await this.prisma.message.update({
-      where: { id: messageId },
-      // content 도 "반영했어요"로 갱신 — 다음 턴 히스토리가 처리됨을 알아 툴을 다시 안 부른다.
-      data: {
-        pendingChange: applied as unknown as Prisma.InputJsonValue,
-        content: proposalText(applied),
-      },
-      select: MESSAGE_SELECT,
+    // 결과는 **실제로 반영한 것**을 담는다 — 클라가 보낸 값이 아니라 서버가 쓴 값이다.
+    return this.appendOutput(conversationId, call, {
+      applied: true,
+      consumed,
+      updated: updatedQty,
+      added: (proposal.add ?? []).map((a) => a.name),
     });
-    return { message: toMessage(updated), completion: null };
   }
 
-  /** 소비 제안 취소 — 반영하지 않고 status='dismissed' 로만 표시한다. 소유권 + pending 검증. */
+  /** 제안 취소 — 재고를 건드리지 않고 "취소됨" 결과만 남긴다. 소유권 + 미처리 검증. */
   async dismissProposal(
     userId: string,
     conversationId: string,
     messageId: string,
-  ): Promise<MessageType> {
-    const proposal = await this.loadPendingProposal(userId, conversationId, messageId);
-    const dismissed: InventoryProposalType = { ...proposal, status: 'dismissed' };
-    const updated = await this.prisma.message.update({
-      where: { id: messageId },
-      data: {
-        pendingChange: dismissed as unknown as Prisma.InputJsonValue,
-        content: proposalText(dismissed),
-      },
-      select: MESSAGE_SELECT,
+  ): Promise<ResolveProposalResultType> {
+    const call = await this.loadPendingCall(userId, conversationId, messageId);
+    return this.appendOutput(conversationId, call, {
+      applied: false,
+      dismissed: true,
+      note: '사용자가 이 변경을 취소했다. 재고는 그대로다.',
     });
-    return toMessage(updated);
-  }
-
-  /**
-   * 공통 교환 로직:
-   * 유저 메시지 저장 → 전체 히스토리로 LLM 호출 → 답변 저장(+대화 updatedAt 갱신) → 답변 반환.
-   */
-  private async exchange(
-    conversationId: string,
-    instruction: string,
-    content: string,
-  ): Promise<{ reply: MessageType; messageCount: number }> {
-    await this.prisma.message.create({
-      data: { conversationId, role: 'user', content },
-    });
-
-    const history = await this.prisma.message.findMany({
-      where: { conversationId },
-      orderBy: { createdAt: 'asc' },
-      select: { role: true, content: true },
-    });
-    const messages: ChatMessageType[] = history.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-
-    const res = await this.llm.chat(instruction, messages, this.model);
-
-    // 답변 저장 + 대화 갱신을 한 번의 nested write 로 처리.
-    // nested write 만 있으면 @updatedAt 이 안 올라가므로 updatedAt 을 명시적으로 갱신(목록 최근순 정렬용).
-    const updated = await this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        updatedAt: new Date(),
-        messages: { create: { role: 'assistant', content: res.text } },
-      },
-      select: {
-        messages: { orderBy: { createdAt: 'desc' }, take: 1, select: MESSAGE_SELECT },
-      },
-    });
-    // history 는 방금 저장한 유저 메시지까지 포함하므로, assistant 저장 후 총 개수 = history.length + 1.
-    // 추출 트리거가 별도 count 쿼리 없이 이 값을 쓴다.
-    return { reply: toMessage(updated.messages[0]), messageCount: history.length + 1 };
   }
 
   /**
@@ -483,20 +548,18 @@ export class ConversationService {
     conversationId: string,
     instruction: string,
     content: string,
-  ): Promise<{ reply: MessageType; messageCount: number }> {
+  ): Promise<{ created: MessageType[]; messageCount: number }> {
     await this.prisma.message.create({
-      data: { conversationId, role: 'user', content },
+      data: { conversationId, type: 'TEXT', role: 'user', content },
     });
 
+    // 히스토리를 아이템 그대로 읽어 재생한다 (지난 툴 호출·결과 포함).
     const history = await this.prisma.message.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'asc' },
-      select: { role: true, content: true },
+      select: MESSAGE_SELECT,
     });
-    const messages: ChatMessageType[] = history.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
+    const items = toLlmItems(history);
 
     // 이전 검색 페이징 커서 (다음/다른 상품 요청 시 이어 검색)
     const convo = await this.prisma.conversation.findUnique({
@@ -553,15 +616,25 @@ export class ConversationService {
     // 지침 순서는 buildInstruction 이 통제한다 (금지 재료가 반드시 맨 끝에 오도록).
     const res = await this.llm.chatWithTools(
       instruction,
-      messages,
+      items,
       [UPDATE_INVENTORY_TOOL],
       executors,
       this.model,
     );
 
-    // add/consume 은 terminal 이라 여기서 res.terminalCalls 로 올라온다 → 확인 제안으로 변환.
-    // 이 경우 res.text 는 '' (텍스트 없이 카드만). 일반 대화/검색이면 terminalCalls 가 없어 기존대로 흐른다.
-    const proposal = await this.buildProposal(userId, res.terminalCalls);
+    // 모델은 **텍스트와 툴 호출을 같이 낼 수 있다** → 각각 별개 아이템으로 쌓는다.
+    // 예전처럼 "반영했어요" 같은 문장을 지어내지 않는다 (그 역할은 FUNCTION_CALL_OUTPUT 이 한다).
+    const create: Prisma.MessageCreateWithoutConversationInput[] = [];
+    if (res.text.trim().length > 0) {
+      create.push({ type: 'TEXT', role: 'assistant', content: res.text });
+    }
+    for (const call of await this.buildCallPayloads(userId, res.terminalCalls)) {
+      create.push({
+        type: 'FUNCTION_CALL',
+        payload: call as unknown as Prisma.InputJsonValue,
+      });
+    }
+    if (create.length === 0) return { created: [], messageCount: history.length };
 
     const updated = await this.prisma.conversation.update({
       where: { id: conversationId },
@@ -569,38 +642,34 @@ export class ConversationService {
         updatedAt: new Date(),
         // 이번 턴에 검색했으면 페이징 커서 갱신 (다음 "더 보여줘" 이어가기용)
         lastSearch: searched ? (cursor as unknown as Prisma.InputJsonValue) : undefined,
-        messages: {
-          create: {
-            role: 'assistant',
-            // 제안이면 히스토리용 텍스트(클라엔 카드로 대체), 아니면 일반 답변.
-            content: proposal ? proposalText(proposal) : res.text,
-            // 검색이 있었으면 그 시점 상품 스냅샷 + "더 있음" 플래그를 함께 저장 (없으면 null)
-            products: foundProducts.length
-              ? (foundProducts as unknown as Prisma.InputJsonValue)
-              : undefined,
-            hasMoreProducts: foundProducts.length ? Boolean(cursor?.hasMore) : undefined,
-            // 종결 툴 제안이 있었으면 확인 카드용 스냅샷을 pending 으로 저장 (없으면 null)
-            pendingChange: proposal ? (proposal as unknown as Prisma.InputJsonValue) : undefined,
-          },
-        },
+        messages: { create },
       },
       select: {
-        messages: { orderBy: { createdAt: 'desc' }, take: 1, select: MESSAGE_SELECT },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: create.length,
+          select: MESSAGE_SELECT,
+        },
       },
     });
-    return { reply: toMessage(updated.messages[0]), messageCount: history.length + 1 };
+    // desc 로 뽑았으니 시간순으로 되돌린다
+    const created = updated.messages.map(toMessage).reverse();
+    return { created, messageCount: history.length + create.length };
   }
 
   /**
-   * 종결 툴 호출(add/consume)을 확인 제안(pendingChange)으로 변환한다 — 아무것도 쓰지 않는다.
-   * consume 은 resolveConsume(이름→행+현재수량), add 는 previewAdd(정규화+만료일 추정). 둘 다 비면 undefined.
+   * 종결 툴 호출 → 저장할 `FUNCTION_CALL` payload 목록 — 아무것도 쓰지 않는다.
+   *
+   * payload 는 **모델이 한 말(`arguments`) + 서버가 화면용으로 가공한 값(`resolved`)** 을 함께 담는다.
+   * 원본 인자엔 `ingredientId` 가 없어서 확인 카드가 apply 를 할 수 없기 때문이다.
+   * consume 은 resolveConsume(이름→행+현재수량), add 는 previewAdd(정규화+만료일 추정).
    */
-  private async buildProposal(
+  private async buildCallPayloads(
     userId: string,
     calls: TerminalToolCall[] | undefined,
-  ): Promise<InventoryProposalType | undefined> {
+  ): Promise<FunctionCallPayloadType[]> {
     const picked = pickInventoryCall(calls);
-    if (!picked) return undefined;
+    if (!picked) return [];
     // 버린 호출이 있으면 남긴다 — 모델이 "정당하게 나눠 부르는" 경우가 실제로 나오는지
     // 이 로그로만 알 수 있다(그런 호출이 잦으면 합치는 쪽으로 다시 판단한다).
     if (picked.ignored > 0) {
@@ -616,12 +685,21 @@ export class ConversationService {
         ? (await this.inventory.resolveConsume(userId, picked.consumeItems)).matched
         : [];
 
-    if (consume.length === 0 && add.length === 0) return undefined;
-    return {
-      status: 'pending',
+    // 이름이 하나도 안 잡히면 카드로 보여줄 게 없다 → 아예 저장하지 않는다.
+    if (consume.length === 0 && add.length === 0) return [];
+
+    const resolved: InventoryProposalType = {
       ...(consume.length > 0 ? { consume } : {}),
       ...(add.length > 0 ? { add } : {}),
     };
+    return [
+      {
+        callId: picked.callId,
+        name: 'update_inventory',
+        arguments: { add: picked.addItems, consume: picked.consumeItems },
+        resolved,
+      },
+    ];
   }
 
   /**
@@ -715,6 +793,8 @@ export class ConversationService {
  */
 export function pickInventoryCall(calls: TerminalToolCall[] | undefined):
   | {
+      /** 채택한 호출의 벤더 식별자 — 결과 아이템과 짝을 맞추는 키라 반드시 함께 올린다 */
+      callId: string;
       addItems: AddIngredientInputType[];
       consumeItems: ConsumeItem[];
       /** 버려진 update_inventory 호출 수 (0 이면 단일 호출) */
@@ -733,7 +813,7 @@ export function pickInventoryCall(calls: TerminalToolCall[] | undefined):
   const consumeItems: ConsumeItem[] = Array.isArray(first.arguments.consume)
     ? first.arguments.consume
     : [];
-  return { addItems, consumeItems, ignored: mine.length - 1 };
+  return { callId: first.callId, addItems, consumeItems, ignored: mine.length - 1 };
 }
 
 /** 금지 재료 블록 — 없으면 빈 문자열(섹션 자체가 안 붙는다). */

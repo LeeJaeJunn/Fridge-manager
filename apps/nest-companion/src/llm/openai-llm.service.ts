@@ -4,6 +4,7 @@ import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import type { ZodType } from 'zod';
 import type {
+  LlmInputItemType,
   LlmProvider,
   LlmTool,
   LlmToolExecutor,
@@ -17,6 +18,33 @@ function parseArgs(raw: string): Record<string, unknown> {
     return JSON.parse(raw) as Record<string, unknown>;
   } catch {
     return {};
+  }
+}
+
+/**
+ * 저장된 대화 아이템 → OpenAI Responses input 아이템.
+ *
+ * `function_call` 은 `{type, call_id, name, arguments}` 4개면 충분하다 — SDK 타입상 `id`/`status`
+ * 는 옵셔널이고 "응답으로 돌려받을 때 채워지는" 필드라 재전송에 필요 없다. 그래서 우리는 그 둘을
+ * 저장하지도, 보내지도 않는다. `arguments`/`output` 은 문자열이어야 해서 여기서 직렬화한다.
+ */
+function toInputItem(item: LlmInputItemType): OpenAI.Responses.ResponseInputItem {
+  switch (item.type) {
+    case 'function_call':
+      return {
+        type: 'function_call',
+        call_id: item.callId,
+        name: item.name,
+        arguments: JSON.stringify(item.arguments),
+      };
+    case 'function_call_output':
+      return {
+        type: 'function_call_output',
+        call_id: item.callId,
+        output: JSON.stringify(item.output),
+      };
+    default:
+      return { role: item.role, content: item.content };
   }
 }
 
@@ -109,7 +137,7 @@ export class OpenAiLlmProvider implements LlmProvider {
    */
   async chatWithTools(
     instructions: string,
-    messages: ChatMessageType[],
+    items: LlmInputItemType[],
     tools: LlmTool[],
     executors: Record<string, LlmToolExecutor>,
     model: string,
@@ -126,10 +154,8 @@ export class OpenAiLlmProvider implements LlmProvider {
       // 종결 툴: 이 툴이 불리면 실행하지 않고 그 호출을 그대로 상위로 올린다(루프 중단).
       const terminalNames = new Set(tools.filter((t) => t.terminal).map((t) => t.name));
 
-      const input: OpenAI.Responses.ResponseInput = messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      // 지난 턴의 툴 호출·결과까지 그대로 되살린다 — 모델이 "그 호출은 이미 끝났다"를 안다.
+      const input: OpenAI.Responses.ResponseInput = items.map(toInputItem);
 
       // 여러 왕복의 토큰을 누적한다 (마지막 호출만이 아니라 총합)
       let inputTokens = 0;
@@ -148,8 +174,6 @@ export class OpenAiLlmProvider implements LlmProvider {
         totalTokens += u.total_tokens;
       };
 
-      console.log('input: ', JSON.stringify(input));
-
       let res = await this.client.responses.create({
         model,
         instructions,
@@ -158,8 +182,6 @@ export class OpenAiLlmProvider implements LlmProvider {
       });
       accumulate(res.usage);
 
-      console.log('res: ', JSON.stringify(res));
-
       // 모델이 툴을 더 안 부를 때까지(또는 상한까지) 반복
       for (let round = 0; round < maxRounds; round++) {
         const calls = res.output.filter(
@@ -167,15 +189,17 @@ export class OpenAiLlmProvider implements LlmProvider {
         );
         if (calls.length === 0) break;
 
-        // 종결 툴이 하나라도 불렸으면 실행·재호출 없이 그 호출들을 올리고 끝낸다(텍스트 없음).
+        // 종결 툴이 하나라도 불렸으면 실행·재호출 없이 그 호출들을 올리고 끝낸다.
+        // 같은 응답에 텍스트가 함께 왔으면 그것도 넘긴다 — 버리면 모델의 말("맛있었겠다!")이 사라진다.
         const terminal = calls.filter((c) => terminalNames.has(c.name));
         if (terminal.length > 0) {
           return {
             id: res.id,
             model: res.model,
             status: res.status ?? 'failed',
-            text: '',
+            text: res.output_text ?? '',
             terminalCalls: terminal.map((c) => ({
+              callId: c.call_id,
               name: c.name,
               arguments: parseArgs(c.arguments),
             })),

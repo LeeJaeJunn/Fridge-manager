@@ -1,5 +1,46 @@
-import type { ChatMessageType, ChatResType, StructuredResType } from '@companion/types';
+import type {
+  ChatMessageType,
+  ChatResType,
+  ChatRoleType,
+  StructuredResType,
+} from '@companion/types';
 import type { ZodType } from 'zod';
+
+/**
+ * LLM 에 보낼 대화 아이템 — 말풍선뿐 아니라 **툴 호출·결과까지** 표현한다.
+ * OpenAI Responses 의 input 아이템과 같은 모양이고, 각 provider 가 자기 벤더 형태로 조립한다
+ * (OpenAI `function_call_output` ↔ Gemini `function_result` 처럼 이름이 다른 건 provider 가 흡수).
+ *
+ * 클라이언트는 이 타입을 볼 일이 없어서 `@companion/types` 가 아니라 여기 둔다
+ * (`LlmTool`/`TerminalToolCall` 과 같은 자리 = 서버 내부 LLM 배관).
+ */
+export interface LlmTextItemType {
+  type: 'text';
+  role: ChatRoleType;
+  content: string;
+}
+
+export interface LlmFunctionCallItemType {
+  type: 'function_call';
+  /** 벤더가 준 호출 식별자 — 결과 아이템과 짝을 맞추는 유일한 키 */
+  callId: string;
+  name: string;
+  /** 파싱된 인자. OpenAI 로 보낼 땐 provider 가 JSON 문자열로 되돌린다 */
+  arguments: Record<string, unknown>;
+}
+
+export interface LlmFunctionOutputItemType {
+  type: 'function_call_output';
+  callId: string;
+  /** Gemini 의 function_result 가 이름을 요구해서 함께 담는다 (OpenAI 는 안 씀) */
+  name: string;
+  output: Record<string, unknown>;
+}
+
+export type LlmInputItemType =
+  | LlmTextItemType
+  | LlmFunctionCallItemType
+  | LlmFunctionOutputItemType;
 
 /** 벤더 중립 툴 정의 — 호출자(Conversation 등)가 벤더 타입을 모르게 한다. parameters 는 JSON Schema. */
 export interface LlmTool {
@@ -16,15 +57,21 @@ export interface LlmTool {
 /** 툴 실행기 — LLM 이 준 인자(JSON)를 받아 결과를 반환. 결과는 직렬화돼 모델에 재주입된다. */
 export type LlmToolExecutor = (args: Record<string, unknown>) => Promise<unknown>;
 
-/** 종결 툴 호출 한 건 — 실행하지 않고 상위로 올린 모델의 함수 호출(이름 + 파싱된 인자). */
+/**
+ * 종결 툴 호출 한 건 — 실행하지 않고 상위로 올린 모델의 함수 호출.
+ * `callId` 를 반드시 함께 올린다 — 나중에 결과(`function_call_output`)를 이 값으로 짝지어
+ * 히스토리에 재생하므로, 여기서 잃어버리면 대화를 되살릴 수 없다.
+ */
 export interface TerminalToolCall {
+  callId: string;
   name: string;
   arguments: Record<string, unknown>;
 }
 
 /**
- * `chatWithTools` 반환 — 일반 텍스트 응답에 더해, 종결 툴이 불렸으면 그 호출들을 담는다.
- * `terminalCalls` 가 있으면 모델은 텍스트를 내지 않았고(루프 중단), 호출자가 그 호출로 처리를 이어간다.
+ * `chatWithTools` 반환 — 텍스트 응답 + 종결 툴이 불렸으면 그 호출들.
+ * 모델은 **텍스트와 툴 호출을 같이 낼 수 있어서** 둘 다 채워질 수 있다(예: "맛있었겠다!" + update_inventory).
+ * 호출자는 있는 것만 저장하면 된다.
  */
 export type ToolChatResType = ChatResType & { terminalCalls?: TerminalToolCall[] };
 
@@ -48,10 +95,13 @@ export interface LlmProvider {
   /**
    * 툴(function calling) 대화 — 모델이 툴을 부르면 실행기로 실행해 재주입, 최종 텍스트 반환.
    * 단 `terminal` 툴을 부르면 실행하지 않고 `terminalCalls` 로 올려 루프를 끊는다.
+   *
+   * `items` 에는 지난 턴의 툴 호출·결과도 그대로 들어온다(재생) — 그래야 모델이 "그 호출은
+   * 이미 처리됐다"를 벤더가 의도한 방식으로 안다.
    */
   chatWithTools(
     instructions: string,
-    messages: ChatMessageType[],
+    items: LlmInputItemType[],
     tools: LlmTool[],
     executors: Record<string, LlmToolExecutor>,
     model: string,

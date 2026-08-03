@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import type { ZodType } from 'zod';
 import { GeminiLlmProvider } from './gemini-llm.service';
 import type {
+  LlmInputItemType,
   LlmProvider,
   LlmTool,
   LlmToolExecutor,
@@ -12,6 +13,10 @@ import { OpenAiLlmProvider } from './openai-llm.service';
 
 // 소비처(conversation/memory)는 계속 이 경로에서 타입을 import 하므로 그대로 재노출한다.
 export type {
+  LlmFunctionCallItemType,
+  LlmFunctionOutputItemType,
+  LlmInputItemType,
+  LlmTextItemType,
   LlmTool,
   LlmToolExecutor,
   TerminalToolCall,
@@ -54,19 +59,12 @@ export class LlmService {
 
   chatWithTools(
     instructions: string,
-    messages: ChatMessageType[],
+    items: LlmInputItemType[],
     tools: LlmTool[],
     executors: Record<string, LlmToolExecutor>,
     model: string,
     maxRounds = 3,
   ): Promise<ToolChatResType> {
-    return this.pick(model).chatWithTools(
-      instructions,
-      messages,
-      tools,
-      executors,
-      model,
-      maxRounds,
-    );
+    return this.pick(model).chatWithTools(instructions, items, tools, executors, model, maxRounds);
   }
 }

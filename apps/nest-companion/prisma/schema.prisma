@@ -94,24 +94,34 @@ model Conversation {
   @@index([characterId])
 }
 
-// 대화 속 개별 메시지
+// 대화 속 개별 아이템의 종류. OpenAI Responses 의 input/output 아이템 타입을 그대로 따른다
+// (Gemini 는 function_result 라 부르지만, 이름 차이는 provider 안에서 흡수한다).
+// 툴이 늘어도 컬럼이 늘지 않게 하려는 게 요점 — 툴별 내용은 전부 payload(Json) 안에 들어간다.
+enum MessageItemType {
+  TEXT // 사람이 읽는 말풍선 (role + content 사용)
+  FUNCTION_CALL // 모델이 부른 툴 (payload 사용)
+  FUNCTION_CALL_OUTPUT // 그 툴의 실행 결과 (payload 사용)
+}
+
+// 대화 속 개별 아이템 — 말풍선뿐 아니라 툴 호출·결과까지 **같은 테이블에 시간순**으로 쌓는다.
+// LLM 에 보낼 때 이 행들을 그대로 벤더 아이템으로 되살리므로(= 재생), 히스토리가 벤더가 의도한
+// 모양 그대로 유지된다. 예전처럼 "반영했어요" 같은 텍스트로 툴 결과를 흉내내지 않는다.
 model Message {
-  id             String   @id @default(cuid())
+  id             String          @id @default(cuid())
   conversationId String
-  role           Role
-  content        String
-  // 상품추천 답변일 때 검색된 ProductType[] 스냅샷 (그 시점 가격·정보 박제, 카드 렌더용). 없으면 null.
-  products       Json?
-  // 이 검색에 이어볼 상품이 더 있는지(= 그 시점 커서의 hasMore). products 있을 때만 세팅. "더보기" 버튼 노출 판단용.
-  hasMoreProducts Boolean?
-  // 재고 변경 "제안"(InventoryProposal) 스냅샷 — 소비 툴이 바로 반영하지 않고 확인 카드를 띄울 때.
-  // { kind:'consume', status:'pending'|'applied'|'dismissed', items:[...] }. 확인/취소 후 status 갱신. 없으면 null.
-  pendingChange   Json?
-  createdAt      DateTime @default(now())
+  type           MessageItemType
+  // 아래 둘은 TEXT 일 때만 채운다. function_call/function_call_output 아이템엔 role 개념이 없다.
+  role           Role?
+  content        String?
+  // FUNCTION_CALL: { callId, name, arguments, resolved? } — arguments 는 파싱된 객체,
+  //   resolved 는 서버가 카드용으로 가공한 값(예: 이름→ingredientId). 벤더로 보낼 땐 provider 가 재조립.
+  // FUNCTION_CALL_OUTPUT: { callId, name, output } — name 은 Gemini 의 function_result 가 요구해서 담는다.
+  payload        Json?
+  createdAt      DateTime        @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
-  @@index([conversationId, createdAt]) // 대화별 메시지를 시간순으로 조회
+  @@index([conversationId, createdAt]) // 대화별 아이템을 시간순으로 조회
 }
 
 // 장기 메모리 분류 — "AI가 기억하는 나" 페이지에서 카테고리별로 묶어 보여준다.

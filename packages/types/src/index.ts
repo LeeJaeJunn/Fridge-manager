@@ -32,13 +32,18 @@ export type {
 export type {
   AddProposalItemType,
   ApplyProposalRequestType,
-  ApplyProposalResultType,
   ConsumeProposalItemType,
   ConversationDetailType,
   ConversationSummaryType,
+  FunctionCallMessageType,
+  FunctionCallPayloadType,
+  FunctionOutputMessageType,
+  FunctionOutputPayloadType,
   InventoryProposalType,
   MessageType,
+  ResolveProposalResultType,
   SendMessageRequestType,
+  TextMessageType,
 } from './conversation';
 
 export type {

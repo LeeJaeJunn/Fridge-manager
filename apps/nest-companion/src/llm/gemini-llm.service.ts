@@ -2,6 +2,7 @@ import type { ChatMessageType, ChatResType, StructuredResType } from '@companion
 import { GoogleGenAI } from '@google/genai';
 import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import type {
+  LlmInputItemType,
   LlmProvider,
   LlmTool,
   LlmToolExecutor,
@@ -37,6 +38,39 @@ export class GeminiLlmProvider implements LlmProvider {
       type: m.role === 'assistant' ? ('model_output' as const) : ('user_input' as const),
       content: [{ type: 'text' as const, text: m.content }],
     }));
+  }
+
+  /**
+   * 저장된 대화 아이템 → interactions input steps (툴 호출·결과 포함).
+   *
+   * OpenAI 와 필요한 정보는 같고 **껍데기 이름만 다르다** — 결과 아이템이 `function_call_output`
+   * 이 아니라 `function_result` 이고 `name` 을 함께 요구한다. 저장 포맷을 벤더 중립으로 둔 게
+   * 여기서 값을 한다(같은 대화를 두 벤더 어느 쪽으로도 재생할 수 있다).
+   */
+  private toToolInput(items: LlmInputItemType[]) {
+    return items.map((item) => {
+      switch (item.type) {
+        case 'function_call':
+          return {
+            type: 'function_call' as const,
+            id: item.callId,
+            name: item.name,
+            arguments: item.arguments,
+          };
+        case 'function_call_output':
+          return {
+            type: 'function_result' as const,
+            call_id: item.callId,
+            name: item.name,
+            result: JSON.stringify(item.output),
+          };
+        default:
+          return {
+            type: item.role === 'assistant' ? ('model_output' as const) : ('user_input' as const),
+            content: [{ type: 'text' as const, text: item.content }],
+          };
+      }
+    });
   }
 
   private toUsage(u: InteractionUsage | undefined): ChatResType['usage'] {
@@ -90,7 +124,7 @@ export class GeminiLlmProvider implements LlmProvider {
    */
   async chatWithTools(
     instructions: string,
-    messages: ChatMessageType[],
+    items: LlmInputItemType[],
     tools: LlmTool[],
     executors: Record<string, LlmToolExecutor>,
     model: string,
@@ -120,10 +154,11 @@ export class GeminiLlmProvider implements LlmProvider {
         totalTokens += u.total_tokens ?? 0;
       };
 
-      // 첫 호출: 전체 히스토리 + 툴. store:true 여야 이후 previous_interaction_id 로 이어갈 수 있다.
+      // 첫 호출: 전체 히스토리(지난 툴 호출·결과 포함) + 툴.
+      // store:true 여야 이후 previous_interaction_id 로 이어갈 수 있다.
       let interaction = await this.client.interactions.create({
         model,
-        input: this.toInput(messages),
+        input: this.toToolInput(items),
         system_instruction: instructions,
         tools: toolDefs,
         store: true,
@@ -148,15 +183,20 @@ export class GeminiLlmProvider implements LlmProvider {
         }
         if (calls.length === 0) break;
 
-        // 종결 툴이 하나라도 불렸으면 실행·재호출 없이 그 호출들을 올리고 끝낸다(텍스트 없음).
+        // 종결 툴이 하나라도 불렸으면 실행·재호출 없이 그 호출들을 올리고 끝낸다.
+        // 같은 응답에 텍스트가 함께 왔으면 그것도 넘긴다 (openai provider 와 같은 규칙).
         const terminal = calls.filter((c) => terminalNames.has(c.name));
         if (terminal.length > 0) {
           return {
             id: interaction.id,
             model,
             status: 'completed',
-            text: '',
-            terminalCalls: terminal.map((c) => ({ name: c.name, arguments: c.args })),
+            text: interaction.output_text ?? '',
+            terminalCalls: terminal.map((c) => ({
+              callId: c.id,
+              name: c.name,
+              arguments: c.args,
+            })),
             usage: sawUsage ? { inputTokens, outputTokens, totalTokens } : undefined,
           };
         }
