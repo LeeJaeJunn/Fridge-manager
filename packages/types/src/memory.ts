@@ -4,9 +4,10 @@
  */
 
 export type MemoryCategoryType =
-  | 'PREFERENCE' // 선호 (브랜드·제품·스타일·소비 성향)
-  | 'PROFILE' // 프로필·성향 (자취·전공·신체특성·성격 등 지속 사실)
-  | 'OWNERSHIP' // 보유·이력 (지금 쓰는/가진 것, 구매 이력)
+  | 'ALLERGY' // 먹으면 안 되는 것 — content 는 재료·분류 **이름만** ("오이", "갑각류")
+  | 'PREFERENCE' // 식성 (매운 음식 좋아함, 오이 싫어함, 채식 등)
+  | 'PROFILE' // 프로필·성향 (자취·요리 실력·1인분 등 지속 사실)
+  | 'OWNERSHIP' // 조리도구·주방 환경
   | 'ETC'; // 기타
 
 /** GET /memories 응답 항목 */

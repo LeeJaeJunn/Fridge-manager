@@ -15,6 +15,13 @@ const CATEGORY_META: Record<
   MemoryCategoryType,
   { label: string; emoji: string; iconBg: string; iconText: string }
 > = {
+  // 안전 정보라 맨 앞에 둔다 (CATEGORY_ORDER 가 이 선언 순서를 그대로 쓴다)
+  ALLERGY: {
+    label: '먹으면 안 되는 것',
+    emoji: '⚠️',
+    iconBg: 'bg-peach-soft',
+    iconText: 'text-peach',
+  },
   PREFERENCE: { label: '식성', emoji: '🍽️', iconBg: 'bg-blush-soft', iconText: 'text-blush' },
   PROFILE: { label: '체질·성향', emoji: '🧩', iconBg: 'bg-sky-soft', iconText: 'text-sky-deep' },
   OWNERSHIP: {

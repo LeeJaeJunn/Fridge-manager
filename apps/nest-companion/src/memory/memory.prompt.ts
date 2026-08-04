@@ -10,7 +10,7 @@ export const EXTRACTION_SCHEMA_NAME = 'memory_extraction';
 export const ExtractionSchema = z.object({
   memories: z.array(
     z.object({
-      category: z.enum(['PREFERENCE', 'PROFILE', 'OWNERSHIP', 'ETC']),
+      category: z.enum(['ALLERGY', 'PREFERENCE', 'PROFILE', 'OWNERSHIP', 'ETC']),
       content: z.string(),
       importance: z.number().int(),
     }),
@@ -50,14 +50,20 @@ export function buildExtractionInstruction(existing: string[]): string {
 ${known}
 
 [카테고리] 각 사실에 가장 잘 맞는 하나만 고른다:
+- ALLERGY: **먹으면 안 되는 재료** (알레르기이거나, 체질상 못 먹는 것)
+  ※ content 에 **재료·분류 이름만** 적어라. 문장으로 쓰지 마라.
+     올바름: "오이" / "갑각류" / "복숭아"
+     틀림: "오이 알레르기가 있음" / "복숭아를 못 먹음" / "갑각류는 피해야 함"
+  ※ **절대 먹으면 안 되는 것만** 여기 넣는다. 정도 문제나 취향("우유는 많이 마시면 배가 아픔",
+     "오이를 싫어함")은 ALLERGY 가 아니라 PREFERENCE 다 — 여기 넣으면 그 재료가 영구히 금지된다.
 - PREFERENCE: 식성·입맛("매운 음식을 좋아함", "오이를 싫어함", "채식 위주", "아침을 잘 안 먹음")
-- PROFILE: 알레르기·체질·상황·요리 실력("갑각류 알레르기가 있음", "자취 중", "요리 초보", "1인분만 해먹음")
+- PROFILE: 체질·상황·요리 실력("자취 중", "요리 초보", "1인분만 해먹음")
 - OWNERSHIP: 조리도구·주방 환경("에어프라이어 있음", "인덕션 씀", "냄비가 하나뿐임")
   ※ **식재료가 아니라 도구·설비만** 담는다. 재료는 냉장고 담당이다.
 - ETC: 위 어디에도 안 맞는 지속 사실
 
 [content 형식] 짧고 자연스러운 한 구절("자취 중"). 사실 1개 = 항목 1개.
-[importance] 1~3 정수 (1=사소, 2=보통, 3=핵심).
-  ※ 알레르기·못 먹는 음식은 **안전 문제**라 반드시 3으로 하고, 먹으면 안 된다는 걸 content 에 분명히 적어라.
+  ※ 단 ALLERGY 는 위 규칙대로 **이름만**.
+[importance] 1~3 정수 (1=사소, 2=보통, 3=핵심). ALLERGY 는 안전 문제라 반드시 3.
 새로 기억할 게 없으면 빈 배열을 반환하라.`;
 }

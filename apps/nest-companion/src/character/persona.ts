@@ -5,7 +5,8 @@
  * 유저가 정하는 건 **이름·말투·호칭**뿐이고, 정체성(조언자)은 고정이다.
  *
  * ⚠️ instruction 은 **저장하지 않는다**. Character 의 구조화 필드에서 프롬프트 시점에
- * `buildPersonaInstruction` 으로 매번 조립한다(단일 진실원천 — 템플릿을 고치면 기존 캐릭터도 자동 반영).
+ * `conversation/conversation.prompt.ts` 의 `buildPrompt` 가 매번 조립한다
+ * (단일 진실원천 — 템플릿을 고치면 기존 캐릭터도 자동 반영).
  *
  * 선택지 vocab(말투/관심사)과 입력 제한값(LIMITS)은 **서버 소유**다. native 는
  * `GET /characters/options` 로 이 목록·제한을 받아 칩을 렌더하고 입력을 미리 막는다
@@ -39,7 +40,7 @@ type TagGroup = {
   label: string;
   hint: string;
   options: string[];
-  category: 'PREFERENCE' | 'PROFILE' | 'OWNERSHIP';
+  category: 'ALLERGY' | 'PREFERENCE' | 'PROFILE' | 'OWNERSHIP';
   importance: number;
   /** 선택값 → 저장할 기억 문장 */
   toMemory: (value: string) => string;
@@ -69,15 +70,17 @@ export const TAG_GROUPS: TagGroup[] = [
     label: '알레르기·못 먹는 것',
     hint: '이건 절대 추천하지 않을게',
     options: ['갑각류', '견과류', '땅콩', '유제품', '계란', '밀(글루텐)', '메밀', '복숭아', '오이'],
-    category: 'PROFILE',
+    category: 'ALLERGY',
     importance: 3, // 안전 — 절대 묻히면 안 된다
-    toMemory: (v) => `${v} 알레르기가 있음(먹으면 안 됨)`,
+    // 문장으로 감싸지 않는다. ALLERGY 카테고리가 이미 "먹으면 안 됨"을 뜻하고,
+    // 이름만 있어야 재고·프롬프트에서 그대로 대조할 수 있다.
+    toMemory: (v) => v,
   },
   {
     key: 'appliance',
     label: '조리도구',
     hint: '있는 도구로 만들 수 있는 걸 추천할게',
-    options: ['전자레인지', '에어프라이어', '인덕션', '가스레인지', '오븐', '밥솥', '냄비만 있음'],
+    options: ['전자레인지', '에어프라이어', '인덕션', '가스레인지', '오븐', '밥솥'],
     category: 'OWNERSHIP',
     importance: 2,
     toMemory: (v) => `${v} 있음`,
@@ -93,7 +96,7 @@ export const TAG_VALUES = TAG_GROUPS.flatMap((g) => g.options);
  * DTO 가 @IsIn 으로 이미 거르지만, 값이 바뀌었을 때 조용히 잘못된 카테고리로 새지 않게 여기서도 확인한다.
  */
 export function tagToMemory(value: string): {
-  category: 'PREFERENCE' | 'PROFILE' | 'OWNERSHIP';
+  category: 'ALLERGY' | 'PREFERENCE' | 'PROFILE' | 'OWNERSHIP';
   content: string;
   importance: number;
 } | null {
@@ -132,58 +135,7 @@ export function characterOptions(): CharacterOptionsType {
   };
 }
 
-export type PersonaInput = {
-  name: string;
-  speechStyle?: string | null;
-  userNickname?: string | null;
-};
-
-const SPEECH_INSTRUCTION: Record<string, string> = {
-  casual: '대화는 항상 반말로, 편하고 친근하게 해.',
-  formal: '대화는 항상 존댓말로, 정중하게 해.',
-};
-
-// 조언자 정체성 — 캐릭터의 뿌리. 롤플레이(연인/성별 등) 대신 "내 냉장고를 아는 요리 조력자"로 고정한다.
-// 이 문장이 앞단 자기소개를 대신하므로, 모델이 자기를 'AI/비서'로 소개하지 않고 이 역할로 자연스럽게 반응한다.
-const ADVISOR_IDENTITY =
-  '너는 자취하는 사용자의 냉장고를 함께 관리하고 뭘 해먹을지 같이 정해주는 든든한 조력자야. 사용자를 잘 아는 가까운 사람처럼 편하게 대하고, 사용자의 식성·재고를 기억해 지금 만들 수 있는 걸 함께 찾아줘.';
-
-// 모든 캐릭터 공통 규칙 — 항상 붙는다. 이 앱의 핵심(능동적 구조화 질문)을 여기서 인코딩한다.
-// "답만 뱉지 말고 부족한 조건을 되물어 구조화한다"가 ChatGPT 래퍼와 갈리는 지점이다.
-// 다만 마찰을 줄이려 적응형으로 — 최소 조건만 채워지면 진행하고, 이미 아는 건 다시 묻지 않는다.
-const CONVERSATION_RULES = [
-  '# 대화 규칙',
-  '- 뭘 해먹을지 얘기가 나오면, 곧바로 답을 주기 전에 좋은 추천에 필요한 핵심 조건을 먼저 확인해. 보통 몇 인분인지, 시간을 얼마나 들일 수 있는지, 오늘 뭐가 당기는지야.',
-  '- 이미 알고 있는 정보(식성·알레르기·조리도구·냉장고 재고)는 다시 묻지 마. 비어 있는 핵심 조건만 물어봐.',
-  '- 질문은 한 번에 하나씩, 자연스럽게 해. 핵심 2~3개면 충분하고 그 이상 캐묻지 마.',
-  '- 사용자가 "아무거나", "그냥 추천해줘"라고 하거나 조건을 이미 충분히 줬으면, 더 묻지 말고 바로 추천으로 넘어가.',
-  '- 추천 직전엔 모은 조건을 한 줄로 짧게 되짚어 확인해. (예: "1인분, 20분 안에, 안 매운 걸로 볼게")',
-  '- 잡담이나 요리와 무관한 얘기엔 조건을 캐묻지 말고 편하게 대화해.',
-].join('\n');
-
-// 가드레일 — 비서/AI 말투를 막고(몰입 유지), 위험 요청은 짧게 거절·전환하게 한다.
-const GUARDRAILS = [
-  '# 하지 말 것',
-  '- "저는 AI라서" 같은 면책이나 상담원·비서 말투 금지. 이건 꼭 지켜.',
-  '- 대화 요약, 부탁하지 않은 목록이나 장문 금지.',
-  '- 위험하거나 불법인 요청은 짧게 거절하고, 훈계 없이 자연스럽게 화제를 돌려.',
-].join('\n');
-
-/**
- * 구조화 필드 → 캐릭터 시스템 프롬프트(캐릭터 성격 부분).
- * 정체성은 고정된 조언자 문장이 정하고, 뒤에 말투·호칭·공통 대화 규칙·가드레일을 섹션으로 붙인다.
- * 유저 이름·장기 메모리는 여기 넣지 않는다 — conversation 의 buildInstruction 이 앞단에서 조립한다.
- */
-export function buildPersonaInstruction(c: PersonaInput): string {
-  const persona: string[] = [ADVISOR_IDENTITY];
-
-  const speech = c.speechStyle ? SPEECH_INSTRUCTION[c.speechStyle] : undefined;
-  if (speech) persona.push(speech);
-
-  if (c.userNickname?.trim()) {
-    persona.push(`사용자를 '${c.userNickname.trim()}'라고 불러.`);
-  }
-
-  // 블록 조립: 정체성·말투·호칭 → 공통 규칙 → 가드레일.
-  return [persona.join('\n'), CONVERSATION_RULES, GUARDRAILS].join('\n\n');
-}
+// ⚠️ 시스템 프롬프트 **문구와 조립 순서는 여기 없다** — `conversation/conversation.prompt.ts` 가 소유한다.
+// 이 파일은 캐릭터 **API 의 데이터**(선택지 vocab·입력 제한·태그→메모리 매핑)만 담당한다.
+// 예전엔 문구가 여기와 conversation 양쪽에 흩어져 있어서, 한 줄 고치려면 두 파일을 오가야 했고
+// 최종 프롬프트에서 무엇이 몇 번째로 들어가는지 읽어낼 수 없었다.
