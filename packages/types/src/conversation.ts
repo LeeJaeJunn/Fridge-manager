@@ -8,7 +8,7 @@
  */
 
 import type { ChatRoleType } from './chat';
-import type { ExpirySourceType, IngredientCategoryType, StorageAreaType } from './ingredient';
+import type { AddProposalItemType } from './ingredient';
 
 /**
  * 모델이 부른 툴 한 건.
@@ -47,20 +47,6 @@ export interface ConsumeProposalItemType {
   currentQuantityNote: string | null;
   /** 제안된 남은 양. null = 다 씀(제거), 값 = 부분 소비(그 값으로 갱신) */
   remaining: string | null;
-}
-
-/**
- * 추가 제안 한 항목 (재고 확인 카드용).
- * 서버가 파싱·정규화하고 만료일을 추정해 담는다 — 저장은 확인 시 apply 가 한다.
- */
-export interface AddProposalItemType {
-  name: string;
-  category: IngredientCategoryType;
-  storage: StorageAreaType;
-  quantityNote?: string;
-  /** 추정 만료일 (ISO). 사용자가 표기일을 줬으면 그 값 */
-  estimatedExpiry: string;
-  expirySource: ExpirySourceType;
 }
 
 /**

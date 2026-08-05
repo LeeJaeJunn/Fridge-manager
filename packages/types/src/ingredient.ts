@@ -63,6 +63,36 @@ export interface AddIngredientsRequestType {
   items: AddIngredientInputType[];
 }
 
+/**
+ * 넣기 **제안** 한 항목 — 아직 저장되지 않았고 사용자 확인을 기다리는 상태.
+ * 서버가 파싱·정규화하고 만료일을 추정해 담는다(`previewAdd`). 저장은 사용자가 확인한 뒤에 일어난다.
+ *
+ * 만들어지는 경로가 둘이고 화면(확인 카드)은 하나다:
+ *  - 채팅 툴(`update_inventory`)의 add
+ *  - 영수증·사진 스캔(`POST /inventory/scan`)
+ */
+export interface AddProposalItemType {
+  name: string;
+  category: IngredientCategoryType;
+  storage: StorageAreaType;
+  quantityNote?: string;
+  /** 추정 만료일 (ISO). 사용자가 표기일을 줬으면 그 값 */
+  estimatedExpiry: string;
+  expirySource: ExpirySourceType;
+}
+
+/** 스캔에 넘긴 이미지가 무엇인지 — 서버가 이걸로 프롬프트를 고른다. */
+export type ScanKindType = 'receipt' | 'photo';
+
+/**
+ * `POST /inventory/scan` 응답 — **저장하지 않은** 제안 목록.
+ * 클라가 확인·편집한 뒤 `POST /inventory` 로 실제 저장한다(채팅 확인 카드와 같은 방침).
+ * 식재료를 못 찾으면 빈 배열이며, 그것도 정상 응답이다.
+ */
+export interface ScanResultType {
+  items: AddProposalItemType[];
+}
+
 /** PATCH /inventory/:id — 교정용 부분 수정 */
 export interface UpdateIngredientRequestType {
   name?: string;

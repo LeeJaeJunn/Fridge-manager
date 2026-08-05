@@ -1,5 +1,11 @@
-import type { IngredientType, InventoryOptionsType } from '@companion/types';
+import type {
+  IngredientType,
+  InventoryOptionsType,
+  ScanKindType,
+  ScanResultType,
+} from '@companion/types';
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,17 +15,25 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AddIngredientsDto } from './dto/add-ingredients.dto';
+import { ScanDto } from './dto/scan.dto';
 import { UpdateIngredientDto } from './dto/update-ingredient.dto';
 import { InventoryService } from './inventory.service';
+import { ScanService } from './scan.service';
 import { inventoryOptions } from './shelf-life';
 
 /** 임박 판정 기본 창(일) — 홈 "곧 상해요" 섹션이 쓰는 값. */
 const DEFAULT_SOON_DAYS = 3;
+
+/** 업로드 상한 — 앱이 리사이즈해 보내지만 원본이 그대로 올라오는 경우를 서버가 막는다. */
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 /**
  * 냉장고 재고 — 전부 현재 유저 기준.
@@ -28,7 +42,10 @@ const DEFAULT_SOON_DAYS = 3;
 @UseGuards(JwtAuthGuard)
 @Controller('inventory')
 export class InventoryController {
-  constructor(private readonly inventory: InventoryService) {}
+  constructor(
+    private readonly inventory: InventoryService,
+    private readonly scanner: ScanService,
+  ) {}
 
   /** GET /inventory/options — 카테고리·보관위치 라벨 + 입력 제한 (서버 소유 단일 출처) */
   @Get('options')
@@ -54,6 +71,31 @@ export class InventoryController {
   @Post()
   add(@CurrentUser() userId: string, @Body() dto: AddIngredientsDto): Promise<IngredientType[]> {
     return this.inventory.add(userId, dto.items);
+  }
+
+  /**
+   * POST /inventory/scan — 영수증·사진 이미지에서 재료를 뽑아 **제안만** 돌려준다 (저장 안 함).
+   * 클라가 확인·편집한 뒤 `POST /inventory` 로 저장한다 (채팅 확인 카드와 같은 방침).
+   */
+  @Post('scan')
+  @UseInterceptors(FileInterceptor('image', { limits: { fileSize: MAX_IMAGE_BYTES } }))
+  async scan(
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body() dto: ScanDto,
+  ): Promise<ScanResultType> {
+    // 클라 검증은 UX, 서버 검증이 방어다 — 앱이 리사이즈해 보내지만 여기서도 막는다.
+    if (!file) {
+      throw new BadRequestException('이미지를 첨부해 주세요.');
+    }
+    if (!file.mimetype.startsWith('image/')) {
+      throw new BadRequestException('이미지 파일만 올릴 수 있습니다.');
+    }
+    const kind: ScanKindType = dto.kind === 'photo' ? 'photo' : 'receipt';
+    const items = await this.scanner.scan(kind, {
+      buffer: file.buffer,
+      mimeType: file.mimetype,
+    });
+    return { items };
   }
 
   /** PATCH /inventory/:id — 교정 (이름·분류·수량메모·보관위치·만료일) */

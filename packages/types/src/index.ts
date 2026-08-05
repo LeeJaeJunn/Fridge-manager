@@ -30,7 +30,6 @@ export type {
 } from './character';
 
 export type {
-  AddProposalItemType,
   ApplyProposalRequestType,
   ConsumeProposalItemType,
   ConversationDetailType,
@@ -49,11 +48,14 @@ export type {
 export type {
   AddIngredientInputType,
   AddIngredientsRequestType,
+  AddProposalItemType,
   ExpirySourceType,
   IngredientCategoryType,
   IngredientType,
   InventoryOptionsType,
   InventoryOptionType,
+  ScanKindType,
+  ScanResultType,
   StorageAreaType,
   UpdateIngredientRequestType,
 } from './ingredient';
