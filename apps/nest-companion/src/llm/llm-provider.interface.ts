@@ -58,6 +58,33 @@ export interface LlmTool {
 export type LlmToolExecutor = (args: Record<string, unknown>) => Promise<unknown>;
 
 /**
+ * 모델에 함께 넘길 이미지 — provider 가 자기 벤더 포맷으로 변환한다.
+ *
+ * `detail` 이 정확도와 비용을 동시에 좌우한다: 영수증처럼 **작은 글자를 읽어야 하면 `'high'`**,
+ * 냉장고 사진처럼 사물만 알아보면 되면 `'auto'`/`'low'` 로 토큰을 아낀다.
+ */
+export type LlmImageType = {
+  /** base64 data URL (`data:image/jpeg;base64,...`) */
+  dataUrl: string;
+  detail?: 'low' | 'high' | 'auto';
+};
+
+/**
+ * `structured()` 요청 — 인자가 6개라 **위치가 아니라 이름**으로 받는다.
+ * `instructions`/`input`/`schemaName` 이 전부 string 이라 위치 인자로 두면 뒤바뀌어도 컴파일러가 못 잡는다.
+ */
+export interface StructuredReqType<T> {
+  instructions: string;
+  /** 텍스트 입력. 이미지만 보낼 땐 빈 문자열이어도 된다(영수증은 여기에 OCR 텍스트가 들어간다). */
+  input: string;
+  /** 함께 볼 이미지들. 지원 여부는 provider 마다 다르다(현재 OpenAI 만). */
+  images?: LlmImageType[];
+  schema: ZodType<T>;
+  schemaName: string;
+  model: string;
+}
+
+/**
  * 종결 툴 호출 한 건 — 실행하지 않고 상위로 올린 모델의 함수 호출.
  * `callId` 를 반드시 함께 올린다 — 나중에 결과(`function_call_output`)를 이 값으로 짝지어
  * 히스토리에 재생하므로, 여기서 잃어버리면 대화를 되살릴 수 없다.
@@ -83,14 +110,11 @@ export interface LlmProvider {
   /** 한 번의 요청 → 정리된 응답 */
   chat(instructions: string, messages: ChatMessageType[], model: string): Promise<ChatResType>;
 
-  /** 구조화(JSON) 출력 — zod 스키마에 맞는 검증된 객체 강제 */
-  structured<T>(
-    instructions: string,
-    input: string,
-    schema: ZodType<T>,
-    schemaName: string,
-    model: string,
-  ): Promise<StructuredResType<T>>;
+  /**
+   * 구조화(JSON) 출력 — zod 스키마에 맞는 검증된 객체 강제.
+   * `images` 를 지원하지 않는 벤더는 예외를 던진다(계약상 선택 기능).
+   */
+  structured<T>(req: StructuredReqType<T>): Promise<StructuredResType<T>>;
 
   /**
    * 툴(function calling) 대화 — 모델이 툴을 부르면 실행기로 실행해 재주입, 최종 텍스트 반환.

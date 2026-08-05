@@ -103,13 +103,13 @@ export class MemoryService {
       const existingContents = existing.map((e) => e.content);
 
       // 3. LLM 추출 (구조화 출력)
-      const { parsed } = await this.llm.structured(
-        buildExtractionInstruction(existingContents),
-        transcript,
-        ExtractionSchema,
-        EXTRACTION_SCHEMA_NAME,
-        this.model,
-      );
+      const { parsed } = await this.llm.structured({
+        instructions: buildExtractionInstruction(existingContents),
+        input: transcript,
+        schema: ExtractionSchema,
+        schemaName: EXTRACTION_SCHEMA_NAME,
+        model: this.model,
+      });
 
       // 4. 코드측 안전망 중복 제거 + importance 클램프
       const known = new Set(existingContents.map(normalize));

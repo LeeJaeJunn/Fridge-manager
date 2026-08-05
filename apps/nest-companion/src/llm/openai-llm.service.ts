@@ -2,15 +2,42 @@ import type { ChatMessageType, ChatResType, StructuredResType } from '@companion
 import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
-import type { ZodType } from 'zod';
 import type {
+  LlmImageType,
   LlmInputItemType,
   LlmProvider,
   LlmTool,
   LlmToolExecutor,
+  StructuredReqType,
   ToolChatResType,
 } from './llm-provider.interface';
 import { OPENAI_CLIENT } from './llm.constants';
+
+/**
+ * 텍스트(+이미지) → `responses.parse` 의 input.
+ *
+ * 이미지가 없으면 **문자열 그대로** 넘긴다(기존 동작 유지). 있으면 content part 배열로 감싼다.
+ * `detail` 은 SDK 타입상 필수라 기본값 `'auto'` 를 채운다 — 영수증처럼 작은 글자를 읽어야 하면
+ * 호출자가 `'high'` 를 준다(정확도·토큰이 여기서 갈린다).
+ */
+function toStructuredInput(
+  text: string,
+  images?: LlmImageType[],
+): string | OpenAI.Responses.ResponseInput {
+  if (!images?.length) return text;
+
+  const content: OpenAI.Responses.ResponseInputMessageContentList = [];
+  // 이미지만 보내는 경우(냉장고 사진) 빈 텍스트 파트를 만들지 않는다.
+  if (text.trim().length > 0) content.push({ type: 'input_text', text });
+  for (const image of images) {
+    content.push({
+      type: 'input_image',
+      image_url: image.dataUrl,
+      detail: image.detail ?? 'auto',
+    });
+  }
+  return [{ role: 'user', content }];
+}
 
 /** function_call 인자(JSON 문자열)를 안전하게 파싱한다. 손상되면 빈 객체로 흘려보낸다(크래시 방지). */
 function parseArgs(raw: string): Record<string, unknown> {
@@ -94,18 +121,19 @@ export class OpenAiLlmProvider implements LlmProvider {
    * 구조화(JSON) 출력 호출 — Structured Outputs 로 스키마에 맞는 객체를 강제한다.
    * 메모리 추출처럼 "정해진 모양의 데이터"가 필요한 작업에서 chat() 대신 쓴다.
    */
-  async structured<T>(
-    instructions: string,
-    input: string,
-    schema: ZodType<T>,
-    schemaName: string,
-    model: string,
-  ): Promise<StructuredResType<T>> {
+  async structured<T>({
+    instructions,
+    input,
+    images,
+    schema,
+    schemaName,
+    model,
+  }: StructuredReqType<T>): Promise<StructuredResType<T>> {
     try {
       const res = await this.client.responses.parse({
         model,
         instructions,
-        input,
+        input: toStructuredInput(input, images),
         text: { format: zodTextFormat(schema, schemaName) },
       });
       if (!res.output_parsed) {

@@ -109,8 +109,9 @@ export class GeminiLlmProvider implements LlmProvider {
   }
 
   /**
-   * 구조화 출력 — 아직 Gemini 로 라우팅하지 않는다 (메모리 추출은 OpenAI 모델을 쓴다).
+   * 구조화 출력 — 아직 Gemini 로 라우팅하지 않는다 (메모리 추출·영수증 인식은 OpenAI 모델을 쓴다).
    * 나중에 response_format 으로 구현. 현재 라우터는 이 경로로 오지 않는다.
+   * ⚠️ 구현할 때 `StructuredReqType.images` 도 함께 처리해야 한다 — 지금은 OpenAI 만 이미지를 받는다.
    */
   structured<T>(): Promise<StructuredResType<T>> {
     return Promise.reject(

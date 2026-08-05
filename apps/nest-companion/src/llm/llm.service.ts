@@ -1,12 +1,12 @@
 import type { ChatMessageType, ChatResType, StructuredResType } from '@companion/types';
 import { Injectable } from '@nestjs/common';
-import type { ZodType } from 'zod';
 import { GeminiLlmProvider } from './gemini-llm.service';
 import type {
   LlmInputItemType,
   LlmProvider,
   LlmTool,
   LlmToolExecutor,
+  StructuredReqType,
   ToolChatResType,
 } from './llm-provider.interface';
 import { OpenAiLlmProvider } from './openai-llm.service';
@@ -15,10 +15,12 @@ import { OpenAiLlmProvider } from './openai-llm.service';
 export type {
   LlmFunctionCallItemType,
   LlmFunctionOutputItemType,
+  LlmImageType,
   LlmInputItemType,
   LlmTextItemType,
   LlmTool,
   LlmToolExecutor,
+  StructuredReqType,
   TerminalToolCall,
   ToolChatResType,
 } from './llm-provider.interface';
@@ -47,14 +49,8 @@ export class LlmService {
     return this.pick(model).chat(instructions, messages, model);
   }
 
-  structured<T>(
-    instructions: string,
-    input: string,
-    schema: ZodType<T>,
-    schemaName: string,
-    model: string,
-  ): Promise<StructuredResType<T>> {
-    return this.pick(model).structured<T>(instructions, input, schema, schemaName, model);
+  structured<T>(req: StructuredReqType<T>): Promise<StructuredResType<T>> {
+    return this.pick(req.model).structured<T>(req);
   }
 
   chatWithTools(
