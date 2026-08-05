@@ -21,10 +21,13 @@ async function rawFetch(
   init: RequestInit | undefined,
   accessToken: string | null,
 ): Promise<Response> {
+  // 파일 업로드(FormData)면 Content-Type 을 **직접 붙이면 안 된다** — multipart 는 본문을 나누는
+  // boundary 값이 헤더에 들어가야 하는데 그건 fetch 가 만든다. 여기서 json 으로 덮으면 서버가 파싱을 포기한다.
+  const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
   return fetch(`${ENV.apiUrl}${path}`, {
     ...init,
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...init?.headers,
     },

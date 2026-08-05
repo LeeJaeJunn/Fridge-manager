@@ -36,7 +36,14 @@
         }
       ],
       "expo-secure-store",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "영수증·재료 사진을 골라 냉장고에 넣기 위해 사진 접근이 필요해요.",
+          "cameraPermission": "영수증·재료를 찍어 냉장고에 넣기 위해 카메라가 필요해요."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

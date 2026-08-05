@@ -66,10 +66,10 @@ export function CenterFabMenu({
                 key={m.key}
                 disabled={!m.ready}
                 onPress={() => {
-                  if (m.key === 'manual') {
-                    onClose();
-                    router.push('/inventory/add');
-                  }
+                  if (!m.ready) return;
+                  onClose();
+                  if (m.key === 'manual') router.push('/inventory/add');
+                  else router.push(`/inventory/scan?kind=${m.key}`);
                 }}
                 className="w-20 items-center gap-1.5"
                 style={{ transform: [{ translateY: i === 1 ? -28 : 6 }] }}

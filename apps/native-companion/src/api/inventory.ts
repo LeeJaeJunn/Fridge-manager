@@ -1,8 +1,11 @@
 import { apiFetch } from '@/api/client';
+import type { PreparedImageType } from '@/lib/scan';
 import type {
   AddIngredientInputType,
   IngredientType,
   InventoryOptionsType,
+  ScanKindType,
+  ScanResultType,
   UpdateIngredientRequestType,
 } from '@companion/types';
 
@@ -27,6 +30,22 @@ export function addIngredients(items: AddIngredientInputType[]): Promise<Ingredi
     method: 'POST',
     body: JSON.stringify({ items }),
   });
+}
+
+/**
+ * 영수증·사진 이미지 → 넣기 **제안** 목록 (저장은 안 된다).
+ *
+ * 사용자가 확인·편집한 뒤 `addIngredients` 로 저장하는 2단계다 — 인식엔 오차가 있고,
+ * 잘못 들어간 재료는 사용자가 알아채기 어렵기 때문(채팅 확인 카드와 같은 방침).
+ *
+ * FormData 로 보내면 `apiFetch` 가 Content-Type 을 건드리지 않아 fetch 가 boundary 를 붙인다.
+ */
+export function scanImage(kind: ScanKindType, image: PreparedImageType): Promise<ScanResultType> {
+  const form = new FormData();
+  form.append('kind', kind);
+  // RN 전용 모양 — fetch 가 {uri,name,type} 를 알아보고 파일을 직접 스트리밍한다(웹에선 동작 안 함).
+  form.append('image', image as unknown as Blob);
+  return apiFetch<ScanResultType>('/inventory/scan', { method: 'POST', body: form });
 }
 
 /** 재료 교정 (이름·분류·수량·보관위치·만료일) */

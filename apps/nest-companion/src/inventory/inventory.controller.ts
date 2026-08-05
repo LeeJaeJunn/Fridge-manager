@@ -36,6 +36,16 @@ const DEFAULT_SOON_DAYS = 3;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 /**
+ * 업로드된 파일 중 **우리가 실제로 쓰는 필드만**.
+ *
+ * multer 가 주는 값은 `Express.Multer.File` 인데, 그 타입은 `@types/multer` 가 `declare global` 로
+ * 심는 전역 증강이라 **프로그램에 포함돼야만 보인다**. 코드가 그 패키지를 직접 참조하지 않으면
+ * 자동 `@types` 수집에만 의존하게 되고, pnpm hoisted 모노레포에선 에디터 TS 서버가 이를 놓쳐
+ * `tsc` 는 통과하는데 IDE 에만 빨간 줄이 뜨는 일이 생긴다. 쓰는 필드가 둘뿐이라 직접 선언한다.
+ */
+type UploadedImage = { buffer: Buffer; mimetype: string };
+
+/**
  * 냉장고 재고 — 전부 현재 유저 기준.
  * 채팅 툴이 같은 서비스를 직접 쓰므로, 여기 컨트롤러는 **수동 교정 경로**(화면에서 직접 고치기)다.
  */
@@ -80,7 +90,7 @@ export class InventoryController {
   @Post('scan')
   @UseInterceptors(FileInterceptor('image', { limits: { fileSize: MAX_IMAGE_BYTES } }))
   async scan(
-    @UploadedFile() file: Express.Multer.File | undefined,
+    @UploadedFile() file: UploadedImage | undefined,
     @Body() dto: ScanDto,
   ): Promise<ScanResultType> {
     // 클라 검증은 UX, 서버 검증이 방어다 — 앱이 리사이즈해 보내지만 여기서도 막는다.

@@ -47,6 +47,10 @@ function RootNavigator() {
           name="inventory/add"
           options={{ ...THEMED_HEADER, title: '재료 추가', presentation: 'modal' }}
         />
+        <Stack.Screen
+          name="inventory/scan"
+          options={{ ...THEMED_HEADER, title: '사진으로 넣기', presentation: 'modal' }}
+        />
         <Stack.Screen name="settings/account" options={{ ...THEMED_HEADER, title: '계정' }} />
         <Stack.Screen
           name="settings/character"
