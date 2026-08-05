@@ -7,7 +7,11 @@
 - 모든 LLM 호출은 `LlmService` 를 통한다. 다른 모듈(Conversation/Memory 등)은 `LlmService` 의 메서드만 쓰고 벤더(OpenAI)를 직접 알지 못한다.
 - `openai` import(및 `openai/helpers/zod`)는 `src/llm/` 폴더 안에서만 한다. 벤더 응답(`res`)은 `llm/` 안에서 벤더 중립 타입(`ChatResType`/`StructuredResType<T>`)으로 변환해 반환한다.
 - 세 메서드: `chat()` = 자유 텍스트, `structured<T>()` = 스키마 강제(JSON), `chatWithTools()` = 함수 호출(tool use). 구조화는 **zod 스키마**를 받아 `responses.parse` + `zodTextFormat` 로 **검증된** 객체를 돌려준다(`JSON.parse`/`as T` 캐스팅 없음). zod 스키마 자체는 openai 무관이라 도메인 모듈(예: `memory.prompt.ts`)에 둔다.
-- `chatWithTools()`: 툴 정의(`LlmTool`, `parameters`는 JSON Schema)와 실행기(`LlmToolExecutor`)를 **호출자가 만들어 넘기면**, openai tool-call 루프(모델이 `tool_call` → 실행기 실행 → 결과 `function_call_output` 재주입 → 재호출)를 **`llm/` 안에서** 돈다. 툴 정의·실행기는 벤더 중립 타입이라 도메인(Conversation 등)이 소유하고 openai를 모른다. usage는 **모든 왕복 누적**, `maxRounds` 마지막 라운드는 `tool_choice:'none'`으로 텍스트 답을 강제(툴만 내다 빈 답 나가는 것 방지).
+- `chatWithTools()`: 툴 정의(`LlmTool`, `parameters`는 JSON Schema)와 실행기(`LlmToolExecutor`)를 **호출자가 만들어 넘기면**, tool-call 루프(모델이 `function_call` → 실행기 실행 → 결과 `function_call_output` 재주입 → 재호출)를 **`llm/` 안에서** 돈다. 툴 정의·실행기는 벤더 중립 타입이라 도메인(Conversation 등)이 소유하고 openai를 모른다. usage는 **모든 왕복 누적**, `maxRounds` 마지막 라운드는 `tool_choice:'none'`으로 텍스트 답을 강제(툴만 내다 빈 답 나가는 것 방지).
+- **입력은 `LlmInputItemType[]`(판별 유니온)** 이다 — `text`(role+content) / `function_call`(callId·name·arguments) / `function_call_output`(callId·name·output). 말풍선만이 아니라 **지난 턴의 툴 호출·결과까지 그대로 재생**해서 보낸다. 저장 포맷은 **벤더 중립**이고 각 provider 가 자기 모양으로 조립한다(OpenAI `function_call_output` ↔ Gemini `function_result`, arguments 문자열화 여부 등) — 그래야 `LLM_MODEL` 을 바꿔도 과거 대화가 재생된다. 이 타입은 클라가 볼 일이 없어 `@companion/types` 가 아니라 `llm/llm-provider.interface.ts` 에 둔다.
+- **종결 툴(`LlmTool.terminal`)**: 모델이 이 툴을 부르면 **실행하지 않고** 그 호출을 `terminalCalls` 로 올리고 루프를 끊는다. 말하자면 **실행기가 사람인 툴**이다 — 결과(`function_call_output`)를 서버가 아니라 사용자의 확인 행동이 만든다(아래 Conversation 참고). `TerminalToolCall` 은 `callId` 를 반드시 싣는다(결과와 짝을 맞추는 유일한 키라 여기서 잃으면 대화를 되살릴 수 없다).
+- 모델은 **텍스트와 툴 호출을 같이 낼 수 있다.** 종결 툴이 불려도 `res.text` 를 버리지 않는다("맛있었겠다!" + `update_inventory`).
+- ⚠️ **OpenAI `instructions` 파라미터는 프롬프트 캐시 프리픽스에 안 들어가는 것으로 보인다** — 문서가 캐시 대상으로 `messages` 배열과 `tools` 만 명시하고 `instructions` 는 언급하지 않으며, 12만 토큰을 `instructions` 로 넣고 `cached_tokens: 0` 이 나온 사례가 있다. 캐싱을 켜려면 정적 프롬프트를 **`input` 첫 `developer` 메시지**로 옮겨야 한다(아직 안 함 — `buildPrompt` 가 이미 쪼개놔서 배선만 바꾸면 된다).
 - 세 메서드 모두 반환에 **`usage`(토큰)** 를 담는다 — 지금은 소비처 없지만 나중에 어드민 사용량 표시/구독 쿼터용으로 수집.
 - 모델명은 호출하는 쪽에서 파라미터로 넘긴다 (호출별로 다른 모델 사용 가능).
 - 단, 채팅에 쓰는 모델은 **사용자/캐릭터가 정하지 않고 관리자 소유**다. `ConversationService` 가 `LLM_MODEL`(env)을 읽어 넘긴다. (나중에 Settings 테이블 + 관리자 페이지로 이전 예정)
@@ -30,31 +34,65 @@
 
 - **유저당 캐릭터는 하나다** (여러 개 중 선택이 아님). DB에서 `User` ↔ `Character` 1:1 (`Character.userId @unique`).
 - 캐릭터의 구조화 필드는 `name`(필수) + `speechStyle`(온보딩 필수, `casual`/`formal`) + `userNickname`(선택)뿐이다. 전부 사용자가 정하고 `PATCH me` 로 부분수정한다.
-- **`instruction`(시스템 프롬프트)은 저장하지 않는다** — 구조화 필드에서 **프롬프트 시점에 매번 조립**한다(`src/character/persona.ts` 의 `buildPersonaInstruction` = 고정 조력자 정체성 + 말투 + 대화 규칙(능동적 구조화 질문) + 가드레일, 단일 진실원천). 템플릿을 고치면 기존 캐릭터도 자동 반영. (신뢰 경계: 클라는 설정값을 보내지만 조립된 instruction/model 은 서버 소유·비노출.)
+- **`instruction`(시스템 프롬프트)은 저장하지 않는다** — 구조화 필드에서 **프롬프트 시점에 매번 조립**한다. 조립은 `conversation/conversation.prompt.ts` 의 `buildPrompt` 가 하고, `persona.ts` 는 **프롬프트 문구를 갖지 않는다**(아래 "프롬프트 조립" 참고). 템플릿을 고치면 기존 캐릭터도 자동 반영. (신뢰 경계: 클라는 설정값을 보내지만 조립된 instruction/model 은 서버 소유·비노출.)
+- `persona.ts` 는 이제 **캐릭터 API 의 데이터만** 담당한다 — 선택지 vocab·`LIMITS`·`TAG_GROUPS`/`tagToMemory`. 프롬프트 문구는 전부 `conversation.prompt.ts` 로 옮겼다(예전엔 양쪽에 흩어져 있어서 한 줄 고치려면 두 파일을 오갔고, 최종 프롬프트에서 무엇이 몇 번째로 들어가는지 읽어낼 수 없었다).
 - `speechStyle` 은 안정적 키를 **String 컬럼**에 저장한다(DB enum 회피). 값→한국어 라벨, 선택지 vocab(말투/온보딩 태그), **입력 제한값(`LIMITS`)** 은 전부 **`persona.ts` 가 소유**하고 `GET options` 로 native 에 내려준다. DTO 검증(@IsIn/@MaxLength)도 같은 상수를 쓴다 — **DTO 에 숫자를 직접 쓰지 말 것**(숫자가 두 곳에 박히면 한쪽만 고쳐 어긋난다).
 - **클라 검증은 UX, 서버 검증이 방어다.** 앱은 신뢰 경계 밖이라 curl 로 바로 API 를 때릴 수 있고, 온보딩 태그는 메모리로 시드돼 프롬프트에 들어간다 → `@IsIn(TAG_VALUES)` 를 빼면 임의 문자열이 프롬프트에 섞인다. 클라 제한은 "미리 알려주기"일 뿐 자물쇠가 아니다.
 - ⚠️ **vocab·제한값을 `@companion/types` 에 상수로 옮기지 말 것.** 그 패키지는 타입 전용(런타임 엔트리 없음)이라 값을 import 하면 **tsc·CI 는 통과하는데 서버 부팅이 죽는다**(`ERR_PACKAGE_PATH_NOT_EXPORTED`). 실제로 확인함. 값은 API 로 내려주는 게 정답이고, 덤으로 앱 배포 없이 vocab·제한을 바꿀 수 있다. ⚠️ vocab 은 문자열-리터럴 유니온으로 좁히지 말 것(`as const` 금지) — `===`/`!==` 비교 시 `no-unsafe-enum-comparison` 규칙이 크래시한다. 같은 이유로 이 레포는 `x !== undefined` 대신 `typeof x !== 'undefined'` 를 쓴다.
-- **온보딩 태그는 캐릭터가 아니라 유저 정보**다 → 생성 시 **Memory row 로 시드**한다(캐릭터·태그 생성을 한 `$transaction`). 태그는 **세 그룹**이고 그룹마다 카테고리·중요도가 다르다 — 식성→`PREFERENCE`, **알레르기→`PROFILE`(importance 3, 안전)**, 조리도구→`OWNERSHIP`. 매핑은 `persona.ts` 의 `TAG_GROUPS`/`tagToMemory` 가 소유하고, 요청 내 중복은 서비스에서 제거한다. recall 주입/표시 파이프라인을 그대로 타서 첫 대화부터 작동하고, 관리(삭제)는 메모리 API 로 한다. 캐릭터엔 태그 컬럼이 없다.
+- **온보딩 태그는 캐릭터가 아니라 유저 정보**다 → 생성 시 **Memory row 로 시드**한다(캐릭터·태그 생성을 한 `$transaction`). 태그는 **세 그룹**이고 그룹마다 카테고리·중요도가 다르다 — 식성→`PREFERENCE`, **알레르기→`ALLERGY`(importance 3, 안전)**, 조리도구→`OWNERSHIP`. 알레르기는 `toMemory` 가 **문장으로 감싸지 않고 이름만** 저장한다("오이") — 카테고리가 이미 "먹으면 안 됨"을 뜻하고, 이름만이어야 프롬프트 목록이 짧고 선명하다. 매핑은 `persona.ts` 의 `TAG_GROUPS`/`tagToMemory` 가 소유하고, 요청 내 중복은 서비스에서 제거한다. recall 주입/표시 파이프라인을 그대로 타서 첫 대화부터 작동하고, 관리(삭제)는 메모리 API 로 한다. 캐릭터엔 태그 컬럼이 없다.
 - **파생 데이터는 저장하지 않는다.** `model` 도 캐릭터 데이터가 아니다(관리자 소유, env `LLM_MODEL`).
 - API는 `src/character/` (`CharacterModule`): `GET options`(선택지 vocab + 태그 그룹), `GET me`, `POST`(name·speechStyle·userNickname·tags 로 생성), `PATCH me`(부분수정), `DELETE me`. 표시용 필드만 내려주고 `instruction`/`model` 은 노출하지 않는다.
 
 ## 대화 저장 (Conversation)
 
 - 채팅은 **DB에 저장되는 대화**다. `src/conversation/` (`ConversationModule`)가 담당하며, 채팅의 정식 경로다. (구 stateless `src/chat/` 모듈은 제거됨 — conversation이 유일한 채팅 경로다.)
-- 데이터: `Conversation`(유저당 N개) ↔ `Message`(role `user|assistant`). 대화 목록은 `updatedAt desc` 정렬 + 마지막 메시지 preview.
+- **데이터 모양이 핵심이다**: `Message` 는 말풍선만이 아니라 **툴 호출·결과까지 한 줄기 시간순 아이템**으로 담는다.
+  - `type`(`MessageItemType`) = `TEXT` | `FUNCTION_CALL` | `FUNCTION_CALL_OUTPUT`, `role`·`content` 는 **TEXT 일 때만**, 나머지는 `payload`(Json).
+  - `FUNCTION_CALL` payload = `{ callId, name, arguments, resolved? }` — `arguments` 는 모델이 한 말, `resolved` 는 서버가 화면용으로 가공한 값(원본 인자엔 `ingredientId` 가 없어 카드가 apply 를 못 하므로 필요).
+  - `FUNCTION_CALL_OUTPUT` payload = `{ callId, name, output }`.
+  - **툴 전용 컬럼을 두지 않는 게 요점**이다. 예전엔 `products`/`hasMoreProducts`/`pendingChange` 처럼 툴이 늘 때마다 컬럼이 늘고 마이그레이션이 따라왔다. 이제 툴이 추가돼도 스키마는 그대로고, **앱이 모르는 툴은 조용히 건너뛰면** 구버전 클라도 안 깨진다.
+  - `@companion/types` 의 `MessageType` 은 `type` 기준 **판별 유니온**이라, 좁히지 않으면 `content`/`payload` 에 접근할 수 없다(새 타입 처리를 빠뜨리면 컴파일러가 잡는다).
+- 대화 목록은 `updatedAt desc` 정렬 + preview. **preview 는 마지막 `TEXT` 만** 본다(마지막 아이템이 툴 호출이면 보여줄 텍스트가 없다).
 - API는 전부 **현재 유저 기준**이고 소유권 격리가 핵심 — 조회/수정/삭제는 항상 `where: { ..., userId }` 로 본인 것만 만진다 (남의 대화 접근 시 `NotFoundException`, 삭제는 `deleteMany`로 멱등).
   - `GET /conversations`(목록), `GET /conversations/:id`(상세+메시지), `POST /conversations`(첫 메시지로 **지연 생성**), `POST /conversations/:id/messages`(이어가기), `DELETE /conversations/:id`, `DELETE /conversations/:id/messages/:messageId`.
 - **지연 생성(lazy)**: "새 채팅" 버튼은 빈 화면만 열고, 첫 메시지를 보낼 때 비로소 `Conversation` 을 만든다 (빈 대화가 DB에 안 쌓이게).
-- 매 교환마다 서버가 DB에서 **해당 대화의 전체 히스토리를 읽어** LLM에 넘긴다. 히스토리·instruction을 클라이언트가 보내지 않는다(신뢰 경계).
-- 최종 instruction 은 `buildInstruction` 이 조립한다: 캐릭터 이름 + **유저 이름** + **장기 메모리(`MemoryService.recall`)** + **냉장고 재고(`InventoryService.recall`)** + 캐릭터 페르소나 + 레시피 지침 + **알레르기 경고**. 순서 통제는 `buildInstruction` 한 곳에 있다.
-  - **재고 주입**: 재료마다 **남은 일수를 서버가 계산해** 넣는다(`- 대파 · 내일까지`). 모델은 오늘 날짜를 모르거나 틀리게 알아서 날짜만 주면 "곧 상해요" 판단을 못 한다. 추정 만료일은 "쯤"으로 흐린다. 비면 "재료 없음"을 명시해 모델이 지어내지 않게 한다.
-  - **알레르기 안전**: 알레르기·못 먹는 것은 `splitAllergies` 로 떼어 **맨 끝 경고 블록** + **재고 목록 인라인 표시** 이중으로 넣는다. 중간에 두면 "임박한 재료 먼저" 지침에 밀려 실제로 알레르기 재료를 1순위 추천하는 걸 확인했다. 순수 함수(`splitAllergies`/`formatInventory`/`daysLeft`)라 `conversation.prompt.spec.ts` 로 고정한다.
-- 매 교환 후 **N메시지마다 백그라운드로 메모리를 추출**한다(`MEMORY_EXTRACT_EVERY_N`). 판단은 반환된 `messageCount`(= 이미 읽은 히스토리 길이 + 1)로 하며 **별도 count 쿼리를 하지 않는다**.
+- 매 교환마다 서버가 DB에서 **해당 대화의 전체 아이템을 읽어** 재생한다(`toLlmItems`). 히스토리·instruction을 클라이언트가 보내지 않는다(신뢰 경계).
+  - ⚠️ **미확인 호출에는 자리표시 결과를 붙인다.** OpenAI 는 짝 없는 `function_call` 이 입력에 있으면 400(`No tool output found for function call ...`)으로 거절한다. 사용자가 확인 카드를 무시한 채 다음 메시지를 보내면 정확히 그 상태가 되므로, **재생 시점에만** `{ pending: true }` 결과를 만들어 짝을 채운다(DB엔 안 쓴다). 덤으로 모델이 "저 제안은 아직 대기 중"임을 알아 같은 제안을 반복할 이유가 준다.
+
+### 프롬프트 조립 (`conversation.prompt.ts`)
+
+**문구와 순서를 이 파일 하나가 소유한다.** Nest·DB·LLM 을 모르는 순수 모듈이라 `conversation.prompt.spec.ts` 로 전부 고정된다.
+
+- 나누는 축은 **"턴마다 바뀌느냐"** 이고, 그게 그대로 프롬프트 캐싱의 절단선이다. 새 블록을 넣을 때 "이건 턴마다 바뀌나?"만 답하면 자리가 정해진다.
+  - `system` — 정체성(이름·역할·유저 이름·말투·호칭) → 대화 규칙 → 레시피 지침 → 가드레일. **대화 내내 그대로.**
+  - `context` — 기억 → 재고 → **먹으면 안 되는 것(맨 끝)**. **매 턴 달라진다.**
+- **`context` 는 DB 에 저장하지 않고 보낼 때만 마지막 사용자 메시지에 얹는다**(`attachContext`). 지난 user 메시지는 절대 건드리지 않는다 — 옛 재고가 히스토리에 남으면 모델이 지금 상태와 헷갈리고, 턴마다 앞부분이 달라져 프리픽스 캐시도 죽는다. 출처를 밝히는 라벨(`[현재 상태 — 시스템이 붙인 정보이며 사용자가 입력한 것이 아니다]` / `[사용자 메시지]`)을 함께 붙여 모델이 "사용자가 재고를 타이핑했다"고 읽지 않게 한다.
+- **재고 주입**: 재료마다 **남은 일수를 서버가 계산해** 넣는다(`- 대파 · 내일까지`). 모델은 오늘 날짜를 모르거나 틀리게 알아서 날짜만 주면 "곧 상해요" 판단을 못 한다. 추정치는 `(추정)` 으로 밝힌다. 비면 "재료 없음"을 명시해 모델이 지어내지 않게 한다. **재고 블록엔 재고 정보만** 넣는다.
+- **먹으면 안 되는 것**: `splitAllergies` 가 **카테고리(`ALLERGY`)로만** 판정하고, 전용 블록이 **맨 끝**에 온다. 중간에 두면 "임박한 재료 먼저" 지침에 밀려 실제로 알레르기 재료를 1순위 추천하는 걸 확인했다.
+  - 예전엔 재고 줄에 인라인 ⚠️ 도 붙였는데 지웠다. 이름 부분일치라 "김"이 "김치를 못 먹음"에 걸리는 오탐이 있었고, 반대로 "갑각류"는 "새우"를 못 잡았다. 지금은 `context` 안에서 재고 바로 다음 줄이라 거리가 거의 없다. **인라인을 되살리고 싶어지면 그 전에 "알레르기 재료가 가장 임박한 상태에서 뭐 해먹지?" 를 먼저 재현해볼 것.**
+- 매 교환 후 **N메시지마다 백그라운드로 메모리를 추출**한다(`MEMORY_EXTRACT_EVERY_N`). 판단은 `exchangeWithTools` 가 돌려주는 `messageCount` 로 하며 **별도 count 쿼리를 하지 않는다**.
+  - ⚠️ **알려진 회귀(미수정)**: `messageCount` 가 `TEXT` 뿐 아니라 `FUNCTION_CALL`·`FUNCTION_CALL_OUTPUT` 행까지 센다. 아이템 구조로 바뀌면서 한 턴이 1행이 아니라 2~3행이 될 수 있어, 같은 대화량에서 추출이 **예전보다 2~3배 자주** 돈다("억지 추출" 체감의 원인 중 하나). `TEXT` 만 세도록 고칠 것.
 - nested write 만 하면 `@updatedAt` 이 안 올라가므로 답변 저장 시 `updatedAt: new Date()` 를 명시 갱신한다(목록 최근순 정렬용).
-- **냉장고 툴(대화 중)**: `exchangeWithTools` 가 `chatWithTools` 로 툴 두 개를 붙여 대화한다.
-  - `add_ingredients` — "계란 샀어" 같은 말에서 재료를 뽑아 재고에 넣는다(만료일 폴백·중복 병합은 `InventoryService` 가 흡수). 이게 주 입력 경로다.
-  - `consume_ingredients` — 실제로 먹었다고 할 때만 소비 처리. **얼마 썼는지가 아니라 뭐가 남았는지**(`remaining`)를 받아 부분 소비를 표현한다(산수는 재고를 프롬프트로 받은 모델이 하고 서버는 결과만 저장). 자동 차감은 틀리면 신뢰를 깎으므로 description 으로 못박는다.
-- **상품추천은 v1.2 대기**: `search_products` 툴·`PRODUCT_RECO_GUIDANCE`·실행기·`Message.products` 스냅샷 저장·`Conversation.lastSearch` 커서 페이징이 전부 코드에 **살아 있고 등록만 빠져 있다**(툴 배열에서 제외). 부족 재료 쇼핑을 붙일 때 툴 배열에 다시 넣으면 된다. `search_products` / `PRODUCT_RECO_GUIDANCE` 는 그때까지 `eslint-disable`(no-unused-vars) 로 표시돼 있다.
+
+### 냉장고 툴 = 사용자 확인을 거치는 종결 툴
+
+`exchangeWithTools` 가 툴 **하나**(`update_inventory`, `terminal: true`)를 붙여 대화한다. 추가(`add`)와 소비(`consume`)를 한 툴에 둔 이유는 "김치찌개 만들고 두부 샀어"처럼 둘이 동시에 오기 때문이다.
+
+```
+"김치찌개 먹었어"
+ → 모델이 update_inventory 호출 (terminal → 실행 안 하고 루프 중단)
+ → 서버가 resolve(이름→ingredientId·현재수량, 만료일 추정) 해서 FUNCTION_CALL 저장 → 확인 카드
+ → 사용자가 편집·확인
+ → 서버가 검증 → 재고 실제 변경 → FUNCTION_CALL_OUTPUT 저장
+```
+
+- **자동 차감을 하지 않는 게 방침이다.** 모델이 사용자가 말하지 않은 재료를 건드리는 게 실제로 관측됐고, 오차감은 사용자가 알아채기 어려워 신뢰를 크게 깎는다. 그래서 실행기가 사람이다.
+- 소비는 **얼마 썼는지가 아니라 뭐가 남았는지**(`remaining`)를 받는다 — 산수는 재고를 프롬프트로 받은 모델이 하고 서버는 결과만 저장한다.
+- **병렬 툴콜은 첫 호출만 채택한다**(`pickInventoryCall`). 벤더 기본값이 병렬이라 모델이 한 턴에 여러 번 부르는데, 관측된 호출들은 뒤로 갈수록 앞의 판단과 어긋났고(같은 소비가 두 번, 같은 재료가 add·consume 양쪽에), 전부 합치면 확인 카드에 같은 재고 행이 두 줄 올라와 `ingredientId` key 가 충돌했다. ⚠️ 대가로 모델이 **정당하게 나눠 부르면 뒷부분이 유실된다** — 그런 호출이 실제로 나오는지는 `ignored` 경고 로그로만 알 수 있으니, 잦으면 합치는 쪽으로 다시 판단할 것.
+- **확인/취소**(`POST .../apply|dismiss`): 소유권 + **아직 미처리** 를 검증한다. "미처리" 판정은 상태 필드가 아니라 **같은 `callId` 의 `FUNCTION_CALL_OUTPUT` 이 없는 것**이다(상태를 따로 들고 있으면 두 기록이 어긋난다). 같은 요청이 두 번 와도 두 번째는 여기서 막힌다.
+  - 클라가 보내는 건 **의도(편집값)** 이지 결과가 아니다. 서버가 제안에 실제로 있던 `ingredientId` 로만 필터하고(임의 id 주입 차단), 재고를 바꾼 뒤 **실제로 반영한 것**으로 output 을 조립한다.
+  - 응답은 `{ messages: [...] }` — 이번 처리로 새로 생긴 아이템들. 나중에 확인 후 LLM 완료 답변을 붙여도 **계약을 안 바꾸고** 배열에 한 줄 더 얹으면 된다(아직 미구현이라 확인 직후엔 컴패니언이 말하지 않는다).
+- **상품추천은 v1.2 대기**: `search_products` 툴·`PRODUCT_RECO_GUIDANCE`·실행기·`Conversation.lastSearch` 커서 페이징이 코드에 **살아 있고 등록만 빠져 있다**(툴 배열에서 제외, `eslint-disable`(no-unused-vars) 로 표시). 단 **카드 저장 경로는 끊겼다** — `Message.products` 컬럼이 없어졌으므로 되살릴 때 검색 결과를 `FUNCTION_CALL_OUTPUT` payload 에 담으면 된다(컬럼 추가 불필요).
 
 ## 장기 메모리 (Memory)
 
@@ -64,10 +102,18 @@
   - `list(userId)` = "AI가 기억하는 나" 화면용 — 항상 전부(+`id` 포함, 삭제용).
 - **추출(extractMemory)**: `ConversationService` 가 N메시지마다 **fire-and-forget** 호출(응답 지연 0). 최근 window개 메시지 → 기존 메모리와 함께 LLM 구조화 추출(`structured`) → 새 사실만 저장.
   - 방침: **지속적 사실만**(일회성 이벤트/약속 제외), **추가만**(갱신·모순 해결 안 함 — 사용자가 삭제로 교정), 중복은 **LLM(의미) + 코드(정확일치) 2중** 제거.
-  - ⚠️ **재료 재고는 뽑지 않는다** — "계란 있음"은 냉장고(`Ingredient`)가 관리하고 메모리에 또 저장하면 두 기록이 어긋난다. 추출 지침 맨 앞에서 `"계란 알레르기가 있음"`(사람) vs `"계란 있음"`(재고)을 구분하라고 못박는다. 알레르기는 안전 문제라 `importance` 3 을 강제한다.
+  - ⚠️ **재료 재고는 뽑지 않는다** — "계란 있음"은 냉장고(`Ingredient`)가 관리하고 메모리에 또 저장하면 두 기록이 어긋난다. 추출 지침 맨 앞에서 `"계란 알레르기가 있음"`(사람) vs `"계란 있음"`(재고)을 구분하라고 못박는다. `ALLERGY` 는 안전 문제라 `importance` 3 을 강제한다.
+  - ⚠️ **과추출 경향이 있다.** 프롬프트가 "이런 걸 뽑아라"로 가득해서 모델이 빈 배열을 실패로 느낀다. 미추출은 사용자가 눈치채지 못한 채 간판 기능이 조용히 죽고, 과추출은 화면에서 보이고 삭제할 수 있다 — **비대칭이 과추출 쪽에 유리**해서 이 방식을 유지하되, "빈 배열이 정상"을 프롬프트 앞쪽으로 올리는 게 남은 개선이다.
+  - **툴콜로 바꾸지 않은 이유**: `remember` 툴을 붙이면 `update_inventory`(종결 툴)와 같은 턴에 불렸을 때 **종결 분기가 먼저 반환해 실행되지 않고 버려진다**("계란 샀어, 나 계란 알레르기 있는데" 같은 문장이 정확히 그 케이스). 그리고 채팅 모델은 "기억하기" 같은 부드러운 툴을 잘 안 불러 미추출로 기운다.
   - 프롬프트·zod 스키마는 `memory.prompt.ts`(순수). category는 enum 강제, importance는 1~3 코드 클램프.
   - 백그라운드라 `extractMemory` 안에서 try/catch 로 에러를 삼키고 로깅만 한다 (위 "에러 처리" 원칙의 **의도적 예외** — 채팅 응답에 영향 0).
-- 데이터: `Memory`(userId, `category`=`MemoryCategory` enum 4개 — `PREFERENCE`(식성)/`PROFILE`(알레르기·체질·요리성향)/`OWNERSHIP`(조리도구)/`ETC`, content, importance). content는 짧은 사실 1개 = row 1개, 주입·표시 겸용.
+- 데이터: `Memory`(userId, `category`=`MemoryCategory` enum 5개, content, importance). content는 짧은 사실 1개 = row 1개, 주입·표시 겸용.
+  - **`ALLERGY`(먹으면 안 되는 것)는 별도 카테고리**다. 예전엔 `PROFILE` 에 문장으로 저장하고 내용을 정규식(`/알레르기|못 먹|.../`)으로 훑어 골라냈는데, **안전 판별을 문자열 추측에 맡기는 구조**였고 부정문("우유 알레르기는 없음")을 구분하지 못해 없던 금지를 만들어내기도 했다.
+  - `ALLERGY` 의 content 는 **재료·분류 이름만**("오이", "갑각류"). 문장이 아니다.
+  - ⚠️ **정도 문제는 `ALLERGY` 가 아니다.** "우유를 많이 마시면 배가 아픔"을 여기 넣으면 우유가 영구 금지된다 → `PREFERENCE`. 추출 프롬프트가 이 경계를 명시한다.
+  - ⚠️ 카테고리는 **추출 LLM 이 고른다** — 오분류하면 그 항목은 금지 목록에서 빠진다. 보조 정규식을 두는 안도 검토했으나 부정문 오탐과 렌더 혼재(이름 + 문장) 때문에 **카테고리만 믿기로** 했다.
+  - 나머지: `PREFERENCE`(식성) / `PROFILE`(체질·상황·요리 실력) / `OWNERSHIP`(조리도구) / `ETC`.
+  - Postgres 는 `ADD VALUE` 를 enum **끝에** 붙이므로, schema.prisma 선언 순서와 무관하게 `ALLERGY` 가 `category asc` 정렬에서 마지막이다(메모리 목록 화면 순서에 영향).
 - **벡터는 지금 안 넣는다**: 메모리 소수라 전부 주입이 더 싸고 정확. recall seam + 루트 AGENTS.md 방침 덕에 나중에 컬럼 추가 + recall 내부 교체로 붙는다.
 - 튜닝 env(나중에 Settings 테이블로 이전): `MEMORY_EXTRACT_WINDOW`, `MEMORY_EXTRACT_EVERY_N`, `MEMORY_EXTRACT_MODEL`(비우면 `LLM_MODEL`). 읽는 곳은 서비스 생성자 **1곳**(env→DB 전환 seam).
 - API(`MemoryModule`): `GET /memories`(내 전체), `DELETE /memories/:id`(교정용, 본인 것만 멱등). 전부 현재 유저 기준.
@@ -80,12 +126,16 @@
 - **soft delete**: `consume` 은 삭제가 아니라 `consumedAt` 을 찍는다. 모든 조회에 `consumedAt: null` 이 붙어(list/recall/expiringSoon/중복검사) 먹은 재료가 목록·프롬프트에서 빠진다 — `recall` 이 유령 재료를 흘리지 않는지 테스트로 고정. 되돌리기(`restore`)가 UPDATE 한 번이고, 소비 이력은 나중에 "자주 사는 재료" 근거가 된다. 잘못 등록한 건 `DELETE :id/hard` 로 진짜 지운다("다 먹음"과 "잘못 등록"은 의미가 달라 이력에 남길지가 갈린다).
 - **병합**: 같은 이름을 다시 넣으면 새 row 가 아니라 기존 미소비 재고에 병합한다. 만료일·보관·분류는 **새로 넣은 값으로 갱신**한다(재입고 = 방금 산 게 주). 수량을 개별 추적하지 않으므로 옛 재고 기준으로 잡을 근거가 없다. 수량 메모는 이번에 안 적었으면 기존 표시를 유지.
 - `shelf-life.ts` = 소비기한 추정 + 카테고리·보관위치 vocab·라벨·`LIMITS` 의 **단일 진실원천**(persona.ts 와 같은 패턴, `GET /inventory/options` 로 내려줌). 순수 로직이라 DB·LLM 없이 테스트된다.
-- 채팅 툴(`add_ingredients`/`consume_ingredients`)이 `InventoryService` 를 **직접** 호출한다(HTTP 안 탐). 아래 컨트롤러는 냉장고 화면의 **수동 교정 경로**다.
+- 채팅 경로는 `InventoryService` 를 **직접** 호출한다(HTTP 안 탐). 아래 컨트롤러는 냉장고 화면의 **수동 교정 경로**다.
+- **제안(비-mutating)과 반영(mutating)이 나뉘어 있다** — 채팅 툴이 종결 툴이라 확인 전엔 아무것도 쓰면 안 되기 때문이다.
+  - `previewAdd`(순수: 기본 분류·보관 + 만료일 추정. 같은 이름이 여러 번 오면 **첫 번째가 이긴다**) / `resolveConsume`(이름→행 + 현재 수량, 같은 행 중복 제안 제거) → 확인 카드용
+  - `add` / `applyConsume` → 확인 후 실제 반영. `applyConsume` 는 `remaining=null` 이면 소비(soft delete), 값이면 `quantityNote` 갱신.
+  - `consumeByNames` 는 확인 카드 전환 후 **호출자가 없다**(테스트만 남음).
 - API(`InventoryModule`, 전부 현재 유저 기준): `GET /inventory`(임박순), `GET /inventory/expiring?days=N`(홈 "먼저 먹어요"), `GET /inventory/options`, `POST /inventory`(여러 건), `PATCH /inventory/:id`(교정 — 만료일 직접 고치면 `USER` 승격, 표기일 없이 분류·보관만 바꾸면 만료일 재추정. 유통기한 직접 편집이 없는 앱에선 보관 변경이 유일한 간접 조정 수단), `DELETE /inventory/:id`(=consume, soft), `POST /inventory/:id/restore`, `DELETE /inventory/:id/hard`. `:id` 라우트는 반드시 리터럴 경로(`options`/`expiring`) **아래**에 둔다(Nest 는 선언순 매칭).
 
 ## 커머스 — 상품 검색 (Commerce, v1.2 대기)
 
-- ⚠️ **부족 재료 쇼핑 추천(v1.2)용으로 코드는 완성돼 있고 채팅 등록만 빠져 있다**(위 Conversation 참고). 아래는 그 검색 계층 설명이다.
+- ⚠️ **부족 재료 쇼핑 추천(v1.2)용으로 검색 계층은 완성돼 있고 채팅 등록이 빠져 있다**(위 Conversation 참고). 카드 스냅샷 저장은 `Message.products` 컬럼이 없어지면서 끊겼으니, 되살릴 때 `FUNCTION_CALL_OUTPUT` payload 에 담는다. 아래는 그 검색 계층 설명이다.
 - `src/commerce/`(`CommerceModule`). `CommerceService.search(criteria)` 가 **네이버 쇼핑검색 API**를 호출해 **정규화된 `ProductType[]`**(packages/types) 로 반환한다.
 - **벤더(네이버) 격리**: 네이버 원본(HTML `<b>` title, 문자열 `lprice`, `category1~4`)과 호출 에러는 이 서비스 안에서 흡수해 `ProductType` 으로 변환한다 — `openai` 가 `llm/`에 갇히듯 **naver는 `commerce/`에만** 안다. 소비처(Conversation)는 `ProductType` 만 본다.
 - **catalog 아니라 search seam**: 실제 커머스 API는 "우리 소유 카탈로그"가 아니라 검색 엔드포인트다. 그래서 `search(criteria)` 형태로 모델링. 프로바이더가 **2개 이상(쿠팡/아마존)** 되면 그때 인터페이스+DI토큰으로 분리한다 — 지금은 단일이라 안 만든다(과한 추상화 지양).
