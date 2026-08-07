@@ -101,10 +101,13 @@ export class InventoryController {
       throw new BadRequestException('이미지 파일만 올릴 수 있습니다.');
     }
     const kind: ScanKindType = dto.kind === 'photo' ? 'photo' : 'receipt';
-    const items = await this.scanner.scan(kind, {
-      buffer: file.buffer,
-      mimeType: file.mimetype,
-    });
+    const image = { buffer: file.buffer, mimeType: file.mimetype };
+    // OCR 사용 여부는 요청으로 고른다 — 어느 쪽이 정확한지 비교하는 동안만 두는 스위치다.
+    // const items =
+    //   dto.ocr === 'true'
+    //     ? await this.scanner.scanWithOcr(kind, image)
+    //     : await this.scanner.scan(kind, image);
+    const items = await this.scanner.scanWithOcr(kind, image);
     return { items };
   }
 

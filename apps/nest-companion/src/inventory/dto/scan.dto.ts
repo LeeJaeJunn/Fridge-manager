@@ -10,4 +10,13 @@ export class ScanDto {
   @IsOptional()
   @IsIn(SCAN_KINDS)
   kind?: string;
+
+  /**
+   * OCR 을 함께 쓸지 (`'true'` 면 사용). 생략하면 이미지 단독.
+   * 어느 쪽이 정확한지 **실측으로 비교**하려고 요청 단위로 켤 수 있게 뒀다 —
+   * 결론이 나면 한쪽으로 고정하고 이 필드는 없앤다.
+   */
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  ocr?: string;
 }

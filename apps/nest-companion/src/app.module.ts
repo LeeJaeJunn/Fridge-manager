@@ -8,6 +8,7 @@ import { CommerceModule } from './commerce/commerce.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { LlmModule } from './llm/llm.module';
+import { OcrModule } from './ocr/ocr.module';
 import { MemoryModule } from './memory/memory.module';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
@@ -20,6 +21,7 @@ import { PrismaModule } from './prisma/prisma.module';
     AuthModule,
     CharacterModule,
     LlmModule,
+    OcrModule,
     MemoryModule,
     InventoryModule,
     ConversationModule,
