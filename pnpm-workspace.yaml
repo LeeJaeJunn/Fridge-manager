@@ -8,4 +8,6 @@ allowBuilds:
   prisma: true
   protobufjs: false
   unrs-resolver: true
+minimumReleaseAgeExclude:
+  - expo-file-system@56.0.9
 nodeLinker: hoisted

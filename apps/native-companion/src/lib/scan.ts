@@ -20,8 +20,11 @@ const PRESETS: Record<ScanKindType, { width: number; compress: number }> = {
   photo: { width: 1200, compress: 0.8 },
 };
 
-/** 업로드할 이미지 — RN 의 FormData 가 이해하는 모양 그대로. */
-export type PreparedImageType = { uri: string; name: string; type: string };
+/**
+ * 업로드할 이미지. 실제 전송은 `expo-file-system` 의 `File`(Blob) 로 하므로 **uri 가 본체**이고,
+ * `name` 은 multipart 파트의 파일명으로만 쓴다 (Content-Type 은 File 이 확장자에서 판단).
+ */
+export type PreparedImageType = { uri: string; name: string };
 
 /**
  * 원본 uri → 축소·압축된 JPEG.
@@ -33,7 +36,7 @@ async function prepare(uri: string, kind: ScanKindType): Promise<PreparedImageTy
   const { width, compress } = PRESETS[kind];
   const rendered = await ImageManipulator.manipulate(uri).resize({ width }).renderAsync();
   const out = await rendered.saveAsync({ format: SaveFormat.JPEG, compress });
-  return { uri: out.uri, name: `${kind}.jpg`, type: 'image/jpeg' };
+  return { uri: out.uri, name: `${kind}.jpg` };
 }
 
 /** 카메라로 촬영 → 업로드용 이미지. 권한 거부·취소면 null. */

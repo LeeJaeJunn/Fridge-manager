@@ -1,3 +1,5 @@
+import { File } from 'expo-file-system';
+
 import { apiFetch } from '@/api/client';
 import type { PreparedImageType } from '@/lib/scan';
 import type {
@@ -38,13 +40,15 @@ export function addIngredients(items: AddIngredientInputType[]): Promise<Ingredi
  * 사용자가 확인·편집한 뒤 `addIngredients` 로 저장하는 2단계다 — 인식엔 오차가 있고,
  * 잘못 들어간 재료는 사용자가 알아채기 어렵기 때문(채팅 확인 카드와 같은 방침).
  *
- * FormData 로 보내면 `apiFetch` 가 Content-Type 을 건드리지 않아 fetch 가 boundary 를 붙인다.
+ * ⚠️ 파일은 **`expo-file-system` 의 `File`(Blob 구현)** 로 넘긴다.
+ * 예전 RN 은 `{uri, name, type}` 객체를 파트로 받아줬지만, RN 0.85 의 fetch 가 표준(WinterCG)
+ * 구현으로 바뀌면서 그 객체를 거부한다(`Unsupported FormDataPart implementation`).
+ * `apiFetch` 는 FormData 일 때 Content-Type 을 건드리지 않아 fetch 가 boundary 를 붙인다.
  */
 export function scanImage(kind: ScanKindType, image: PreparedImageType): Promise<ScanResultType> {
   const form = new FormData();
   form.append('kind', kind);
-  // RN 전용 모양 — fetch 가 {uri,name,type} 를 알아보고 파일을 직접 스트리밍한다(웹에선 동작 안 함).
-  form.append('image', image as unknown as Blob);
+  form.append('image', new File(image.uri), image.name);
   return apiFetch<ScanResultType>('/inventory/scan', { method: 'POST', body: form });
 }
 
