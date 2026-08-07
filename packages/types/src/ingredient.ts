@@ -75,10 +75,25 @@ export interface AddProposalItemType {
   name: string;
   category: IngredientCategoryType;
   storage: StorageAreaType;
+  /** **저장될 최종 수량** — 이미 있는 재료면 합산된 값이다 */
   quantityNote?: string;
   /** 추정 만료일 (ISO). 사용자가 표기일을 줬으면 그 값 */
   estimatedExpiry: string;
   expirySource: ExpirySourceType;
+  /**
+   * 같은 이름의 재고가 이미 있을 때만 채워지는 **합산 근거**(표시 전용).
+   * 저장은 `quantityNote` 하나로 이뤄지고, 이건 "왜 그 숫자인지"를 화면에서 설명하기 위한 것이다.
+   *
+   * ⚠️ 알려진 한계: 병합은 만료일을 **새로 산 값으로 덮어쓴다**. 유통기한이 다른 두 묶음
+   * (8/4까지 남은 것 + 오늘 산 8/11까지)은 한 행으로 표현되지 않아, 먼저 상하는 몫이 임박 경고에서
+   * 빠진다. "기존에 합치기 / 따로 추가" 선택을 넣을 때 함께 해결한다.
+   */
+  merge?: {
+    /** 지금 냉장고에 있는 수량 메모 */
+    existing?: string;
+    /** 이번에 산 수량 메모 (영수증·사진에서 읽은 값) */
+    added?: string;
+  };
 }
 
 /** 스캔에 넘긴 이미지가 무엇인지 — 서버가 이걸로 프롬프트를 고른다. */

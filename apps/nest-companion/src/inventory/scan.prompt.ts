@@ -31,7 +31,10 @@ export const ScanSchema = z.object({
     z.object({
       name: z.string(),
       category: z.enum(CATEGORY_VALUES as [string, ...string[]]),
+      /** 이번에 산 양 (영수증 표기 그대로) */
       quantityNote: z.string().nullable(),
+      /** 같은 재료가 이미 냉장고에 있을 때, 기존 수량과 합친 총량. 없으면 null */
+      mergedQuantityNote: z.string().nullable(),
       storage: z.enum(STORAGE_VALUES as [string, ...string[]]).nullable(),
       expiresAt: z.string().nullable(),
     }),
@@ -49,10 +52,11 @@ export type ScanExtraction = z.infer<typeof ScanSchema>;
 export const RECEIPT_INSTRUCTION = `너는 한국 마트·편의점 영수증에서 **식재료만** 뽑아 냉장고 재고 등록 목록을 만드는 추출기다.
 
 [입력]
-영수증 사진이 주어진다. OCR 로 읽은 텍스트가 함께 주어질 수도 있다 — 둘은 같은 영수증이다.
+영수증 사진이 주어진다. OCR 로 읽은 텍스트와 **지금 냉장고에 있는 재료 목록**이 함께 주어질 수 있다.
 - **품명의 글자**는 OCR 텍스트를 우선해라 (문자 정확도가 더 높다).
 - **수량·열 구분·어떤 줄이 한 품목인지**는 이미지를 우선해라 (OCR 텍스트는 열이 뒤섞일 수 있다).
 - 둘이 어긋나면 이미지로 판정해라. OCR 텍스트가 없으면 이미지만으로 판단해라.
+- 냉장고 목록은 **합산에만** 쓴다. 거기 있는 재료를 영수증에 없는데 뽑아내지 마라.
 
 [뽑을 것 / 버릴 것]
 - 뽑는다: 먹을 수 있는 식재료·식품 (신선식품, 가공식품, 음료, 양념, 냉동식품)
@@ -76,11 +80,20 @@ GRAIN(곡물·면·빵) SAUCE(양념·소스) PROCESSED(가공식품) FROZEN(냉
 - "냉동" 표기가 있어도 **재료 본래 분류를 우선**하고 storage 로 냉동을 표현해라
   (예: "냉동삼겹살" → category=MEAT, storage=FREEZER).
 
-[quantityNote — 사람이 쓴 표현 그대로, 없으면 null]
+[quantityNote — **이번에 산 양**, 사람이 쓴 표현 그대로, 없으면 null]
 - 숫자로 환산하지 마라. 앱은 실제 소비를 관찰하지 못해서 계산된 숫자는 금방 허구가 된다.
 - **포장 규격과 구매 수량은 다르다.** 둘 다 있으면 둘 다 남겨라.
   예: "신라면멀티5입"을 2개 샀으면 → "5입 2봉" (10개로 바꾸지 마라)
 - 가격은 절대 넣지 마라.
+
+[mergedQuantityNote — 기존 재고와 합친 **총량**, 해당 없으면 null]
+- 냉장고 목록에 **같은 재료가 이미 있을 때만** 채운다. 없으면 반드시 null.
+- 기존 수량 + 이번에 산 양을 사람이 읽을 표현으로 합쳐라.
+  예: 냉장고 "앞다리살 (4개)" + 이번 "10개" → "14개"
+  예: 냉장고 "계란 (한 판)" + 이번 "20구" → "한 판 + 20구"
+- **단위가 달라 더할 수 없으면 억지로 계산하지 말고 둘을 나란히 적어라**("한 판 + 20구").
+  틀린 숫자는 없는 것보다 나쁘다.
+- 기존 수량을 모르면(목록에 수량 표기가 없으면) null 로 두고 quantityNote 만 채워라.
 
 [storage — 확실할 때만, 아니면 null]
 - FREEZER: 냉동식품이거나 "냉동" 표기가 있을 때

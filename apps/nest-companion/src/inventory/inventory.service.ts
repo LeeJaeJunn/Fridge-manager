@@ -62,8 +62,12 @@ const toDto = (i: IngredientRow): IngredientType => ({
   consumedAt: i.consumedAt?.toISOString(),
 });
 
-/** 재료명 정규화 — 중복 판정 키. memory.service 의 normalize 와 같은 규칙. */
-const normalize = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+/**
+ * 재료명 정규화 — 중복 판정 키. memory.service 의 normalize 와 같은 규칙.
+ * 스캔 제안이 "이미 있는 재료"를 **저장 시 병합과 같은 기준**으로 판정해야 해서 export 한다
+ * (표시와 실제 동작이 어긋나지 않으려면 같은 함수를 써야 한다).
+ */
+export const normalize = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
 
 const clip = (s: string, max: number) => s.trim().slice(0, max);
 

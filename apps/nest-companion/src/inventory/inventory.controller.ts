@@ -90,6 +90,7 @@ export class InventoryController {
   @Post('scan')
   @UseInterceptors(FileInterceptor('image', { limits: { fileSize: MAX_IMAGE_BYTES } }))
   async scan(
+    @CurrentUser() userId: string,
     @UploadedFile() file: UploadedImage | undefined,
     @Body() dto: ScanDto,
   ): Promise<ScanResultType> {
@@ -107,7 +108,7 @@ export class InventoryController {
     //   dto.ocr === 'true'
     //     ? await this.scanner.scanWithOcr(kind, image)
     //     : await this.scanner.scan(kind, image);
-    const items = await this.scanner.scanWithOcr(kind, image);
+    const items = await this.scanner.scanWithOcr(userId, kind, image);
     return { items };
   }
 
