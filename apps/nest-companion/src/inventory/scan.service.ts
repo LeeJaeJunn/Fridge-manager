@@ -11,8 +11,20 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { LlmService } from '../llm/llm.service';
 import { OcrService } from '../ocr/ocr.service';
-import { InventoryService, normalize, type RecalledIngredient } from './inventory.service';
-import { RECEIPT_INSTRUCTION, RECEIPT_SCHEMA_NAME, ScanSchema } from './scan.prompt';
+import { InventoryService, normalize } from './inventory.service';
+import { buildReceiptInstruction, RECEIPT_SCHEMA_NAME, ScanSchema } from './scan.prompt';
+
+/**
+ * 모델이 "값 없음"을 문자열로 흘리는 걸 막는다 — Structured Outputs 는 **타입만** 강제해서
+ * `"null"`·`"없음"` 같은 값도 유효한 string 으로 통과한다. 그대로 두면 냉장고에 `없음` 이라고 저장된다.
+ * 산수를 대신하는 게 아니라 쓰레기 값을 걸러내는 경계 방어다(parseArgs 가 깨진 JSON 을 막는 것과 같다).
+ */
+const EMPTY_SENTINELS = ['null', 'none', 'n/a', 'na', '없음', '-', '없다'];
+const clean = (v: string | null | undefined): string | undefined => {
+  const t = v?.trim();
+  if (!t) return undefined;
+  return EMPTY_SENTINELS.includes(t.toLowerCase()) ? undefined : t;
+};
 
 /** 스캔에 넘길 이미지 — 컨트롤러가 업로드에서 뽑아 넘긴다. */
 export type ScanImage = { buffer: Buffer; mimeType: string };
@@ -113,36 +125,37 @@ export class ScanService {
     const existingByName = new Map(existing.map((e) => [normalize(e.name), e]));
 
     const { parsed, usage } = await this.llm.structured({
-      instructions: RECEIPT_INSTRUCTION,
-      input: buildScanInput(ocrText, existing),
+      // 재고는 **입력이 아니라 instruction** 에 넣는다 — 영수증에서 뽑을 대상이 아니라 합산 판단용
+      // 배경 정보라서다. 입력에 섞으면 모델이 그걸 영수증 품목으로 착각한다.
+      instructions: buildReceiptInstruction(existing),
+      input: ocrText,
       images: [{ dataUrl, detail: 'high' }],
       schema: ScanSchema,
       schemaName: RECEIPT_SCHEMA_NAME,
       model: this.model,
     });
 
-    // 스키마가 required+nullable 이라(Structured Outputs 제약) null 을 여기서 undefined 로 되돌린다.
     // category/storage 는 zod enum 이 `CATEGORY_VALUES`/`STORAGE_VALUES` 로 이미 제약했지만,
     // 그 vocab 을 문자열 유니온으로 좁히지 않는 레포 방침 때문에 타입이 `string` 이라 경계에서 단언한다.
     //
-    // `quantityNote` 에는 **저장될 값**(합산됐으면 합계)을 넣는다. 이번에 산 양은 아래에서
-    // `merge.added` 로 따로 붙여 화면이 근거를 보여줄 수 있게 한다.
+    // 저장될 값은 `total`(등록 후 총량)이다. 모델이 새 재료엔 purchased 와 같은 값을 넣게 돼 있어
+    // 폴백은 사실상 안 타지만, 빠졌을 때 수량을 통째로 잃지 않도록 남겨둔다.
     const items: AddIngredientInputType[] = parsed.items.map((it) => {
-      const finalNote = it.mergedQuantityNote ?? it.quantityNote;
+      const total = clean(it.total) ?? clean(it.purchased);
       return {
         name: it.name,
         category: it.category as IngredientCategoryType,
-        ...(finalNote ? { quantityNote: finalNote } : {}),
-        ...(it.storage ? { storage: it.storage as StorageAreaType } : {}),
-        ...(it.expiresAt ? { expiresAt: it.expiresAt } : {}),
+        ...(total ? { quantityNote: total } : {}),
+        ...(clean(it.storage) ? { storage: it.storage as StorageAreaType } : {}),
+        ...(clean(it.expiresAt) ? { expiresAt: it.expiresAt as string } : {}),
       };
     });
-    /** 이름(정규화) → 이번에 산 양. previewAdd 를 거친 뒤 다시 붙이기 위해 미리 색인한다. */
-    const purchasedByName = new Map(
-      parsed.items
-        .filter((it) => it.quantityNote)
-        .map((it) => [normalize(it.name), it.quantityNote as string]),
-    );
+    /** 이름(정규화) → 이번에 산 양. previewAdd 를 거친 뒤 화면 표시용으로 다시 붙인다. */
+    const purchasedByName = new Map<string, string>();
+    for (const it of parsed.items) {
+      const purchased = clean(it.purchased);
+      if (purchased) purchasedByName.set(normalize(it.name), purchased);
+    }
 
     this.logger.log(
       `스캔(${kind}) 추출 ${items.length}건 (model=${this.model}, tokens=${usage?.totalTokens ?? '?'})`,
@@ -154,31 +167,20 @@ export class ScanService {
       const key = normalize(item.name);
       const prev = existingByName.get(key);
       if (!prev) return item;
+
+      const added = purchasedByName.get(key);
+      // 이미 있는 재료인데 총량이 구매량과 같다 = 모델이 합산을 건너뛴 것. 값은 그대로 두고
+      // **얼마나 자주 일어나는지만** 남긴다 — 잦으면 서버 합산으로 옮길 근거가 된다.
+      if (added && item.quantityNote === added && prev.quantityNote) {
+        this.logger.warn(`합산 누락 의심: ${item.name} (기존 ${prev.quantityNote} + ${added})`);
+      }
       return {
         ...item,
         merge: {
           ...(prev.quantityNote ? { existing: prev.quantityNote } : {}),
-          ...(purchasedByName.has(key) ? { added: purchasedByName.get(key) } : {}),
+          ...(added ? { added } : {}),
         },
       };
     });
   }
-}
-
-/**
- * 모델에 넘길 텍스트 입력 — OCR 결과와 현재 재고를 **구분해서** 담는다.
- * 라벨이 없으면 모델이 냉장고 목록을 영수증 품목으로 착각해 없는 걸 뽑아낸다.
- */
-function buildScanInput(ocrText: string, existing: RecalledIngredient[]): string {
-  const blocks: string[] = [];
-  if (existing.length > 0) {
-    const lines = existing
-      .map((e) => `- ${e.name}${e.quantityNote ? ` (${e.quantityNote})` : ''}`)
-      .join('\n');
-    blocks.push(`[지금 냉장고에 있는 재료 — 합산에만 참고, 여기서 품목을 뽑지 마라]\n${lines}`);
-  }
-  if (ocrText.trim().length > 0) {
-    blocks.push(`[영수증 OCR 텍스트]\n${ocrText}`);
-  }
-  return blocks.join('\n\n');
 }
