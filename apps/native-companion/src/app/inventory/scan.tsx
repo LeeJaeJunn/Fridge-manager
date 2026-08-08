@@ -16,8 +16,8 @@ const COPY: Record<ScanKindType, { title: string; hint: string; capture: string 
   },
   photo: {
     title: '사진으로 넣기',
-    hint: '냉장고 안을 찍으면 보이는 재료를 담을게요.',
-    capture: '사진 찍기',
+    hint: '장 봐 온 재료들을 펼쳐놓고 찍으면 담을게요.',
+    capture: '재료 찍기',
   },
 };
 

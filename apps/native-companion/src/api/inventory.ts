@@ -49,7 +49,9 @@ export function scanImage(kind: ScanKindType, image: PreparedImageType): Promise
   const form = new FormData();
   form.append('kind', kind);
   form.append('image', new File(image.uri), image.name);
-  form.append('ocr', 'true');
+  // OCR 은 **영수증에만** 쓴다 — 사진에서 글자 인식은 브랜드 파편만 돌려주고 호출 1건을 먹는다.
+  // (사진에도 켜보고 싶으면 서버가 `ocr=true` 를 그대로 받으니 curl 로 비교하면 된다)
+  if (kind === 'receipt') form.append('ocr', 'true');
   return apiFetch<ScanResultType>('/inventory/scan', { method: 'POST', body: form });
 }
 

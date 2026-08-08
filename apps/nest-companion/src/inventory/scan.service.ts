@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { LlmService } from '../llm/llm.service';
 import { OcrService } from '../ocr/ocr.service';
 import { InventoryService, normalize } from './inventory.service';
-import { buildReceiptInstruction, RECEIPT_SCHEMA_NAME, ScanSchema } from './scan.prompt';
+import { buildScanInstruction, RECEIPT_SCHEMA_NAME, ScanSchema } from './scan.prompt';
 
 /**
  * 모델이 "값 없음"을 문자열로 흘리는 걸 막는다 — Structured Outputs 는 **타입만** 강제해서
@@ -124,12 +124,16 @@ export class ScanService {
     const existing = await this.inventory.recall(userId);
     const existingByName = new Map(existing.map((e) => [normalize(e.name), e]));
 
+    // 영수증은 작은 글자를 읽어야 해 해상도를 낮추면 인식이 급락한다. 사진은 사물·포장 라벨만
+    // 알아보면 되므로 낮춰 토큰을 아낀다.
+    const detail = kind === 'receipt' ? 'high' : 'auto';
+
     const { parsed, usage } = await this.llm.structured({
-      // 재고는 **입력이 아니라 instruction** 에 넣는다 — 영수증에서 뽑을 대상이 아니라 합산 판단용
-      // 배경 정보라서다. 입력에 섞으면 모델이 그걸 영수증 품목으로 착각한다.
-      instructions: buildReceiptInstruction(existing),
+      // 재고는 **입력이 아니라 instruction** 에 넣는다 — 사진에서 뽑을 대상이 아니라 합산 판단용
+      // 배경 정보라서다. 입력에 섞으면 모델이 그걸 이번에 산 품목으로 착각한다.
+      instructions: buildScanInstruction(kind, existing),
       input: ocrText,
-      images: [{ dataUrl, detail: 'high' }],
+      images: [{ dataUrl, detail }],
       schema: ScanSchema,
       schemaName: RECEIPT_SCHEMA_NAME,
       model: this.model,

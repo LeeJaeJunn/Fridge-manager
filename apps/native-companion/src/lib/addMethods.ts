@@ -13,7 +13,13 @@ export type AddMethod = {
 };
 
 export const ADD_METHODS: AddMethod[] = [
-  { key: 'photo', emoji: '📷', label: '사진 촬영', desc: '냉장고를 찍어 재료 인식', ready: false },
+  {
+    key: 'photo',
+    emoji: '📷',
+    label: '사진 촬영',
+    desc: '산 재료를 찍어 한 번에 등록',
+    ready: true,
+  },
   {
     key: 'receipt',
     emoji: '🧾',
