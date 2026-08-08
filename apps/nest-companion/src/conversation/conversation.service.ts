@@ -177,6 +177,17 @@ const MESSAGE_SELECT = {
 /** DB enum 을 문자열 유니온으로 받아 `===` 비교에서 no-unsafe-enum-comparison 이 안 터지게 한다(role 과 같은 패턴). */
 type MessageItemTypeValue = 'TEXT' | 'FUNCTION_CALL' | 'FUNCTION_CALL_OUTPUT';
 
+/**
+ * 메모리 추출 주기를 세는 단위 — **말풍선(`TEXT`)만** 센다.
+ *
+ * 툴 호출·결과까지 세면 안 된다: 아이템 구조로 바뀌면서 한 턴이 1행이 아니라 2~3행
+ * (`TEXT` + `FUNCTION_CALL` + `FUNCTION_CALL_OUTPUT`)이 될 수 있어, 같은 대화량에서 추출이
+ * 예전보다 2~3배 자주 돌았다("억지 추출"의 원인). `extractEveryN` 이 "몇 마디마다"라는
+ * 사람이 읽는 의미를 유지하려면 세는 대상이 말풍선이어야 한다.
+ */
+const countText = (rows: { type: MessageItemTypeValue }[]): number =>
+  rows.filter((r) => r.type === 'TEXT').length;
+
 type MessageRow = {
   id: string;
   type: MessageItemTypeValue;
@@ -632,7 +643,7 @@ export class ConversationService {
         payload: call as unknown as Prisma.InputJsonValue,
       });
     }
-    if (create.length === 0) return { created: [], messageCount: history.length };
+    if (create.length === 0) return { created: [], messageCount: countText(history) };
 
     const updated = await this.prisma.conversation.update({
       where: { id: conversationId },
@@ -652,7 +663,8 @@ export class ConversationService {
     });
     // desc 로 뽑았으니 시간순으로 되돌린다
     const created = updated.messages.map(toMessage).reverse();
-    return { created, messageCount: history.length + create.length };
+    // created 는 판별 유니온(MessageType)이라 그대로 셀 수 있다 — create(Prisma 입력)를 세지 않는 이유.
+    return { created, messageCount: countText(history) + countText(created) };
   }
 
   /**
@@ -701,8 +713,8 @@ export class ConversationService {
   }
 
   /**
-   * N 메시지마다 장기 메모리 추출을 백그라운드로 돌린다 (응답을 막지 않는 fire-and-forget).
-   * messageCount 는 exchange 가 이미 계산한 값 — 별도 count 쿼리를 하지 않는다.
+   * N 말풍선마다 장기 메모리 추출을 백그라운드로 돌린다 (응답을 막지 않는 fire-and-forget).
+   * messageCount 는 exchange 가 이미 계산한 `TEXT` 개수 — 별도 count 쿼리를 하지 않는다(`countText` 참고).
    */
   private triggerExtraction(userId: string, conversationId: string, messageCount: number): void {
     if (messageCount % this.extractEveryN !== 0) return;
