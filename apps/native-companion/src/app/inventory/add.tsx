@@ -13,8 +13,6 @@ export default function AddIngredientScreen() {
   const router = useRouter();
   const { options, add } = useInventory();
 
-  console.log(JSON.stringify(options));
-
   // options 없이는 분류·보관 칩을 못 그린다 — 세션 초반 극히 짧은 순간만 해당.
   if (!options) {
     return (

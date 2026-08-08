@@ -104,18 +104,17 @@ export default function MemoryScreen() {
   );
 
   function confirmDelete(m: MemoryType) {
-    // Alert.alert('기억 삭제', `"${m.content}"\n\n이 기억을 지울까요?`, [
-    //   { text: '취소', style: 'cancel' },
-    //   {
-    //     text: '삭제',
-    //     style: 'destructive',
-    //     onPress: () => {
-    //       void deleteMemory(m.id).then(load);
-    //     },
-    //   },
-    // ]);
-    // console.log('삭제');
-    void deleteMemory(m.id).then(load);
+    Alert.alert('기억 삭제', `"${m.content}"\n\n이 기억을 지울까요?`, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: () => {
+          void deleteMemory(m.id).then(load);
+        },
+      },
+    ]);
+    // void deleteMemory(m.id).then(load);
   }
 
   // 존재하는 카테고리만 칩으로 (표시 순서 유지)
