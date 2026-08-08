@@ -17,4 +17,8 @@ yarn.lock
 
 *.log
 
+# 아래는 전부 **생성물**이라 포맷 대상이 아니다.
+# 각 앱의 .gitignore 에 이미 잡혀 있지만 prettier 는 CWD(루트)의 .gitignore/.prettierignore 만 읽고
+# 하위 패키지의 .gitignore 는 보지 않는다 → 여기에 다시 적어야 한다.
 apps/nest-companion/src/generated/prisma
+expo-env.d.ts
