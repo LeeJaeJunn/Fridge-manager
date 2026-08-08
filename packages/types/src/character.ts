@@ -68,7 +68,9 @@ export interface CharacterType {
  * POST /characters — 캐릭터 생성.
  * 필수: name·speechStyle. 나머지는 선택.
  * tags 는 캐릭터에 저장되지 않고, 그룹에 따라 각기 다른 장기 메모리로 시드된다
- * (식성→PREFERENCE / 알레르기→PROFILE / 조리도구→OWNERSHIP).
+ * (식성→PREFERENCE / 알레르기→ALLERGY / 조리도구→OWNERSHIP).
+ * 알레르기가 전용 카테고리인 건 **안전 정보**라서다 — 프롬프트에서 별도 블록으로 맨 끝에 주입된다.
+ * 매핑의 진실원천은 서버 `character/persona.ts` 의 `TAG_GROUPS`/`tagToMemory`.
  */
 export interface CreateCharacterRequestType {
   name: string;

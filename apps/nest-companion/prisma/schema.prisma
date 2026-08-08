@@ -65,8 +65,9 @@ model Character {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  // 유저 관심사는 여기 저장하지 않는다 — 생성 시 category=INTEREST Memory row 로 시드해
-  // 기존 recall 주입/표시 파이프라인을 그대로 탄다("나를 기억하는 AI"의 첫 기억).
+  // 온보딩 태그(식성·알레르기·조리도구)는 여기 저장하지 않는다 — 캐릭터가 아니라 **유저 정보**라
+  // 생성 시 Memory row 로 시드해 기존 recall 주입/표시 파이프라인을 그대로 탄다.
+  // 그룹마다 카테고리가 다르다: 식성→PREFERENCE / 알레르기→ALLERGY / 조리도구→OWNERSHIP (persona.ts 소유).
 
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversations Conversation[]

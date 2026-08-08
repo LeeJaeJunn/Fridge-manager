@@ -28,8 +28,9 @@ export type OcrImageType = { buffer: Buffer; mimeType: string };
  * ⚠️ **실패해도 예외를 던지지 않는다.** 키가 없거나 호출이 실패하면 빈 문자열을 돌려주고
  * 스캔은 이미지 단독으로 계속된다 — OCR 은 정확도를 올리는 보조 수단이지 필수 경로가 아니다.
  *
- * TODO: 지금은 조각을 공백으로 잇기만 한다. 영수증은 `품명 ... 금액` 2단이라 줄이 뒤섞이므로,
- * `ocr.lines.ts` 의 줄 복원(lineBreak/좌표 기반)을 붙일 예정.
+ * 조각을 그대로 이어붙이지 않고 **줄을 복원해서** 돌려준다 — 영수증은 `품명 ... 금액` 2단이라
+ * 이어붙이면 열이 뒤섞여 모델이 품명과 금액을 잘못 짝짓는다. 복원 규칙은 순수 함수
+ * `ocr.lines.ts`(`fieldsToText`, lineBreak 우선 / 좌표 폴백)가 소유한다.
  */
 @Injectable()
 export class OcrService {
