@@ -49,6 +49,7 @@ export function scanImage(kind: ScanKindType, image: PreparedImageType): Promise
   const form = new FormData();
   form.append('kind', kind);
   form.append('image', new File(image.uri), image.name);
+  form.append('ocr', 'true');
   return apiFetch<ScanResultType>('/inventory/scan', { method: 'POST', body: form });
 }
 

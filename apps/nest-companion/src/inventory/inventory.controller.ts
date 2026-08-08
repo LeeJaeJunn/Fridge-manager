@@ -104,11 +104,11 @@ export class InventoryController {
     const kind: ScanKindType = dto.kind === 'photo' ? 'photo' : 'receipt';
     const image = { buffer: file.buffer, mimeType: file.mimetype };
     // OCR 사용 여부는 요청으로 고른다 — 어느 쪽이 정확한지 비교하는 동안만 두는 스위치다.
-    // const items =
-    //   dto.ocr === 'true'
-    //     ? await this.scanner.scanWithOcr(kind, image)
-    //     : await this.scanner.scan(kind, image);
-    const items = await this.scanner.scanWithOcr(userId, kind, image);
+    const items =
+      dto.ocr === 'true'
+        ? await this.scanner.scanWithOcr(userId, kind, image)
+        : await this.scanner.scan(userId, kind, image);
+
     return { items };
   }
 
