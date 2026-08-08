@@ -12,6 +12,8 @@
 - **종결 툴(`LlmTool.terminal`)**: 모델이 이 툴을 부르면 **실행하지 않고** 그 호출을 `terminalCalls` 로 올리고 루프를 끊는다. 말하자면 **실행기가 사람인 툴**이다 — 결과(`function_call_output`)를 서버가 아니라 사용자의 확인 행동이 만든다(아래 Conversation 참고). `TerminalToolCall` 은 `callId` 를 반드시 싣는다(결과와 짝을 맞추는 유일한 키라 여기서 잃으면 대화를 되살릴 수 없다).
 - 모델은 **텍스트와 툴 호출을 같이 낼 수 있다.** 종결 툴이 불려도 `res.text` 를 버리지 않는다("맛있었겠다!" + `update_inventory`).
 - ⚠️ **OpenAI `instructions` 파라미터는 프롬프트 캐시 프리픽스에 안 들어가는 것으로 보인다** — 문서가 캐시 대상으로 `messages` 배열과 `tools` 만 명시하고 `instructions` 는 언급하지 않으며, 12만 토큰을 `instructions` 로 넣고 `cached_tokens: 0` 이 나온 사례가 있다. 캐싱을 켜려면 정적 프롬프트를 **`input` 첫 `developer` 메시지**로 옮겨야 한다(아직 안 함 — `buildPrompt` 가 이미 쪼개놔서 배선만 바꾸면 된다).
+- `structured()` 는 인자가 6개라 **위치가 아니라 이름**(`StructuredReqType`)으로 받는다 — `instructions`/`input`/`schemaName` 이 전부 string 이라 위치 인자면 뒤바뀌어도 컴파일러가 못 잡는다.
+- **이미지 입력(`images: LlmImageType[]`)** 은 `structured()` 에만 있다(영수증·사진 스캔용). `detail` 이 정확도와 비용을 동시에 좌우한다 — 영수증처럼 **작은 글자를 읽어야 하면 `'high'`**, 냉장고 사진처럼 사물만 알아보면 되면 `'auto'`/`'low'`. ⚠️ **OpenAI 만 지원**한다(Gemini 는 `structured()` 자체를 아직 거부). 이미지가 없으면 `input` 을 문자열 그대로 넘겨 기존 동작이 유지된다.
 - 세 메서드 모두 반환에 **`usage`(토큰)** 를 담는다 — 지금은 소비처 없지만 나중에 어드민 사용량 표시/구독 쿼터용으로 수집.
 - 모델명은 호출하는 쪽에서 파라미터로 넘긴다 (호출별로 다른 모델 사용 가능).
 - 단, 채팅에 쓰는 모델은 **사용자/캐릭터가 정하지 않고 관리자 소유**다. `ConversationService` 가 `LLM_MODEL`(env)을 읽어 넘긴다. (나중에 Settings 테이블 + 관리자 페이지로 이전 예정)
@@ -133,6 +135,39 @@
   - `consumeByNames` 는 확인 카드 전환 후 **호출자가 없다**(테스트만 남음).
 - API(`InventoryModule`, 전부 현재 유저 기준): `GET /inventory`(임박순), `GET /inventory/expiring?days=N`(홈 "먼저 먹어요"), `GET /inventory/options`, `POST /inventory`(여러 건), `PATCH /inventory/:id`(교정 — 만료일 직접 고치면 `USER` 승격, 표기일 없이 분류·보관만 바꾸면 만료일 재추정. 유통기한 직접 편집이 없는 앱에선 보관 변경이 유일한 간접 조정 수단), `DELETE /inventory/:id`(=consume, soft), `POST /inventory/:id/restore`, `DELETE /inventory/:id/hard`. `:id` 라우트는 반드시 리터럴 경로(`options`/`expiring`) **아래**에 둔다(Nest 는 선언순 매칭).
 
+### 영수증·사진 스캔 (`POST /inventory/scan`)
+
+이미지에서 재료를 뽑아 **제안만** 돌려준다. 저장은 사용자가 확인 화면에서 `POST /inventory` 로 한다 — 채팅 툴과 **같은 방침**이다(오인식이 반드시 있고, 잘못 들어간 재료는 사용자가 알아채기 어렵다).
+
+```
+이미지 → (OCR) → LLM(구조화 출력) → previewAdd → 제안 목록 → [사용자 확인·수정] → POST /inventory
+```
+
+- **뒷단을 그대로 재사용한다**: `previewAdd` 가 기본값·만료일 추정·이름 중복 제거를 흡수하고, 결과 타입도 채팅 확인 카드와 같은 `AddProposalItemType` 이다. 그래서 LLM 은 `{name, category, purchased, total, storage, expiresAt}` 만 내면 된다.
+- **`ScanService.scan()`(이미지 단독) / `scanWithOcr()`(OCR+이미지)** 두 경로를 유지한다. 요청의 `ocr=true` 로 고르며, **모델을 바꿔가며 비교**하기 위한 스위치다(OpenRouter·NVIDIA 등). 앱은 현재 `ocr=true` 를 보낸다.
+- 업로드는 **multipart**(`FileInterceptor('image')`, 10MB 상한). base64 는 33% 부풀고 Nest 기본 body limit 에 걸린다. base64 변환은 OpenAI 로 보낼 때 서버에서 한 번만 한다.
+- 개발용으로 `SCAN_DEBUG_DIR` 을 주면 **받은 이미지를 그대로 파일로 떨군다**. "모델이 못 읽은 건지, 애초에 이미지가 뭉개진 건지"를 가르는 데 이게 제일 빠르다. 비어 있으면 아무것도 안 한다(프로덕션에서 사용자 사진이 디스크에 안 남게).
+- 모델은 `SCAN_MODEL`(비우면 `LLM_MODEL`) — 채팅 비용을 안 올리고 인식 모델만 올릴 수 있다.
+
+**프롬프트에서 아프게 배운 것 (`scan.prompt.ts`)**
+
+- **현재 재고는 `input` 이 아니라 `instructions` 에 넣는다.** 영수증에서 뽑을 대상이 아니라 합산 판단용 배경이라서다. 입력에 섞으면 모델이 그걸 **영수증 품목으로 착각해 없는 걸 뽑아낸다.**
+- **`total`(등록 후 총량)은 항상 채우게 한다** — 냉장고에 없던 재료면 `purchased` 와 같은 값. 조건부 필드("있을 때만 채워라")는 작은 모델에서 자주 비고, 비었을 때 `"없음"` 같은 문자열이 들어왔다.
+- ⚠️ **Structured Outputs 는 타입만 강제한다.** `z.string().nullable()` 이어도 모델이 `"null"`·`"없음"` 을 넣으면 **유효한 string 이라 통과**하고, 그대로 저장돼 화면에 `없음` 으로 보인다. 그래서 서버가 `clean()` 으로 센티넬 문자열을 걸러낸다(산수가 아니라 경계 방어 — `parseArgs` 가 깨진 JSON 을 막는 것과 같은 성격).
+- 합산은 **모델이 한다**(서버 산수 아님). 대신 이미 있는 재료인데 `total === purchased` 면 **"합산 누락 의심" 경고를 남긴다** — 값은 안 바꾸고 빈도만 관측한다. 잦아지면 서버 합산으로 옮길 근거가 된다.
+
+**⚠️ 알려진 한계 — 병합이 만료일을 덮어쓴다**
+
+같은 이름은 한 행으로 합쳐지고 만료일은 **새로 산 값**이 이긴다(`add()` 의 재입고 규칙). 그래서 `8/4까지 남은 앞다리살 + 오늘 산 8/11까지` 가 합쳐지면 **먼저 상하는 몫이 임박 경고에서 빠진다.** 유통기한이 다른 두 묶음은 한 행으로 표현되지 않는 게 근본 원인이라, "기존에 합치기 / 따로 추가" 선택을 넣을 때 함께 해결한다. (그때 주의: **이름이 사실상 식별키**라 같은 이름 행이 둘 생기면 `resolveConsume`·`add` 의 `byName` Map 이 하나만 남겨 나머지가 조용히 접근 불가가 된다.)
+
+## OCR (`src/ocr/`, NAVER CLOVA)
+
+- `OcrService.readText(image)` → **문자열 하나**. 벤더 격리는 `commerce/`(네이버 쇼핑)와 같은 패턴 — 원본 응답(필드 배열·좌표·신뢰도)과 호출 에러를 여기서 흡수한다.
+- ⚠️ **실패해도 예외를 던지지 않는다.** 키가 없거나·호출이 실패하거나·인식이 실패하면 빈 문자열을 돌려주고 **스캔은 이미지 단독으로 계속된다**. OCR 은 정확도를 올리는 보조 수단이지 필수 경로가 아니다("에러 처리" 원칙의 의도적 예외).
+- env(`NAVER_OCR_INVOKE_URL`/`NAVER_OCR_SECRET`)는 **선택**이다 — `env.validation.ts` 에 필수로 넣지 않는다. 그래야 키 없는 환경(CI·다른 개발자)에서도 서버가 뜨고 테스트가 돈다. ⚠️ 이 값은 **NCP 콘솔**에서 발급하며, 네이버 개발자센터의 `NAVER_CLIENT_ID/SECRET`(쇼핑검색)과 **완전히 다른 자격증명**이다.
+- 요금제 주의: **General OCR** 을 쓴다. Document OCR(영수증 특화)은 구조화 필드를 주지만 **호출이 0이어도 월 기본료**가 붙는다 — 어차피 정규화·필터링은 LLM 이 하므로 고정비를 낼 이유가 없다.
+- **줄 복원(`ocr.lines.ts`, 순수 + 스펙)** 이 품질을 크게 좌우한다. Clova 는 글자를 조각 단위로 주는데, 영수증은 `품명 ... 금액` 2단이라 그냥 이어붙이면 열이 뒤섞여 모델이 품명과 금액을 잘못 짝짓는다. **`lineBreak`(벤더가 주는 줄 끝 신호)를 우선**하고, 그 신호가 전혀 없을 때만 y 좌표로 묶는다.
+
 ## 커머스 — 상품 검색 (Commerce, v1.2 대기)
 
 - ⚠️ **부족 재료 쇼핑 추천(v1.2)용으로 검색 계층은 완성돼 있고 채팅 등록이 빠져 있다**(위 Conversation 참고). 카드 스냅샷 저장은 `Message.products` 컬럼이 없어지면서 끊겼으니, 되살릴 때 `FUNCTION_CALL_OUTPUT` payload 에 담는다. 아래는 그 검색 계층 설명이다.
@@ -179,7 +214,11 @@
 
 ## 테스트 / CI
 
-- 유닛 테스트는 `*.spec.ts`(예: `auth.service.spec.ts`) — 서비스 로직만 떼어 Prisma/JWT 를 mock 해 검증(런타임 코드 아님, 빌드 산출물 미포함). e2e 는 `test/*.e2e-spec.ts`.
+- 유닛 테스트는 `*.spec.ts`(예: `auth.service.spec.ts`) — 서비스 로직만 떼어 Prisma/JWT 를 mock 해 검증(런타임 코드 아님, `tsconfig.build.json` 이 `**/*spec.ts` 를 제외해 빌드 산출물에 안 들어간다). e2e 는 `test/*.e2e-spec.ts`.
+- **스펙을 만드는 기준**: 손으로 재현하기 어렵거나, 실패해도 눈에 안 보이는 것만 고정한다.
+  - ✅ 만든다 — refresh 토큰 동시 요청 경합·계정 열거 타이밍(auth), 자정 경계 날짜 계산(shelf-life), **실측으로 배운 순서 규칙**(알레르기 블록이 맨 끝), 줄 복원·툴콜 선택 같은 순수 변환
+  - ❌ 안 만든다 — **프롬프트 문구**. 앞으로 계속 다듬을 것이라 스펙이 매번 깨져 오히려 방해가 된다. 문구가 아니라 **데이터가 문자열로 렌더되는 로직**만 볼 가치가 있다.
+  - 스펙을 안 만들기로 했으면 **"스펙으로 고정된다"는 주석도 함께 지운다** — 없는 안전망을 있다고 적어두면 다음 사람이 속는다.
 - `lint` 는 **검사만**(`--fix` 없음), 자동수정은 `lint:fix`. CI 가 위반을 잡아야 하므로 둘을 분리한다.
 - 레포 루트 `pnpm verify` = `format:check → lint → test → test:e2e → build`. **push 전에 이걸 돌린다.** CI(`.github/workflows/ci.yml`)도 동일 체인 + 더미 env(로컬 `.env` 없이 부팅되도록)로 실행한다.
 - 테스트에서 `expect(p).rejects.toBeInstanceOf(X)` 쓸 때 `X`(예외 클래스)를 **반드시 import** — 안 하면 `toBeInstanceOf(undefined)` 가 동기 throw → 미처리 rejection 으로 Node 가 워커를 죽인다.

@@ -13,6 +13,7 @@ src/
 │  ├─ (tabs)/                # 홈 / 냉장고 / [FAB] / 채팅(대화 목록) / 프로필(허브)
 │  ├─ settings/             # 프로필 하위 페이지: character(설정) · memory(AI가 기억하는 나) · account
 │  ├─ inventory/add.tsx      # 재료 직접 추가 (FAB 메뉴에서 진입)
+│  ├─ inventory/scan.tsx     # 영수증·사진 인식 → 확인·수정 후 저장
 │  └─ conversation/[id].tsx  # 채팅 창 (id="new" 면 새 대화)
 ├─ components/               # 공통 UI (Screen/Button/Card/Avatar/Bubble/ProductCard/CenterFabMenu) — NativeWind
 ├─ lib/                      # 순수 헬퍼 (expiry.ts = 유통기한 표시·카피 / messages.ts = 대화 아이템 해석)
@@ -26,10 +27,18 @@ src/
 - **냉장고 재고는 전역 진실원천**이다(`useInventory`). 홈·냉장고·채팅이 같은 목록·같은 mutation 함수(add/update/consume/restore/remove)를 쓰므로, 한 화면의 변경이 곧바로 전 화면에 반영된다 — 예전엔 화면마다 따로 fetch·따로 state 라 냉장고에서 소비해도 홈은 포커스 전까지 어긋났다. 화면은 **focus 마다 새로고침하지 않고 구독만** 한다. `items` 는 항상 임박순 정렬, `expiring`(오늘까지·지남)은 파생값.
 - **effect 본문에서 동기 `setState` 를 하지 않는다**(이 레포는 cascading-render 를 lint error 로 막는다). 대신 `void Promise.resolve().then(...)` 로 미루거나(Provider 초기 로드) **파생값을 렌더 중 계산**한다(예: 냉장고 필터가 무효가 되면 `activeFilter` 로 보정 — 상태를 되돌리지 않는다). 같은 이유로 **렌더 중 ref 접근도 금지**라, effect 에서 부를 콜백은 `useCallback` 으로 안정화한다.
 - 화면 분기는 `_layout.tsx` 의 `Stack.Protected guard={...}` **3단**으로 한다: 미인증 → `login`, 인증+캐릭터 없음 → `onboarding`, 인증+캐릭터 → `(tabs)`(+하위 stack). 화면 안에서 `router.replace` 로 수동 리다이렉트하지 않는다.
+- ⚠️ **`app/` 에 라우트 파일을 새로 만들면 항상 두 가지가 따라온다** — ① `_layout.tsx` 의 해당 가드 블록에 `Stack.Screen` 등록, ② typedRoutes 재생성(`expo start` 가 `.expo/types` 갱신). ①을 빠뜨리면 그 화면이 **어느 가드에도 안 묶여** 스택 순서가 꼬이고, 앱을 열자마자 엉뚱하게 그 화면이 뜬다(실제로 겪음).
 - **탭은 4개 + 가운데 FAB**: 홈(`index` — 인사 + "먼저 먹어요" 임박 재료 + 히어로 카드 + 대화 시작 문구) / 냉장고(`fridge`) / 채팅(`chat` — 대화 목록) / 프로필(`profile` — 허브). 가운데 자리는 **더미 탭 `quickadd`** 가 잡고 있고(`tabBarButton` 이 빈 View 를 그림), 실제 버튼·스피드다이얼은 그 위에 겹치는 `CenterFabMenu` 오버레이가 그린다 — 그래야 위치가 정확히 맞는다. `quickadd` 라우트로는 이동하지 않는다. 새 탭·라우트 추가 시 typedRoutes 재생성 필요(`expo start` 가 `.expo/types` 갱신).
 - **냉장고 탭**(`fridge`): 재고 임박순 목록 + 신선도 배지 + 분류 필터 칩(전체/채소/…, 데이터에 있는 분류만 — `settings/memory` 와 같은 패턴) + `⋯` 메뉴(다 먹음/수정/삭제) + 직접 추가 폼. 추가·수정은 같은 `IngredientForm` 을 공유한다. 삭제(hard)는 되돌리기가 없어 `Alert`(웹에서 안 뜸) 대신 **인라인 2단계 확인**("삭제"→"정말 삭제")으로 막는다. 유통기한 직접 편집은 v1 에 없다(보관을 바꾸면 서버가 재추정).
 - **유통기한 카피·표시 로직은 `lib/expiry.ts` 한 곳**이 소유한다(냉장고 탭·홈이 공유). 톤은 "곧 상해요" 같은 위협조 대신 **"먼저 먹어요"**. 남은 일수는 서버 표기와 같은 자정 기준으로 계산한다. 문구를 바꾸려면 이 파일만 고친다.
 - **재고 소비는 낙관적 + 되돌리기**: "다 먹음"은 `useInventory().consume`(목록에서 즉시 제거 + 서버 soft delete)이고, 화면은 하단에 `되돌리기` 배너를 띄운다(`restore` 한 번). LLM·오터치 오차감 복구용. "다 먹음"과 "삭제(hard)"는 의미가 달라(이력에 남길지) 경로가 갈린다.
+- **영수증·사진 스캔도 확인을 거친다**(`inventory/scan.tsx`) — 서버는 **제안만** 주고, 사용자가 ⋯ 로 수정·제외한 뒤 저장한다. 채팅 확인 카드와 같은 방침이고, 수정은 냉장고 카드와 **같은 `IngredientForm`** 을 인라인으로 연다.
+  - 큰 글씨는 **이번에 산 양**(`merge.added`), 작은 글씨가 `기존 4개 · 추가 후 14개`. 확인 화면의 목적이 "영수증에서 제대로 읽었나" 검증이라 구매량이 주인공이고, **실제 저장되는 값은 `quantityNote`(합계)** 다.
+  - 수량을 직접 고치면 `merge` 를 **함께 지운다** — 안 그러면 "기존 4개 · 추가 후 14개"가 고친 숫자를 설명하지 못해 거짓말이 된다.
+  - 리사이즈 값은 `lib/scan.ts` 의 `PRESETS` 가 소유한다. **영수증과 사진이 다르다** — 영수증은 작은 글자를 읽어야 해서 넉넉히(1600px), 사진은 사물만 알아보면 되므로 더 줄인다. 이 숫자가 **정확도와 토큰 비용의 조절 손잡이**다.
+  - ⚠️ **업로드는 `expo-file-system` 의 `File`(Blob 구현)로 보낸다.** 예전 RN 은 FormData 에 `{uri, name, type}` 객체를 받아줬지만 **RN 0.85 의 fetch 가 표준(WinterCG) 구현으로 바뀌며 거부**한다(`Unsupported FormDataPart implementation`). `import { File } from 'expo-file-system'` 을 빠뜨리면 전역 DOM `File` 이 잡혀 인자 개수 에러가 난다.
+  - ⚠️ `apiFetch` 는 **FormData 면 `Content-Type` 을 붙이지 않는다** — multipart 는 boundary 가 헤더에 들어가야 하고 그건 fetch 가 만든다.
+  - 촬영·갤러리는 `expo-image-picker`(카메라 화면을 직접 그리는 `expo-camera` 가 아니다 — 그건 바코드용). **갤러리 선택이 필수**다: 영수증은 이미 찍어둔 걸 고르는 경우가 많다. iOS 는 `app.json` 의 권한 문구가 없으면 실기기에서 죽는다.
 - **채팅이 재고를 바꾸되, 반드시 사용자 확인을 거친다.** 서버가 툴 호출을 확인 카드(`InventoryConfirmCard`)로 올리고, 사용자가 편집·확인해야 실제로 반영된다(자동 차감 없음 — 백엔드 AGENTS.md "냉장고 툴" 참고). 확인 직후 `refresh()` 로 냉장고·홈에 즉시 반영하고, 그 외엔 채팅을 **나갈 때 한 번** 갱신한다(언마운트 effect + `dirtyRef`).
 - **대화는 말풍선만이 아니다.** `MessageType` 이 `type` 기준 판별 유니온(`TEXT`/`FUNCTION_CALL`/`FUNCTION_CALL_OUTPUT`)이라 렌더가 분기한다:
   - `TEXT` → 말풍선, `FUNCTION_CALL` → 확인 카드, `FUNCTION_CALL_OUTPUT` → **자기 말풍선 없음**(짝 카드의 상태로만 드러남)
