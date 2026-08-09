@@ -15,7 +15,7 @@ src/
 │  ├─ inventory/add.tsx      # 재료 직접 추가 (FAB 메뉴에서 진입)
 │  ├─ inventory/scan.tsx     # 영수증·사진 인식 → 확인·수정 후 저장
 │  └─ conversation/[id].tsx  # 채팅 창 (id="new" 면 새 대화)
-├─ components/               # 공통 UI (Screen/Button/Card/Avatar/Bubble/ProductCard/CenterFabMenu) — NativeWind
+├─ components/               # 공통 UI (Screen/Button/Card/Avatar/Bubble/CenterFabMenu) — NativeWind
 ├─ lib/                      # 순수 헬퍼 (expiry.ts = 유통기한 표시·카피 / messages.ts = 대화 아이템 해석)
 ├─ api/                      # 백엔드 호출 (client.ts = apiFetch 래퍼)
 └─ context/                  # 전역 상태 (auth, character, inventory)

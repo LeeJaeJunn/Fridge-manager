@@ -81,9 +81,6 @@ model Conversation {
   userId      String
   characterId String
   title       String?
-  // 상품 검색 페이징 커서(대화 단위) — "다음/다른 상품" 요청 시 이어서 검색하기 위한 상태.
-  // { keywords, category?, priceMin?, priceMax?, nextStart, hasMore }. 없으면 아직 검색 안 함.
-  lastSearch  Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

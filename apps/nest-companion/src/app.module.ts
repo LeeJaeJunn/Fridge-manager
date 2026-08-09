@@ -4,7 +4,6 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { CharacterModule } from './character/character.module';
-import { CommerceModule } from './commerce/commerce.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { LlmModule } from './llm/llm.module';
@@ -12,6 +11,7 @@ import { OcrModule } from './ocr/ocr.module';
 import { MemoryModule } from './memory/memory.module';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
+import { RecipeModule } from './recipe/recipe.module';
 
 @Module({
   imports: [
@@ -25,7 +25,7 @@ import { PrismaModule } from './prisma/prisma.module';
     MemoryModule,
     InventoryModule,
     ConversationModule,
-    CommerceModule,
+    RecipeModule,
   ],
   controllers: [AppController],
   providers: [AppService],

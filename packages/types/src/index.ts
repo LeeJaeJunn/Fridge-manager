@@ -62,9 +62,4 @@ export type {
 
 export type { MemoryCategoryType, MemoryType } from './memory';
 
-export type {
-  CommerceProviderType,
-  ProductSearchCriteriaType,
-  ProductSearchResultType,
-  ProductType,
-} from './product';
+export type { RecipeSearchResultType, RecipeSourceType, RecipeType } from './recipe';

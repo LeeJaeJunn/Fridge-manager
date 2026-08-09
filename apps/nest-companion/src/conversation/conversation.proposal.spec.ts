@@ -47,7 +47,7 @@ describe('pickInventoryCall — 병렬 툴콜에서 첫 호출만 채택', () =>
 
   it('다른 툴 호출은 세지 않는다', () => {
     const picked = pickInventoryCall([
-      call({ keywords: '선풍기' }, 'search_products'),
+      call({ keywords: '선풍기' }, 'search_recipes'),
       call({ add: [{ name: '계란' }] }),
     ]);
 
@@ -58,7 +58,7 @@ describe('pickInventoryCall — 병렬 툴콜에서 첫 호출만 채택', () =>
   it('update_inventory 가 없거나 호출 자체가 없으면 undefined', () => {
     expect(pickInventoryCall(undefined)).toBeUndefined();
     expect(pickInventoryCall([])).toBeUndefined();
-    expect(pickInventoryCall([call({ keywords: '선풍기' }, 'search_products')])).toBeUndefined();
+    expect(pickInventoryCall([call({ keywords: '선풍기' }, 'search_recipes')])).toBeUndefined();
   });
 
   it('인자가 배열이 아니면 없는 것으로 친다 (모델이 만든 JSON 을 믿지 않는다)', () => {

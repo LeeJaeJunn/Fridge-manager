@@ -10,13 +10,10 @@ import type {
   FunctionOutputPayloadType,
   InventoryProposalType,
   MessageType,
-  ProductSearchCriteriaType,
-  ProductType,
   ResolveProposalResultType,
 } from '@companion/types';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CommerceService } from '../commerce/commerce.service';
 import { Prisma } from '../generated/prisma/client';
 import {
   InventoryService,
@@ -39,36 +36,6 @@ import {
   type BuiltPromptType,
   type PromptCharacterType,
 } from './conversation.prompt';
-
-/**
- * 채팅 중 상품추천용 툴. 모델이 "쇼핑/추천이 필요하다" 판단할 때만 부른다(description 이 그 판단 근거).
- * 실행기는 exchangeWithTools 에서 commerce.search 로 연결한다.
- *
- * ⚠️ v1 에서는 **등록만 해제**했다(실행기·상품 카드 저장 경로는 그대로 살아 있다).
- * v1 의 검증 대상은 "유저가 재고를 넣고 유지하는가" 라서 툴셋을 냉장고만으로 좁혔다.
- * 부족한 재료 쇼핑 추천을 붙이는 v1.2 에서 tools 배열에 다시 넣으면 된다.
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- v1.2 에서 되살릴 예정
-const SEARCH_PRODUCTS_TOOL: LlmTool = {
-  name: 'search_products',
-  description:
-    '사용자에게 실제 상품을 추천할 준비가 됐을 때만 상품을 검색한다. 예산·용도 같은 추천에 필요한 핵심 조건이 아직 없으면 호출하지 말고, 먼저 대화로 그 조건을 물어 채운다(단, 사용자가 "그냥 추천해줘"라고 하거나 조건을 이미 충분히 줬으면 바로 호출한다). 일반 잡담이나 상품과 무관한 대화에서는 호출하지 않는다.',
-  parameters: {
-    type: 'object',
-    properties: {
-      keywords: { type: 'string', description: '검색어 (예: "책상 조명", "무선 이어폰")' },
-      priceMin: { type: 'number', description: '최소 가격, 원 (선택)' },
-      priceMax: { type: 'number', description: '최대 가격, 원 (선택)' },
-      more: {
-        type: 'boolean',
-        description:
-          '직전과 같은 요청의 "다음/다른 상품"을 원할 때 true (예: "다른 거 보여줘", "이건 별로야"). 이때 keywords 는 직전과 같게 넣는다.',
-      },
-    },
-    required: ['keywords'],
-    additionalProperties: false,
-  },
-};
 
 /**
  * 냉장고 재고 변경 툴 — 추가(산 것)와 소비(먹은 것)를 **한 번에** 표현한다.
@@ -136,33 +103,6 @@ const UPDATE_INVENTORY_TOOL: LlmTool = {
     },
     additionalProperties: false,
   },
-};
-
-/**
- * 상품 추천 답변 지침 — 툴 경로에서만 instruction 에 덧붙인다.
- * 카드가 이미 사진·가격·링크를 보여주므로, LLM 텍스트는 그걸 반복하지 않고 이유만 간결히.
- *
- * ⚠️ SEARCH_PRODUCTS_TOOL 과 함께 v1.2 까지 대기 중. 지금은 RECIPE_GUIDANCE 가 그 자리를 쓴다.
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- v1.2 에서 되살릴 예정
-const PRODUCT_RECO_GUIDANCE = [
-  '[상품을 추천할 때]',
-  '- 추천 상품은 이미 카드(사진·상품명·가격·구매 링크)로 사용자에게 함께 보여진다.',
-  '- 상품명·가격·URL·이미지 주소·상세 스펙을 텍스트로 다시 나열하지 마라. 링크나 이미지 주소는 문장에 절대 넣지 마라.',
-  '- 대신 짧고 다정하게: 사용자의 취향·상황에 왜 맞는지 한두 문장 + 특히 추천하는 하나를 자연스럽게 짚어라.',
-  '- "아래 카드를 확인해보고, 다른 것도 보고 싶으면 말해줘" 같은 안내로 가볍게 마무리해도 좋다.',
-  '- 전체 2~3문장 이내로 간결하게.',
-  '- 사용자가 "다른 거/다음 거"를 원하거나 추천이 맘에 안 든다고 하면, search_products 를 more:true 로 다시 불러 다음 상품을 보여줘라.',
-  '- 도구 결과가 비어 있거나 exhausted 면 "더 찾은 게 없어요"처럼 솔직히 알려라.',
-].join('\n');
-
-/** 상품 검색 페이징 커서 (Conversation.lastSearch 에 저장) — "다음/다른 상품"을 이어 검색하기 위한 상태. */
-type LastSearch = {
-  keywords: string;
-  priceMin?: number;
-  priceMax?: number;
-  nextStart: number;
-  hasMore: boolean;
 };
 
 const MESSAGE_SELECT = {
@@ -298,7 +238,6 @@ export class ConversationService {
     private readonly llm: LlmService,
     private readonly memory: MemoryService,
     private readonly inventory: InventoryService,
-    private readonly commerce: CommerceService,
     config: ConfigService,
   ) {
     this.model = config.getOrThrow<string>('LLM_MODEL');
@@ -545,10 +484,12 @@ export class ConversationService {
   }
 
   /**
-   * exchange 의 툴 버전 — search_products 툴을 붙여 대화한다.
-   * 모델이 상품추천이 필요하다 판단하면 툴을 부르고, 실행기가 commerce.search 로 후보를 가져와
-   * 재주입 → 모델이 그 결과로 이유 있는 답을 쓴다. (기본 exchange 는 재사용 위해 그대로 둔다)
-   * 지금은 (i) 텍스트 답변만 — 검색된 상품 카드 첨부는 다음 단계.
+   * 한 번의 교환 — 사용자 메시지를 저장하고, 히스토리를 재생해 모델을 부르고, 결과를 아이템으로 쌓는다.
+   *
+   * 툴은 지금 **냉장고 재고 하나뿐**(`update_inventory`, 종결 툴)이라 `executors` 가 비어 있다.
+   * 종결 툴은 실행기가 없다 — 모델이 부르면 `chatWithTools` 가 그 호출을 그대로 올려주고
+   * (`res.terminalCalls`), 아래 `buildCallPayloads` 가 확인 제안으로 만든다.
+   * 레시피 검색처럼 **서버가 실제로 실행하는** 툴이 붙으면 그 실행기가 여기 들어온다.
    */
   private async exchangeWithTools(
     userId: string,
@@ -568,59 +509,11 @@ export class ConversationService {
     });
     const items = toLlmItems(history);
 
-    // 이전 검색 페이징 커서 (다음/다른 상품 요청 시 이어 검색)
-    const convo = await this.prisma.conversation.findUnique({
-      where: { id: conversationId },
-      select: { lastSearch: true },
-    });
-    let cursor: LastSearch | null = (convo?.lastSearch as LastSearch | null) ?? null;
-    let searched = false;
+    // 서버가 실행하는 툴이 아직 없어서 비어 있다 (종결 툴은 실행기를 쓰지 않는다).
+    const executors: Record<string, LlmToolExecutor> = {};
 
-    // 검색된 상품을 클로저로 캡처 (모델 답변과 별개로, 카드 스냅샷 저장용)
-    const foundProducts: ProductType[] = [];
-
-    // add/consume 은 terminal 툴이라 실행기가 없다 — 모델이 부르면 chatWithTools 가 그 호출을
-    // 그대로 올려주고(res.terminalCalls), 아래 buildProposal 이 확인 제안으로 만든다.
-    const executors: Record<string, LlmToolExecutor> = {
-      // 툴 실행기: more 면 저장된 커서에서 이어 검색, 아니면 새 검색(첫 페이지). 검색 후 커서 갱신.
-      search_products: async (args) => {
-        const more = args.more === true;
-        let criteria: ProductSearchCriteriaType;
-        if (more && cursor) {
-          if (!cursor.hasMore) return { products: [], exhausted: true }; // 더 없음
-          criteria = {
-            keywords: cursor.keywords,
-            priceMin: cursor.priceMin,
-            priceMax: cursor.priceMax,
-            start: cursor.nextStart,
-            limit: 6,
-          };
-        } else {
-          criteria = {
-            keywords: String(args.keywords ?? ''),
-            priceMin: typeof args.priceMin === 'number' ? args.priceMin : undefined,
-            priceMax: typeof args.priceMax === 'number' ? args.priceMax : undefined,
-            start: 1,
-            limit: 6,
-          };
-        }
-        const result = await this.commerce.search(criteria);
-        searched = true;
-        cursor = {
-          keywords: criteria.keywords,
-          priceMin: criteria.priceMin,
-          priceMax: criteria.priceMax,
-          nextStart: result.nextStart,
-          hasMore: result.hasMore,
-        };
-        foundProducts.push(...result.products); // 카드 스냅샷용
-        return { products: result.products, hasMore: result.hasMore }; // 모델엔 상품+더있음 여부
-      },
-    };
-
-    // v1 툴셋 = 냉장고 재고만. search_products 는 실행기·상품 카드까지 그대로 살아 있지만
-    // 등록만 빼둔다 — v1 검증(유저가 재고를 넣고 유지하는가)에 집중하고, v1.2 에서 되살린다.
-    // 지침 순서는 buildInstruction 이 통제한다 (금지 재료가 반드시 맨 끝에 오도록).
+    // v1 툴셋 = 냉장고 재고만.
+    // 지침 순서는 buildPrompt 가 통제한다 (금지 재료가 반드시 맨 끝에 오도록).
     // 정적 부분(페르소나·규칙)은 instructions 로, 매 턴 바뀌는 상태는 **마지막 사용자 메시지 꼬리**로.
     // DB 에는 사용자가 친 원문만 남아 있고(위 create), 상태는 여기서 보낼 때만 덧씌워진다.
     const res = await this.llm.chatWithTools(
@@ -649,8 +542,6 @@ export class ConversationService {
       where: { id: conversationId },
       data: {
         updatedAt: new Date(),
-        // 이번 턴에 검색했으면 페이징 커서 갱신 (다음 "더 보여줘" 이어가기용)
-        lastSearch: searched ? (cursor as unknown as Prisma.InputJsonValue) : undefined,
         messages: { create },
       },
       select: {

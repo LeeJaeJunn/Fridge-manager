@@ -59,7 +59,8 @@ export default function ConversationScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 임의 텍스트를 전송하는 코어 (입력창 전송 + "다른 상품 보여줘" 버튼이 공유)
+  // 임의 텍스트를 전송하는 코어. 지금은 입력창 전송만 쓰지만, 카드 안 버튼("다른 레시피 보여줘" 등)이
+  // 사용자가 타이핑한 것처럼 메시지를 보내야 할 때 같이 쓰라고 handleSend 와 분리해 둔다.
   async function send(content: string) {
     if (!content || sending) return;
     setError(null);
