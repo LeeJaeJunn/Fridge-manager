@@ -109,9 +109,6 @@ export class RecipeService {
     const items = await this.fetchNaver(NAVER_SERVICE[source], `${dish} 레시피`, limit);
     const recipes = items.map((it) => this.toRecipe(it, source));
 
-    console.log('naver: ', JSON.stringify(items));
-    console.log('정규화: ', JSON.stringify(recipes));
-
     this.logger.log(`레시피 검색 "${dish}" (${source}) → ${recipes.length}건`);
     return { dishName: dish, recipes };
   }
