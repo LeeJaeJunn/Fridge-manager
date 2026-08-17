@@ -30,12 +30,49 @@ import {
 } from '../llm/llm.service';
 import { MemoryService, type RecalledMemory } from '../memory/memory.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RecipeService } from '../recipe/recipe.service';
 import {
   attachContext,
   buildPrompt,
   type BuiltPromptType,
   type PromptCharacterType,
 } from './conversation.prompt';
+
+/**
+ * 한 턴에 허용하는 레시피 검색 횟수 상한.
+ * 한 건이 네이버 호출 1회라, 모델이 요리를 잔뜩 나열하며 부르면 쿼터가 샌다.
+ */
+const MAX_RECIPE_SEARCHES_PER_TURN = 2;
+
+/**
+ * 레시피 검색 툴 — 사용자가 **자세한 레시피를 요청했을 때만** 부른다.
+ *
+ * 종결 툴이지만 `update_inventory` 와 실행 주체가 다르다: 재고는 **사람**이 확인해야 실행되고,
+ * 레시피는 **서버가 바로 실행**한다. 그럼에도 종결로 둔 이유는 검색 결과를 모델에게 되먹여
+ * 두 번째 답변을 받을 이유가 없어서다 — 카드가 이미 제목·출처·요약을 보여주므로 모델이 그걸 다시
+ * 말하면 중복이고, LLM 호출만 두 배가 된다. 덤으로 `update_inventory` 와 같은 턴에 불려도
+ * 둘 다 살아남는다(비-종결이면 종결 툴 분기가 먼저 반환해 이쪽이 통째로 유실된다).
+ *
+ * ⚠️ `terminal` 플래그는 곧 사라진다 — 모든 툴이 종결이라 provider 안의 툴 루프를 걷어낼 예정이고,
+ * 그때 이 줄만 지우면 된다(동작은 그대로).
+ */
+const SEARCH_RECIPES_TOOL: LlmTool = {
+  name: 'search_recipes',
+  terminal: true,
+  description:
+    '특정 요리의 **자세한 레시피 글**을 웹에서 찾아 카드로 보여준다. 사용자가 "자세한 레시피 보여줘", "만드는 법 더 알려줘", "레시피 찾아줘"처럼 **구체적인 조리법을 원할 때만** 호출한다. 뭘 해먹을지 정하는 단계나 간단한 조리법을 말로 설명하는 단계에서는 호출하지 마라. 사용자가 못 먹는 재료 때문에 거절한 요리는 검색하지도 마라.',
+  parameters: {
+    type: 'object',
+    properties: {
+      dishName: {
+        type: 'string',
+        description: '요리 이름만 짧게 ("김치찌개", "된장찌개"). "레시피" 같은 말은 붙이지 마라',
+      },
+    },
+    required: ['dishName'],
+    additionalProperties: false,
+  },
+};
 
 /**
  * 냉장고 재고 변경 툴 — 추가(산 것)와 소비(먹은 것)를 **한 번에** 표현한다.
@@ -238,6 +275,7 @@ export class ConversationService {
     private readonly llm: LlmService,
     private readonly memory: MemoryService,
     private readonly inventory: InventoryService,
+    private readonly recipes: RecipeService,
     config: ConfigService,
   ) {
     this.model = config.getOrThrow<string>('LLM_MODEL');
@@ -486,10 +524,15 @@ export class ConversationService {
   /**
    * 한 번의 교환 — 사용자 메시지를 저장하고, 히스토리를 재생해 모델을 부르고, 결과를 아이템으로 쌓는다.
    *
-   * 툴은 지금 **냉장고 재고 하나뿐**(`update_inventory`, 종결 툴)이라 `executors` 가 비어 있다.
-   * 종결 툴은 실행기가 없다 — 모델이 부르면 `chatWithTools` 가 그 호출을 그대로 올려주고
-   * (`res.terminalCalls`), 아래 `buildCallPayloads` 가 확인 제안으로 만든다.
-   * 레시피 검색처럼 **서버가 실제로 실행하는** 툴이 붙으면 그 실행기가 여기 들어온다.
+   * 툴 **둘 다 종결 툴**이라 `executors` 가 비어 있다 — 모델이 부르면 `chatWithTools` 가 호출을
+   * 그대로 올려주고(`res.terminalCalls`), 실행 주체는 여기서 갈린다:
+   *  - `update_inventory` → **사람이 실행기**. 확인 카드로 올리고 실제 반영은 apply 때(`buildCallPayloads`)
+   *  - `search_recipes`   → **서버가 즉시 실행**. 여기서 검색하고 결과까지 함께 저장(`runRecipeSearches`)
+   *
+   * **아이템 순서를 여기서 정한다.** 텍스트 → 레시피(호출+결과) → 재고 확인 카드 순으로 쌓고,
+   * 저장할 때 `createdAt` 을 1ms 씩 밀어 넣는다. `@default(now())` 는 **트랜잭션 시각**이라
+   * 한 배치의 행이 전부 같은 값을 받는데, 그러면 정렬이 비결정적이 돼서 말풍선이 카드 아래로 가거나
+   * `function_call_output` 이 짝보다 앞서 재생돼 벤더가 400 을 낸다.
    */
   private async exchangeWithTools(
     userId: string,
@@ -497,8 +540,11 @@ export class ConversationService {
     prompt: BuiltPromptType,
     content: string,
   ): Promise<{ created: MessageType[]; messageCount: number }> {
-    await this.prisma.message.create({
+    // createdAt 을 돌려받아 이번 턴 아이템들의 시각 기준으로 삼는다 — 앱 시계가 DB 시계보다
+    // 뒤처져 있어도 답변이 질문보다 앞서지 않게 (아래 배치는 명시 createdAt 을 쓴다).
+    const userMsg = await this.prisma.message.create({
       data: { conversationId, type: 'TEXT', role: 'user', content },
+      select: { createdAt: true },
     });
 
     // 히스토리를 아이템 그대로 읽어 재생한다 (지난 툴 호출·결과 포함).
@@ -509,17 +555,16 @@ export class ConversationService {
     });
     const items = toLlmItems(history);
 
-    // 서버가 실행하는 툴이 아직 없어서 비어 있다 (종결 툴은 실행기를 쓰지 않는다).
+    // 종결 툴뿐이라 실행기가 없다. (툴 루프를 걷어낼 때 이 인자 자체가 사라진다)
     const executors: Record<string, LlmToolExecutor> = {};
 
-    // v1 툴셋 = 냉장고 재고만.
     // 지침 순서는 buildPrompt 가 통제한다 (금지 재료가 반드시 맨 끝에 오도록).
     // 정적 부분(페르소나·규칙)은 instructions 로, 매 턴 바뀌는 상태는 **마지막 사용자 메시지 꼬리**로.
     // DB 에는 사용자가 친 원문만 남아 있고(위 create), 상태는 여기서 보낼 때만 덧씌워진다.
     const res = await this.llm.chatWithTools(
       prompt.system,
       attachContext(items, prompt.context),
-      [UPDATE_INVENTORY_TOOL],
+      [UPDATE_INVENTORY_TOOL, SEARCH_RECIPES_TOOL],
       executors,
       this.model,
     );
@@ -530,6 +575,10 @@ export class ConversationService {
     if (res.text.trim().length > 0) {
       create.push({ type: 'TEXT', role: 'assistant', content: res.text });
     }
+    // 레시피는 서버가 지금 실행한다 — 호출과 결과가 **항상 짝으로** 저장된다.
+    // (짝 없이 남으면 toLlmItems 가 "사용자 확인 대기"로 오해해 재생하므로 반드시 함께 쓴다)
+    create.push(...(await this.runRecipeSearches(res.terminalCalls)));
+    // 재고는 사람이 확인해야 하므로 호출만 저장하고 결과는 apply/dismiss 때 붙는다.
     for (const call of await this.buildCallPayloads(userId, res.terminalCalls)) {
       create.push({
         type: 'FUNCTION_CALL',
@@ -537,6 +586,12 @@ export class ConversationService {
       });
     }
     if (create.length === 0) return { created: [], messageCount: countText(history) };
+
+    // 배열 순서를 시각으로 고정한다 (위 주석 참고 — 기본값은 배치 전체가 같은 값을 받는다).
+    const base = Math.max(userMsg.createdAt.getTime(), Date.now());
+    create.forEach((m, i) => {
+      m.createdAt = new Date(base + 1 + i);
+    });
 
     const updated = await this.prisma.conversation.update({
       where: { id: conversationId },
@@ -556,6 +611,49 @@ export class ConversationService {
     const created = updated.messages.map(toMessage).reverse();
     // created 는 판별 유니온(MessageType)이라 그대로 셀 수 있다 — create(Prisma 입력)를 세지 않는 이유.
     return { created, messageCount: countText(history) + countText(created) };
+  }
+
+  /**
+   * `search_recipes` 호출들을 **지금 실행하고** 저장할 아이템(호출 + 결과)을 만든다.
+   *
+   * 재고 툴과 달리 사람의 확인이 필요 없어서 서버가 바로 검색한다. 호출과 결과를 **같은 배치에
+   * 함께** 돌려주는 게 중요하다 — 짝이 없으면 `toLlmItems` 가 "사용자 확인 대기 중"으로 채워
+   * 재생하는데, 서버가 실행하는 툴엔 틀린 상태다.
+   *
+   * ⚠️ **검색 실패를 예외로 흘리지 않는다.** `RecipeService` 는 벤더 층이라 던지는 게 맞지만,
+   * 여기서 잡아 `reason` 이 붙은 결과로 바꾼다. 그래야 (i) 검색이 실패해도 대화 자체는 계속되고,
+   * (ii) 다음 턴에 모델이 "결과가 없었다"와 "검색이 실패했다"를 구분해 말할 수 있다.
+   */
+  private async runRecipeSearches(
+    calls: TerminalToolCall[] | undefined,
+  ): Promise<Prisma.MessageCreateWithoutConversationInput[]> {
+    const picked = pickRecipeCalls(calls);
+    const items: Prisma.MessageCreateWithoutConversationInput[] = [];
+
+    for (const { callId, dishName } of picked) {
+      let output: Record<string, unknown>;
+      try {
+        const result = await this.recipes.search(dishName);
+        output = {
+          dishName: result.dishName,
+          recipes: result.recipes,
+          ...(result.recipes.length === 0 ? { reason: 'empty' } : {}),
+        };
+      } catch (err) {
+        this.logger.error(`레시피 검색 실패 (dish=${dishName})`, err as Error);
+        output = { dishName, recipes: [], reason: 'unavailable' };
+      }
+
+      items.push({
+        type: 'FUNCTION_CALL',
+        payload: { callId, name: 'search_recipes', arguments: { dishName } },
+      });
+      items.push({
+        type: 'FUNCTION_CALL_OUTPUT',
+        payload: { callId, name: 'search_recipes', output } as unknown as Prisma.InputJsonValue,
+      });
+    }
+    return items;
   }
 
   /**
@@ -650,6 +748,36 @@ export class ConversationService {
     };
     return { character, memories, inventory };
   }
+}
+
+/**
+ * 종결 툴 호출들 중 `search_recipes` 를 골라 요리명을 뽑는다.
+ *
+ * 재고 툴(`pickInventoryCall`)과 달리 **여러 개를 허용**한다 — "김치찌개랑 된장찌개 레시피 보여줘"
+ * 처럼 서로 다른 요리는 각각 별개 카드 묶음이 되므로 합칠 이유도, 충돌할 이유도 없다.
+ * 대신 같은 요리를 두 번 부르면 하나로 줄이고(같은 검색을 두 번 할 이유가 없다),
+ * 호출 수를 상한으로 막는다 — 한 건이 네이버 호출 1회라 모델이 폭주하면 쿼터가 샌다.
+ */
+export function pickRecipeCalls(
+  calls: TerminalToolCall[] | undefined,
+): Array<{ callId: string; dishName: string }> {
+  if (!calls?.length) return [];
+  const picked: Array<{ callId: string; dishName: string }> = [];
+  const seen = new Set<string>();
+
+  for (const c of calls) {
+    if (c.name !== 'search_recipes') continue;
+    // 인자는 모델이 만든 JSON 이라 모양을 믿지 않는다.
+    const raw = c.arguments.dishName;
+    const dishName = typeof raw === 'string' ? raw.trim() : '';
+    if (!dishName) continue;
+    const key = dishName.replace(/\s+/g, ' ').toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    picked.push({ callId: c.callId, dishName });
+    if (picked.length >= MAX_RECIPE_SEARCHES_PER_TURN) break;
+  }
+  return picked;
 }
 
 /**

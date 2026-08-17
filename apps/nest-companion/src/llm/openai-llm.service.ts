@@ -210,6 +210,8 @@ export class OpenAiLlmProvider implements LlmProvider {
       });
       accumulate(res.usage);
 
+      console.log('llm: ', JSON.stringify(res));
+
       // 모델이 툴을 더 안 부를 때까지(또는 상한까지) 반복
       for (let round = 0; round < maxRounds; round++) {
         const calls = res.output.filter(
