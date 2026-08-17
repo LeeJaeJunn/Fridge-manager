@@ -18,9 +18,9 @@ import {
   sendMessage,
   startConversation,
 } from '@/api/conversation';
-import { Bubble, Button, InventoryConfirmCard, Screen } from '@/components';
+import { Bubble, Button, InventoryConfirmCard, RecipeResultCard, Screen } from '@/components';
 import { useInventory } from '@/context/inventory';
-import { outcomesByCallId, toInventoryProposal } from '@/lib/messages';
+import { outcomesByCallId, toInventoryProposal, toRecipeResult } from '@/lib/messages';
 import type { ApplyProposalRequestType, MessageType } from '@companion/types';
 
 export default function ConversationScreen() {
@@ -167,12 +167,20 @@ export default function ConversationScreen() {
               </Text>
             )}
             {messages.map((m) => {
-              // 툴 결과는 자기 말풍선을 갖지 않는다 — 짝이 되는 카드의 상태로만 드러난다.
-              if (m.type === 'FUNCTION_CALL_OUTPUT') return null;
+              // 툴 결과를 어디에 그리는지는 툴마다 다르다:
+              //  - 재고: 호출이 "확인 대기 중인 제안"이라 FUNCTION_CALL 에 카드를 그리고,
+              //          결과는 그 카드의 상태(반영/취소)로만 드러난다 → 여기선 아무것도 안 그림
+              //  - 레시피: 서버가 이미 실행했고 **결과가 곧 내용**이라 결과에 카드를 그린다
+              if (m.type === 'FUNCTION_CALL_OUTPUT') {
+                const recipes = toRecipeResult(m);
+                if (recipes) return <RecipeResultCard key={m.id} result={recipes} />;
+                return null;
+              }
 
               if (m.type === 'FUNCTION_CALL') {
                 const proposal = toInventoryProposal(m);
-                // 앱이 모르는 툴이면 조용히 건너뛴다 (백엔드에 툴이 늘어도 안 깨지게)
+                // 앱이 모르는 툴이면 조용히 건너뛴다 (백엔드에 툴이 늘어도 안 깨지게).
+                // 레시피 호출도 여기서 걸러진다 — 카드는 위 결과 쪽에서 그리므로 중복이 안 생긴다.
                 if (!proposal) return null;
                 return (
                   <InventoryConfirmCard

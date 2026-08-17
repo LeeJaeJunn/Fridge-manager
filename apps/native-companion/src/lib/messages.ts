@@ -5,10 +5,19 @@
  * 안 바뀌는 대신, 어떤 툴인지는 소비처가 `name` 으로 판정해야 한다. 그 캐스팅을 여기 한 곳에 모은다.
  */
 
-import type { FunctionCallMessageType, InventoryProposalType, MessageType } from '@companion/types';
+import type {
+  FunctionCallMessageType,
+  FunctionOutputMessageType,
+  InventoryProposalType,
+  MessageType,
+  RecipeType,
+} from '@companion/types';
 
 /** 재고 변경 툴 이름 — 서버 `UPDATE_INVENTORY_TOOL.name` 과 같아야 한다. */
 export const INVENTORY_TOOL = 'update_inventory';
+
+/** 레시피 검색 툴 이름 — 서버 `SEARCH_RECIPES_TOOL.name` 과 같아야 한다. */
+export const RECIPE_TOOL = 'search_recipes';
 
 /**
  * 툴 호출 → 재고 확인 카드용 제안.
@@ -18,6 +27,33 @@ export const INVENTORY_TOOL = 'update_inventory';
 export function toInventoryProposal(m: FunctionCallMessageType): InventoryProposalType | null {
   if (m.payload.name !== INVENTORY_TOOL) return null;
   return (m.payload.resolved as InventoryProposalType | undefined) ?? null;
+}
+
+/**
+ * 레시피 검색 결과 — **호출이 아니라 결과 아이템**에서 읽는다.
+ *
+ * 재고와 반대다: 재고는 호출이 "확인 대기 중인 제안"이라 `FUNCTION_CALL` 에 카드를 그리지만,
+ * 레시피는 서버가 이미 실행했고 **결과가 곧 내용**이라 `FUNCTION_CALL_OUTPUT` 에 그린다.
+ * (그래서 레시피의 `FUNCTION_CALL` 아이템은 화면에 아무것도 만들지 않는다)
+ *
+ * 모르는 툴이면 `null` — 백엔드에 툴이 늘어도 구버전 앱이 안 깨지는 장치다.
+ */
+export type RecipeResultType = {
+  dishName: string;
+  recipes: RecipeType[];
+  /** 결과가 없는 이유. 'empty' = 검색은 됐지만 0건, 'unavailable' = 검색 자체가 실패 */
+  reason?: 'empty' | 'unavailable';
+};
+
+export function toRecipeResult(m: FunctionOutputMessageType): RecipeResultType | null {
+  if (m.payload.name !== RECIPE_TOOL) return null;
+  const out = m.payload.output as Partial<RecipeResultType> | undefined;
+  if (!out) return null;
+  return {
+    dishName: typeof out.dishName === 'string' ? out.dishName : '',
+    recipes: Array.isArray(out.recipes) ? out.recipes : [],
+    ...(out.reason ? { reason: out.reason } : {}),
+  };
 }
 
 export type ProposalOutcomeType = 'applied' | 'dismissed';
