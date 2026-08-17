@@ -61,14 +61,29 @@ function ConsumeRow({
   );
 }
 
-/** 추가 항목 한 줄 — 확인-only(읽기전용). 이름·수량 + 추정 만료일. */
+/**
+ * 추가 항목 한 줄 — 확인-only(읽기전용). 이름·수량 + 추정 만료일.
+ *
+ * 이미 있던 재료면 **합산 근거를 한 줄 더** 보여준다(`기존 2개 → 추가 후 4개`). 최종 수량만 뜨면
+ * 사용자는 그 숫자가 맞는지 판단할 근거가 없다 — 합산을 하는 건 서버가 아니라 모델이라
+ * ("기존 5개 + 2개 → 7개") 틀릴 수 있고, 틀린 재고는 알아채기 어렵다. 스캔 확인 화면과 같은 이유·같은 문구다.
+ */
 function AddRow({ item }: { item: AddProposalItemType }) {
+  const existing = item.merge?.existing;
   return (
-    <View className="flex-row items-center justify-between">
-      <Text className="text-[15px] text-ink">
-        {item.name}
-        {item.quantityNote ? <Text className="text-ink-faint"> {item.quantityNote}</Text> : null}
-      </Text>
+    <View className="flex-row items-start justify-between gap-3">
+      <View className="flex-1 gap-0.5">
+        <Text className="text-[15px] text-ink">
+          {item.name}
+          {item.quantityNote ? <Text className="text-ink-faint"> {item.quantityNote}</Text> : null}
+        </Text>
+        {existing ? (
+          <Text className="text-xs text-lavender">
+            기존 {existing}
+            {item.quantityNote ? ` · 추가 후 ${item.quantityNote}` : ''}
+          </Text>
+        ) : null}
+      </View>
       <Text className="text-xs text-ink-faint">{formatExpiry(item)}</Text>
     </View>
   );

@@ -677,8 +677,11 @@ export class ConversationService {
       );
     }
 
+    // 이미 있는 재료를 더 산 경우 카드가 "기존 2개 → 추가 후 4개"로 근거를 보여줘야 한다.
+    // previewAdd 는 DB 를 모르는 순수 함수라 기존 재고를 여기서 읽어 넘긴다(스캔과 같은 방식).
+    const existing = picked.addItems.length > 0 ? await this.inventory.recall(userId) : [];
     const add: AddProposalItemType[] =
-      picked.addItems.length > 0 ? this.inventory.previewAdd(picked.addItems) : [];
+      picked.addItems.length > 0 ? this.inventory.previewAdd(picked.addItems, existing) : [];
     const consume: ConsumeProposalItemType[] =
       picked.consumeItems.length > 0
         ? (await this.inventory.resolveConsume(userId, picked.consumeItems)).matched

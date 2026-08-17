@@ -101,8 +101,14 @@ export class InventoryService {
 
     const saved: IngredientType[] = [];
     for (const item of clean) {
-      const category = item.category ?? 'ETC';
-      const storage = item.storage ?? 'FRIDGE';
+      const prev = byName.get(normalize(item.name));
+      // ⚠️ 폴백이 **기존 재고 → 기본값** 순인 게 중요하다. 재입고에선 호출자가 분류·보관을 자주
+      // 생략한다(채팅 툴 설명이 "냉동/실온이라고 말했을 때만 채우라"고 시킨다). 그때 곧장 기본값을
+      // 쓰면 **말한 적 없는 값이 기존 재고를 덮어써서** 냉동실 삼겹살이 냉장으로 둔갑하고,
+      // 만료일까지 냉장 기준으로 재추정돼 갑자기 "먼저 먹어요"에 뜬다.
+      // "새로 넣은 값으로 갱신"은 실제로 값이 왔을 때 얘기지, 생략을 기본값으로 읽으라는 뜻이 아니다.
+      const category = item.category ?? prev?.category ?? 'ETC';
+      const storage = item.storage ?? prev?.storage ?? 'FRIDGE';
       const addedAt = new Date();
       const userExpiry = item.expiresAt ? new Date(item.expiresAt) : null;
       const hasUserExpiry = userExpiry !== null && !Number.isNaN(userExpiry.getTime());
@@ -111,11 +117,10 @@ export class InventoryService {
         ? clip(item.quantityNote, LIMITS.quantityNoteMax)
         : null;
 
-      const prev = byName.get(normalize(item.name));
       if (prev) {
-        // 재입고 = 방금 산 게 주가 된다. 만료일·보관·분류를 **새로 넣은 값으로 갱신**한다
+        // 재입고 = 방금 산 게 주가 된다. 만료일은 **새로 넣은 값 기준으로 갱신**한다
         // (수량을 개별 추적하지 않으므로 옛 재고 기준으로 잡을 근거가 없다 — 새 물건 기준이 직관적).
-        // 수량 메모는 이번에 안 적었으면 기존 표시를 유지한다.
+        // 분류·보관·수량 메모는 이번에 안 알려줬으면 기존 값을 유지한다(위 폴백 참고).
         const row = await this.prisma.ingredient.update({
           where: { id: prev.id },
           data: {
@@ -387,13 +392,21 @@ export class InventoryService {
   /**
    * 추가 "제안" 생성 — `add` 의 정규화(기본 분류·보관 + 만료일 추정)를 **쓰지 않고** 미리 계산만 한다.
    * 확인 카드에 보여줄 값이며, 실제 저장(병합 포함)은 확인 후 `add` 가 그대로 다시 계산해 처리한다.
-   * DB·병합을 안 타는 순수 함수라 동기다.
+   * DB 를 직접 안 보는 순수 함수라 동기다 — 기존 재고가 필요하면 **호출자가 읽어서 넘긴다**.
+   *
+   * `existing` 을 넘기면 같은 이름의 재고를 찾아 **`merge.existing`(합산 근거)** 을 채운다.
+   * 저장은 `quantityNote` 하나로 끝나지만, 카드가 "왜 그 숫자인지"(기존 2개 → 추가 후 4개)를
+   * 설명하려면 이 값이 필요하다. 채팅 툴과 스캔이 같은 이유로 쓴다 — 채우는 규칙을 두 곳에
+   * 흩지 않으려고 여기 둔다(스캔은 여기에 "이번에 산 양"만 덧붙인다).
    *
    * 같은 이름이 한 호출 안에 두 번 오면 **첫 번째만** 남긴다 — `resolveConsume` 의 dedupe 와 같은 방향이라
    * "같은 재료가 여러 번 오면 첫 번째가 이긴다" 한 규칙으로 제안 전체가 설명된다.
    * (중복이 `itemsMax` 정원을 잡아먹지 않게 자르기 **전에** 제거한다)
    */
-  previewAdd(items: AddIngredientInputType[]): AddProposalItemType[] {
+  previewAdd(
+    items: AddIngredientInputType[],
+    existing?: { name: string; quantityNote: string | null }[],
+  ): AddProposalItemType[] {
     const now = new Date();
     const clean = items
       .map((it) => ({ ...it, name: clip(it.name ?? '', LIMITS.nameMax) }))
@@ -405,6 +418,9 @@ export class InventoryService {
       if (!unique.has(key)) unique.set(key, it);
     }
 
+    // 저장 시 병합 판정(`add`)과 **같은 정규화 키**를 써야 표시와 실제 동작이 어긋나지 않는다.
+    const existingByName = new Map((existing ?? []).map((e) => [normalize(e.name), e]));
+
     return [...unique.values()].slice(0, LIMITS.itemsMax).map((item) => {
       const category = item.category ?? 'ETC';
       const storage = item.storage ?? 'FRIDGE';
@@ -414,6 +430,9 @@ export class InventoryService {
       const quantityNote = item.quantityNote
         ? clip(item.quantityNote, LIMITS.quantityNoteMax)
         : undefined;
+      // 이미 있는 재료면 기존 수량을 함께 싣는다 — 카드가 "기존 2개 → 추가 후 4개"로 설명한다.
+      // 수량 메모가 없던 재고는 보여줄 근거가 없으므로 merge 를 붙이지 않는다(빈 칸이 더 혼란스럽다).
+      const prev = existingByName.get(normalize(item.name));
       return {
         name: item.name,
         category,
@@ -421,6 +440,7 @@ export class InventoryService {
         ...(quantityNote ? { quantityNote } : {}),
         estimatedExpiry: expiresAt.toISOString(),
         expirySource: hasUserExpiry ? 'USER' : 'ESTIMATED',
+        ...(prev?.quantityNote ? { merge: { existing: prev.quantityNote } } : {}),
       };
     });
   }
