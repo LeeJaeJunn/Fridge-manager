@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { ActivityIndicator } from 'react-native';
 
-import { IngredientForm, Screen, toPatch } from '@/components';
+import { IngredientForm, Screen, toAddInput } from '@/components';
 import { useInventory } from '@/context/inventory';
 
 /**
@@ -27,19 +27,9 @@ export default function AddIngredientScreen() {
       <IngredientForm
         options={options}
         submitLabel="추가"
-        showExpiry
         onCancel={() => router.back()}
         onSubmit={async (v) => {
-          const patch = toPatch(v);
-          await add([
-            {
-              name: patch.name,
-              category: patch.category,
-              storage: patch.storage,
-              ...(patch.quantityNote ? { quantityNote: patch.quantityNote } : {}),
-              ...(v.expiresAt ? { expiresAt: v.expiresAt } : {}),
-            },
-          ]);
+          await add([toAddInput(v)]);
           router.back();
         }}
       />

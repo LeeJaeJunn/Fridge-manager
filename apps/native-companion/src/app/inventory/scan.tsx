@@ -71,6 +71,8 @@ function ProposalRow({
             category: item.category,
             storage: item.storage,
             quantityNote: item.quantityNote ?? '',
+            expiresAt: item.estimatedExpiry,
+            expirySource: item.expirySource,
           }}
           submitLabel="확인"
           onCancel={() => setEditing(false)}
@@ -168,6 +170,11 @@ export default function ScanScreen() {
   /**
    * 수정 — 사용자가 고친 값이 곧 저장될 값이다.
    * 수량을 직접 고쳤으면 합산 근거(`merge`)는 더 이상 그 숫자를 설명하지 못하므로 함께 지운다.
+   *
+   * 날짜를 직접 골랐으면 `USER` 로 올린다 — 저장 때 그 값만 서버로 넘어간다(아래 `save` 참고).
+   * "기본값"으로 되돌렸으면 `ESTIMATED` 로 두고 **날짜는 서버가 저장 시 다시 추정**한다.
+   * (그래서 분류·보관만 바꾼 경우 카드에 보이는 날짜는 저장 전까지 옛 추정치다 — 추정 계산을
+   *  여기서 한 번 더 구현하면 서버·폼과 세 곳이 되므로 일부러 두지 않는다)
    */
   function editAt(index: number, v: FormValues) {
     const patch = toPatch(v);
@@ -180,6 +187,9 @@ export default function ScanScreen() {
               category: patch.category ?? it.category,
               storage: patch.storage ?? it.storage,
               quantityNote: patch.quantityNote,
+              ...(v.expiresAt
+                ? { estimatedExpiry: v.expiresAt, expirySource: 'USER' as const }
+                : { expirySource: 'ESTIMATED' as const }),
               merge: undefined,
             }
           : it,

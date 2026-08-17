@@ -2,11 +2,11 @@ import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
-import { Card, IngredientForm, Screen, Sheet, toPatch, type FormValues } from '@/components';
+import { Card, IngredientEditDialog, Screen, Sheet, toPatch, type FormValues } from '@/components';
 import { useInventory } from '@/context/inventory';
 import { ADD_METHODS } from '@/lib/addMethods';
 import { expiryLabel, freshness, FRESHNESS_STYLE } from '@/lib/expiry';
-import type { IngredientType, InventoryOptionsType } from '@companion/types';
+import type { IngredientType } from '@companion/types';
 
 /** 카테고리 이모지 — 라벨은 서버(options)가 주고, 글리프만 클라가 소유(정적·소수). */
 const CATEGORY_EMOJI: Record<string, string> = {
@@ -25,51 +25,20 @@ const CATEGORY_EMOJI: Record<string, string> = {
 
 function IngredientCard({
   item,
-  options,
   onConsume,
-  onUpdate,
+  onEdit,
   onDelete,
 }: {
   item: IngredientType;
-  options: InventoryOptionsType;
   onConsume: () => void;
-  onUpdate: (v: FormValues) => Promise<void>;
+  /** 편집 모달은 화면이 하나만 들고 있다 — 카드는 열어달라고만 요청한다(아래 FridgeScreen 참고). */
+  onEdit: () => void;
   onDelete: () => Promise<void>;
 }) {
-  // 카드 안의 UI 상태는 카드가 소유한다(메뉴 열림 / 편집 중 / 삭제 확인 중).
+  // 카드 안의 UI 상태는 카드가 소유한다(메뉴 열림 / 삭제 확인 중).
   const [menuOpen, setMenuOpen] = useState(false);
-  const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const tint = FRESHNESS_STYLE[freshness(item.expiresAt)];
-
-  const closeAll = () => {
-    setMenuOpen(false);
-    setEditing(false);
-    setConfirmDelete(false);
-  };
-
-  if (editing) {
-    return (
-      <Card radius="3xl" className="gap-4 px-5 py-5">
-        <Text className="text-sm font-semibold text-ink">{item.name} 수정</Text>
-        <IngredientForm
-          options={options}
-          initial={{
-            name: item.name,
-            category: item.category,
-            storage: item.storage,
-            quantityNote: item.quantityNote ?? '',
-          }}
-          submitLabel="저장"
-          onCancel={closeAll}
-          onSubmit={async (v) => {
-            await onUpdate(v);
-            closeAll();
-          }}
-        />
-      </Card>
-    );
-  }
 
   return (
     <Card radius="3xl" className="gap-3 px-5 py-4">
@@ -108,7 +77,7 @@ function IngredientCard({
           <MenuButton
             label="수정"
             onPress={() => {
-              setEditing(true);
+              onEdit();
               setMenuOpen(false);
             }}
           />
@@ -243,6 +212,9 @@ export default function FridgeScreen() {
   const [filter, setFilter] = useState<string>('ALL'); // 'ALL' | 카테고리 value
   // 추가 흐름: none → (+ 탭) picker(방법 선택 시트) → (직접 입력) /inventory/add 모달 라우트
   const [picking, setPicking] = useState(false);
+  // 편집 중인 재료 — 모달은 **화면이 하나만** 들고 있다. 카드마다 두면 재료 수만큼 RN Modal 이
+  // 마운트된다(30개면 30개). 카드는 `onEdit` 으로 열어달라고만 요청한다.
+  const [editing, setEditing] = useState<IngredientType | null>(null);
 
   async function handleConsume(item: IngredientType) {
     setUndo({ id: item.id, name: item.name });
@@ -343,9 +315,8 @@ export default function FridgeScreen() {
                     <IngredientCard
                       key={item.id}
                       item={item}
-                      options={options}
                       onConsume={() => handleConsume(item)}
-                      onUpdate={(v) => update(item.id, toPatch(v))}
+                      onEdit={() => setEditing(item)}
                       onDelete={() => remove(item.id)}
                     />
                   ))
@@ -356,6 +327,28 @@ export default function FridgeScreen() {
       )}
 
       {error ? <Text className="text-sm text-red-500">{error}</Text> : null}
+
+      {/* 재료 수정 모달 — 목록 위로 떠서 스크롤 위치를 흔들지 않는다. 나중에 채팅 확인 카드도 이걸 연다.
+          유통기한은 현재 값으로 시작한다: 사용자가 정한 날(USER)이면 그 날짜를 이어받고,
+          추정치면 "기본값" 상태로 두되 재추정 기준일(addedAt)을 넘겨 서버 계산과 같은 날짜를 보여준다. */}
+      {options && editing ? (
+        <IngredientEditDialog
+          visible
+          title={`${editing.name} 수정`}
+          options={options}
+          initial={{
+            name: editing.name,
+            category: editing.category,
+            storage: editing.storage,
+            quantityNote: editing.quantityNote ?? '',
+            expiresAt: editing.expiresAt,
+            expirySource: editing.expirySource,
+            addedAt: editing.addedAt,
+          }}
+          onClose={() => setEditing(null)}
+          onSubmit={(v: FormValues) => update(editing.id, toPatch(v))}
+        />
+      ) : null}
     </Screen>
   );
 }
