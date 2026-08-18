@@ -3,8 +3,9 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { scanImage } from '@/api/inventory';
-import { Button, Card, IngredientForm, Screen, toPatch, type FormValues } from '@/components';
+import { Button, Card, IngredientForm, Screen, type FormValues } from '@/components';
 import { useInventory } from '@/context/inventory';
+import { applyEdit, toAddInput } from '@/lib/proposal';
 import { captureForScan, pickForScan } from '@/lib/scan';
 import type { AddProposalItemType, InventoryOptionsType, ScanKindType } from '@companion/types';
 
@@ -169,32 +170,10 @@ export default function ScanScreen() {
 
   /**
    * 수정 — 사용자가 고친 값이 곧 저장될 값이다.
-   * 수량을 직접 고쳤으면 합산 근거(`merge`)는 더 이상 그 숫자를 설명하지 못하므로 함께 지운다.
-   *
-   * 날짜를 직접 골랐으면 `USER` 로 올린다 — 저장 때 그 값만 서버로 넘어간다(아래 `save` 참고).
-   * "기본값"으로 되돌렸으면 `ESTIMATED` 로 두고 **날짜는 서버가 저장 시 다시 추정**한다.
-   * (그래서 분류·보관만 바꾼 경우 카드에 보이는 날짜는 저장 전까지 옛 추정치다 — 추정 계산을
-   *  여기서 한 번 더 구현하면 서버·폼과 세 곳이 되므로 일부러 두지 않는다)
+   * 반영 규칙(합산 근거 제거·만료일 출처 승격)은 채팅 확인 카드와 공유한다(`lib/proposal.ts`).
    */
   function editAt(index: number, v: FormValues) {
-    const patch = toPatch(v);
-    setItems((prev) =>
-      (prev ?? []).map((it, i) =>
-        i === index
-          ? {
-              ...it,
-              name: patch.name ?? it.name,
-              category: patch.category ?? it.category,
-              storage: patch.storage ?? it.storage,
-              quantityNote: patch.quantityNote,
-              ...(v.expiresAt
-                ? { estimatedExpiry: v.expiresAt, expirySource: 'USER' as const }
-                : { expirySource: 'ESTIMATED' as const }),
-              merge: undefined,
-            }
-          : it,
-      ),
-    );
+    setItems((prev) => (prev ?? []).map((it, i) => (i === index ? applyEdit(it, v) : it)));
   }
 
   const list = items ?? [];
@@ -203,16 +182,8 @@ export default function ScanScreen() {
     if (saving || list.length === 0) return;
     setSaving(true);
     try {
-      await add(
-        list.map((it) => ({
-          name: it.name,
-          category: it.category,
-          storage: it.storage,
-          ...(it.quantityNote ? { quantityNote: it.quantityNote } : {}),
-          // 사용자가 준 표기일(USER)만 그대로 넘긴다. 추정치는 서버가 다시 추정한다.
-          ...(it.expirySource === 'USER' ? { expiresAt: it.estimatedExpiry } : {}),
-        })),
-      );
+      // 서버로 보내는 변환도 채팅 확인 카드와 공유한다 (USER 표기일만 싣고 추정치는 서버가 재추정).
+      await add(list.map(toAddInput));
       router.back();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '저장에 실패했어요');

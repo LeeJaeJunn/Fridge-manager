@@ -40,7 +40,7 @@ export default function ConversationScreen() {
   // 채팅으로 재료가 추가·차감됐을 수 있다(서버 tool-use). 화면을 나갈 때 한 번만 전역 재고를 새로고침한다
   // — 채팅 중엔 냉장고·홈이 안 보이니 매 메시지 갱신은 불필요하다. 실제로 대화했을 때만(dirty) 갱신한다.
   // refresh 는 Provider 에서 useCallback 으로 안정화돼 있어 effect 가 재등록되지 않는다(언마운트 시 1회 cleanup).
-  const { refresh } = useInventory();
+  const { refresh, options } = useInventory();
   const dirtyRef = useRef(false);
   useEffect(() => {
     return () => {
@@ -98,11 +98,11 @@ export default function ConversationScreen() {
 
   // 제안 확정 — 편집값으로 반영. 서버가 만든 아이템(툴 결과 등)을 **뒤에 덧붙인다**.
   // 카드 자체는 그대로 두고, 결과 아이템이 생기면서 자동으로 "반영했어요" 칩으로 바뀐다.
-  async function handleApply(messageId: string, items: ApplyProposalRequestType['items']) {
+  async function handleApply(messageId: string, req: ApplyProposalRequestType) {
     if (!conversationId || resolvingId) return;
     setResolvingId(messageId);
     try {
-      const res = await applyProposal(conversationId, messageId, { items });
+      const res = await applyProposal(conversationId, messageId, req);
       setMessages((prev) => [...prev, ...res.messages]);
       void refresh(); // 냉장고·홈에 즉시 반영
     } catch (e: unknown) {
@@ -186,9 +186,10 @@ export default function ConversationScreen() {
                   <InventoryConfirmCard
                     key={m.id}
                     proposal={proposal}
+                    options={options}
                     outcome={outcomes.get(m.payload.callId) ?? null}
                     busy={resolvingId === m.id}
-                    onApply={(items) => void handleApply(m.id, items)}
+                    onApply={(req) => void handleApply(m.id, req)}
                     onDismiss={() => void handleDismiss(m.id)}
                   />
                 );

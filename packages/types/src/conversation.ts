@@ -8,7 +8,7 @@
  */
 
 import type { ChatRoleType } from './chat';
-import type { AddProposalItemType } from './ingredient';
+import type { AddIngredientInputType, AddProposalItemType } from './ingredient';
 
 /**
  * 모델이 부른 툴 한 건.
@@ -93,13 +93,34 @@ export interface FunctionOutputMessageType extends MessageBaseType {
  */
 export type MessageType = TextMessageType | FunctionCallMessageType | FunctionOutputMessageType;
 
-/** POST /conversations/:id/messages/:messageId/apply 요청 — 사용자가 편집한 최종 값 */
+/**
+ * POST /conversations/:id/messages/:messageId/apply 요청 — 사용자가 확인 카드에서 **편집한 최종 값**.
+ *
+ * 제안(`InventoryProposalType`)과 같은 축(`consume`/`add`)으로 되돌려준다. 카드가 그린 것과 같은
+ * 모양이어야 "무엇을 보내는 중인지"가 이름만 보고 읽힌다.
+ */
 export interface ApplyProposalRequestType {
-  items: Array<{
+  /**
+   * 소비 항목의 최종 값. **제안에 없던 `ingredientId` 는 서버가 버린다**(임의 id 주입 차단).
+   * 이름이 아니라 id 로 보내는 이유: 제안과 확인 사이에 재고가 바뀌어도 사용자가 카드에서 본
+   * 바로 그 행을 가리키기 위해서다.
+   */
+  consume: Array<{
     ingredientId: string;
     /** 최종 남은 양. null = 다 씀(제거) */
     remaining: string | null;
   }>;
+  /**
+   * 추가 항목의 최종 목록 — 사용자가 고치거나 뺀 결과.
+   *
+   * 소비와 달리 제안과 대조해 거르지 않는다. 이름·수량을 고치는 게 이 기능의 목적이라 대조할
+   * 키가 없기 때문이다. 신뢰 경계 문제도 아니다 — 사용자는 어차피 `POST /inventory` 로 아무 재료나
+   * 넣을 수 있으므로 권한 상승이 아니고, 길이·개수 방어는 서버(DTO + `inventory.add`)가 한다.
+   *
+   * 항목 모양이 `POST /inventory` 와 같아서 서버 검증(`AddIngredientItemDto`)을 그대로 재사용한다.
+   * `expiresAt` 은 **사용자가 날짜를 직접 고른 경우에만** 싣는다(그때만 서버가 `USER` 로 승격).
+   */
+  add: AddIngredientInputType[];
 }
 
 /**

@@ -18,8 +18,15 @@ import { estimateExpiry, LIMITS } from './shelf-life';
  */
 export type ConsumeItem = { name: string; remaining?: string };
 
-/** 프롬프트 주입용 경량 재고 — 채팅이 "지금 냉장고에 뭐가 있는지" 를 알기 위한 최소 형태. */
+/**
+ * 프롬프트 주입용 경량 재고 — 채팅이 "지금 냉장고에 뭐가 있는지" 를 알기 위한 최소 형태.
+ *
+ * `id` 는 프롬프트에 안 들어가지만 함께 담는다. 같은 턴에서 이 목록이 **확인 카드 조립에도
+ * 재사용**되는데(`resolveConsume` 이 이름→행을 찾을 때), id 가 없으면 같은 테이블을 한 번 더
+ * 읽어야 한다. 모델에게 보여줄 것과 서버가 쓸 것을 한 번의 조회로 끝내려는 것이다.
+ */
 export type RecalledIngredient = {
+  id: string;
   name: string;
   quantityNote: string | null;
   expiresAt: Date;
@@ -178,7 +185,7 @@ export class InventoryService {
     return this.prisma.ingredient.findMany({
       where: { userId, consumedAt: null },
       orderBy: { expiresAt: 'asc' },
-      select: { name: true, quantityNote: true, expiresAt: true, expirySource: true },
+      select: { id: true, name: true, quantityNote: true, expiresAt: true, expirySource: true },
     });
   }
 
@@ -319,24 +326,25 @@ export class InventoryService {
 
   /**
    * 소비 "제안" 생성 — 채팅 소비 툴의 **비-mutating** 버전 (확인 카드용).
-   * `consumeByNames` 와 같은 이름 매칭을 쓰되 아무것도 쓰지 않고, 현재 수량 + 제안된 남은 양을 돌려준다.
+   * 이름으로 재고 행을 찾아 현재 수량 + 제안된 남은 양을 돌려주고, 아무것도 쓰지 않는다.
    * 실제 반영은 사용자 확인 후 `applyConsume` 가 id 기준으로 한다.
    * 같은 행에 중복 제안이 오면(모델이 같은 재료를 두 번) 하나로 합친다.
+   *
+   * `previewAdd` 와 마찬가지로 **DB 를 직접 안 보고 호출자가 읽은 재고를 받는다.** 채팅 한 턴은
+   * 이미 프롬프트 주입용으로 재고를 읽어놨으므로(`recall`), 그걸 그대로 넘기면 같은 테이블을
+   * 다시 읽지 않는다. 덤으로 **모델이 프롬프트에서 본 것과 정확히 같은 목록**에 매칭돼,
+   * 카드와 모델의 판단이 어긋날 여지가 없다.
    */
-  async resolveConsume(
-    userId: string,
+  resolveConsume(
     items: ConsumeItem[],
-  ): Promise<{ matched: ConsumeProposalItemType[]; notFound: string[] }> {
+    existing: { id: string; name: string; quantityNote: string | null }[],
+  ): { matched: ConsumeProposalItemType[]; notFound: string[] } {
     const wanted = items
       .map((it) => ({ name: it.name?.trim() ?? '', remaining: it.remaining?.trim() }))
       .filter((it) => it.name.length > 0);
     if (wanted.length === 0) return { matched: [], notFound: [] };
 
-    const rows = await this.prisma.ingredient.findMany({
-      where: { userId, consumedAt: null },
-      select: { id: true, name: true, quantityNote: true },
-    });
-    const byName = new Map(rows.map((r) => [normalize(r.name), r]));
+    const byName = new Map(existing.map((r) => [normalize(r.name), r]));
 
     const matched: ConsumeProposalItemType[] = [];
     const notFound: string[] = [];

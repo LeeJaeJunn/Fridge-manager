@@ -53,7 +53,7 @@ export class ConversationController {
     return this.conversations.deleteMessage(userId, id, messageId);
   }
 
-  /** POST /conversations/:id/messages/:messageId/apply — 소비 제안 확정(편집값 반영) */
+  /** POST /conversations/:id/messages/:messageId/apply — 재고 제안 확정(편집값 반영) */
   @Post(':id/messages/:messageId/apply')
   applyProposal(
     @CurrentUser() userId: string,
@@ -61,7 +61,7 @@ export class ConversationController {
     @Param('messageId') messageId: string,
     @Body() body: ApplyProposalDto,
   ) {
-    return this.conversations.applyProposal(userId, id, messageId, body.items);
+    return this.conversations.applyProposal(userId, id, messageId, body);
   }
 
   /** POST /conversations/:id/messages/:messageId/dismiss — 소비 제안 취소 */

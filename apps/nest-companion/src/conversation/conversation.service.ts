@@ -341,7 +341,13 @@ export class ConversationService {
       data: { userId, characterId: character.id },
       select: { id: true },
     });
-    const { messageCount } = await this.exchangeWithTools(userId, convo.id, prompt, content);
+    const { messageCount } = await this.exchangeWithTools(
+      userId,
+      convo.id,
+      prompt,
+      content,
+      inventory,
+    );
     this.triggerExtraction(userId, convo.id, messageCount);
     return this.get(userId, convo.id);
   }
@@ -374,6 +380,7 @@ export class ConversationService {
       convo.id,
       prompt,
       content,
+      inventory,
     );
     this.triggerExtraction(userId, conversationId, messageCount);
     return { messages: created };
@@ -463,14 +470,14 @@ export class ConversationService {
     userId: string,
     conversationId: string,
     messageId: string,
-    items: ApplyProposalRequestType['items'],
+    req: ApplyProposalRequestType,
   ): Promise<ResolveProposalResultType> {
     const call = await this.loadPendingCall(userId, conversationId, messageId);
     const proposal = (call.resolved as InventoryProposalType | undefined) ?? {};
 
-    // 소비: 사용자가 편집한 값(items) 중 제안에 실제로 있던 id 만 반영(임의 id 주입 차단).
+    // 소비: 사용자가 편집한 값 중 제안에 실제로 있던 id 만 반영(임의 id 주입 차단).
     const allowed = new Set((proposal.consume ?? []).map((it) => it.ingredientId));
-    const toConsume = items.filter((it) => allowed.has(it.ingredientId));
+    const toConsume = req.consume.filter((it) => allowed.has(it.ingredientId));
     const consumed: string[] = [];
     const updatedQty: string[] = [];
     if (toConsume.length > 0) {
@@ -483,27 +490,19 @@ export class ConversationService {
       }
     }
 
-    // 추가: 확인-only 라 제안에 담긴 그대로 반영(병합·만료일 폴백은 inventory.add 가 처리).
-    // 사용자가 표기일을 준 경우(USER)만 expiresAt 을 넘겨 그 값을 유지하고, 추정치면 add 가 다시 추정한다.
-    if (proposal.add?.length) {
-      await this.inventory.add(
-        userId,
-        proposal.add.map((a) => ({
-          name: a.name,
-          category: a.category,
-          storage: a.storage,
-          ...(a.quantityNote ? { quantityNote: a.quantityNote } : {}),
-          ...(a.expirySource === 'USER' ? { expiresAt: a.estimatedExpiry } : {}),
-        })),
-      );
-    }
+    // 추가: **클라가 보낸 최종 목록**을 반영한다(사용자가 카드에서 고치거나 뺀 결과).
+    // 제안과 대조해 거르지 않는 이유는 이름·수량을 고치는 게 목적이라 대조할 키가 없어서다.
+    // 권한 상승도 아니다 — 어차피 POST /inventory 로 아무 재료나 넣을 수 있고, 길이·개수 방어는
+    // DTO 와 inventory.add(clip/LIMITS)가 한다. 병합·만료일 폴백도 add 가 처리한다.
+    const added = await this.inventory.add(userId, req.add);
 
     // 결과는 **실제로 반영한 것**을 담는다 — 클라가 보낸 값이 아니라 서버가 쓴 값이다.
+    // (이름이 비어 잘리거나 개수 상한에 걸린 항목은 여기 안 들어온다)
     return this.appendOutput(conversationId, call, {
       applied: true,
       consumed,
       updated: updatedQty,
-      added: (proposal.add ?? []).map((a) => a.name),
+      added: added.map((a) => a.name),
     });
   }
 
@@ -539,6 +538,12 @@ export class ConversationService {
     conversationId: string,
     prompt: BuiltPromptType,
     content: string,
+    /**
+     * 이 턴의 재고 스냅샷 — 프롬프트에 주입한 바로 그 목록이다(`getPromptContext` 가 읽은 것).
+     * 확인 카드 조립(`buildCallPayloads`)이 이걸 재사용해 같은 테이블을 다시 읽지 않는다.
+     * 모델이 본 것과 같은 목록에 매칭한다는 뜻이기도 하다.
+     */
+    inventory: RecalledIngredient[],
   ): Promise<{ created: MessageType[]; messageCount: number }> {
     // createdAt 을 돌려받아 이번 턴 아이템들의 시각 기준으로 삼는다 — 앱 시계가 DB 시계보다
     // 뒤처져 있어도 답변이 질문보다 앞서지 않게 (아래 배치는 명시 createdAt 을 쓴다).
@@ -579,7 +584,7 @@ export class ConversationService {
     // (짝 없이 남으면 toLlmItems 가 "사용자 확인 대기"로 오해해 재생하므로 반드시 함께 쓴다)
     create.push(...(await this.runRecipeSearches(res.terminalCalls)));
     // 재고는 사람이 확인해야 하므로 호출만 저장하고 결과는 apply/dismiss 때 붙는다.
-    for (const call of await this.buildCallPayloads(userId, res.terminalCalls)) {
+    for (const call of this.buildCallPayloads(userId, res.terminalCalls, inventory)) {
       create.push({
         type: 'FUNCTION_CALL',
         payload: call as unknown as Prisma.InputJsonValue,
@@ -663,10 +668,11 @@ export class ConversationService {
    * 원본 인자엔 `ingredientId` 가 없어서 확인 카드가 apply 를 할 수 없기 때문이다.
    * consume 은 resolveConsume(이름→행+현재수량), add 는 previewAdd(정규화+만료일 추정).
    */
-  private async buildCallPayloads(
+  private buildCallPayloads(
     userId: string,
     calls: TerminalToolCall[] | undefined,
-  ): Promise<FunctionCallPayloadType[]> {
+    inventory: RecalledIngredient[],
+  ): FunctionCallPayloadType[] {
     const picked = pickInventoryCall(calls);
     if (!picked) return [];
     // 버린 호출이 있으면 남긴다 — 모델이 "정당하게 나눠 부르는" 경우가 실제로 나오는지
@@ -677,14 +683,13 @@ export class ConversationService {
       );
     }
 
-    // 이미 있는 재료를 더 산 경우 카드가 "기존 2개 → 추가 후 4개"로 근거를 보여줘야 한다.
-    // previewAdd 는 DB 를 모르는 순수 함수라 기존 재고를 여기서 읽어 넘긴다(스캔과 같은 방식).
-    const existing = picked.addItems.length > 0 ? await this.inventory.recall(userId) : [];
+    // 재고는 이 턴 시작에 이미 한 번 읽어서(프롬프트 주입용) 여기까지 흘러온 것을 그대로 쓴다.
+    // previewAdd·resolveConsume 둘 다 DB 를 모르는 순수 함수라 호출자가 목록을 넘긴다.
     const add: AddProposalItemType[] =
-      picked.addItems.length > 0 ? this.inventory.previewAdd(picked.addItems, existing) : [];
+      picked.addItems.length > 0 ? this.inventory.previewAdd(picked.addItems, inventory) : [];
     const consume: ConsumeProposalItemType[] =
       picked.consumeItems.length > 0
-        ? (await this.inventory.resolveConsume(userId, picked.consumeItems)).matched
+        ? this.inventory.resolveConsume(picked.consumeItems, inventory).matched
         : [];
 
     // 이름이 하나도 안 잡히면 카드로 보여줄 게 없다 → 아예 저장하지 않는다.

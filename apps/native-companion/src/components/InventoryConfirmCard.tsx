@@ -5,12 +5,15 @@ import type {
   AddProposalItemType,
   ApplyProposalRequestType,
   ConsumeProposalItemType,
+  InventoryOptionsType,
   InventoryProposalType,
 } from '@companion/types';
 
 import type { ProposalOutcomeType } from '@/lib/messages';
+import { applyEdit, toAddInput } from '@/lib/proposal';
 import { Button } from './Button';
 import { Card } from './Card';
+import { IngredientEditDialog } from './IngredientEditDialog';
 
 const PLACEHOLDER = '#A1A1AA';
 
@@ -68,23 +71,67 @@ function ConsumeRow({
  * 사용자는 그 숫자가 맞는지 판단할 근거가 없다 — 합산을 하는 건 서버가 아니라 모델이라
  * ("기존 5개 + 2개 → 7개") 틀릴 수 있고, 틀린 재고는 알아채기 어렵다. 스캔 확인 화면과 같은 이유·같은 문구다.
  */
-function AddRow({ item }: { item: AddProposalItemType }) {
+function AddRow({
+  item,
+  editable,
+  onEdit,
+  onRemove,
+}: {
+  item: AddProposalItemType;
+  /** options 를 아직 못 받았으면 편집 UI 를 숨긴다(분류·보관 칩을 그릴 수 없다) */
+  editable: boolean;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const existing = item.merge?.existing;
+
   return (
-    <View className="flex-row items-start justify-between gap-3">
-      <View className="flex-1 gap-0.5">
-        <Text className="text-[15px] text-ink">
-          {item.name}
-          {item.quantityNote ? <Text className="text-ink-faint"> {item.quantityNote}</Text> : null}
-        </Text>
-        {existing ? (
-          <Text className="text-xs text-lavender">
-            기존 {existing}
-            {item.quantityNote ? ` · 추가 후 ${item.quantityNote}` : ''}
+    <View className="gap-2">
+      <View className="flex-row items-start justify-between gap-3">
+        <View className="flex-1 gap-0.5">
+          <Text className="text-[15px] text-ink">
+            {item.name}
+            {item.quantityNote ? (
+              <Text className="text-ink-faint"> {item.quantityNote}</Text>
+            ) : null}
           </Text>
+          {existing ? (
+            <Text className="text-xs text-lavender">
+              기존 {existing}
+              {item.quantityNote ? ` · 추가 후 ${item.quantityNote}` : ''}
+            </Text>
+          ) : null}
+        </View>
+        <Text className="text-xs text-ink-faint">{formatExpiry(item)}</Text>
+        {editable ? (
+          <Pressable
+            onPress={() => setMenuOpen((v) => !v)}
+            hitSlop={10}
+            accessibilityLabel={`${item.name} 수정·빼기`}
+            className="h-6 w-6 items-center justify-center rounded-full active:bg-sand"
+          >
+            <Text className="text-base leading-none text-ink-soft">⋯</Text>
+          </Pressable>
         ) : null}
       </View>
-      <Text className="text-xs text-ink-faint">{formatExpiry(item)}</Text>
+
+      {menuOpen ? (
+        <View className="flex-row gap-2">
+          <Pressable
+            onPress={() => {
+              onEdit();
+              setMenuOpen(false);
+            }}
+            className="flex-1 items-center rounded-xl bg-sand py-2"
+          >
+            <Text className="text-xs font-medium text-ink-soft">수정</Text>
+          </Pressable>
+          <Pressable onPress={onRemove} className="flex-1 items-center rounded-xl bg-sand py-2">
+            <Text className="text-xs font-medium text-red-500">빼기</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -105,32 +152,41 @@ function normalizeRemaining(v: string | null | undefined): string | null {
 
 /**
  * 재고 변경 "제안" 확인 카드 — 채팅에서 LLM 이 만든 소비/추가 제안을 사용자가 확인 후 반영한다.
- * 미처리면 편집 UI(소비=남은 양 편집, 추가=확인-only), 처리됐으면 결과 칩만.
+ * 미처리면 편집 UI(소비=남은 양·다 먹음, 추가=`⋯` 로 수정·빼기), 처리됐으면 결과 칩만.
+ *
+ * **확인 시 보내는 값이 곧 반영되는 값이다** — 서버는 저장해둔 제안을 다시 읽지 않는다.
+ * 모델이 잘못 뽑았을 때 사용자가 "그대로 확인 / 전체 취소" 두 갈래에 갇히지 않게 하려는 것이고,
+ * 스캔 확인 화면이 지키는 원칙("오인식은 반드시 있다")과 같다.
  *
  * 처리 여부는 카드가 스스로 알지 못한다 — 짝이 되는 툴 결과가 대화에 있는지로 정해지므로
  * 부모가 `outcome` 으로 알려준다(`outcomesByCallId` 참고).
  */
 export function InventoryConfirmCard({
   proposal,
+  options,
   outcome = null,
   onApply,
   onDismiss,
   busy = false,
 }: {
   proposal: InventoryProposalType;
+  /** 분류·보관 선택지 — 추가 항목 수정 모달에 필요. 아직 못 받았으면 편집 UI 를 숨긴다 */
+  options: InventoryOptionsType | null;
   /** 이미 처리됐으면 그 결과, 아직이면 null */
   outcome?: ProposalOutcomeType | null;
-  onApply: (items: ApplyProposalRequestType['items']) => void;
+  onApply: (req: ApplyProposalRequestType) => void;
   onDismiss: () => void;
   busy?: boolean;
 }) {
   const consume = proposal.consume ?? [];
-  const add = proposal.add ?? [];
 
   // 소비 편집값: ingredientId → 남은 양(string) 또는 null(다 씀). 제안값으로 초기화.
   const [edits, setEdits] = useState<Record<string, string | null>>(() =>
     Object.fromEntries(consume.map((it) => [it.ingredientId, it.remaining])),
   );
+  // 추가 항목은 **목록 자체가 편집 대상**이라(수정·빼기) 값으로 들고 있는다.
+  const [add, setAdd] = useState<AddProposalItemType[]>(() => proposal.add ?? []);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   if (outcome) {
     return (
@@ -142,14 +198,19 @@ export function InventoryConfirmCard({
     );
   }
 
-  // 추가는 확인-only 라 편집 없이 서버가 제안 그대로 반영한다 → onApply 는 소비 편집값만 보낸다.
+  // 서버는 **여기서 보낸 값만** 반영한다(저장해둔 제안을 다시 읽지 않는다).
   const submit = () =>
-    onApply(
-      consume.map((it) => ({
+    onApply({
+      consume: consume.map((it) => ({
         ingredientId: it.ingredientId,
         remaining: normalizeRemaining(edits[it.ingredientId]),
       })),
-    );
+      add: add.map(toAddInput),
+    });
+
+  // 추가를 다 빼고 소비도 없으면 반영할 게 없다 — 확인을 막아 "✓ 반영했어요" 가 거짓말이 되는 걸 방지.
+  const nothingToApply = consume.length === 0 && add.length === 0;
+  const editing = editingIndex === null ? undefined : add[editingIndex];
 
   return (
     <Card radius="3xl" className="gap-3 px-5 py-4">
@@ -170,9 +231,17 @@ export function InventoryConfirmCard({
 
       {add.length > 0 ? (
         <View className="gap-2">
-          <Text className="text-xs font-medium text-ink-soft">➕ 냉장고에 넣기</Text>
+          <Text className="text-xs font-medium text-ink-soft">
+            ➕ 냉장고에 넣기{options ? ' · ⋯ 로 수정하거나 뺄 수 있어요' : ''}
+          </Text>
           {add.map((it, i) => (
-            <AddRow key={`${it.name}-${i}`} item={it} />
+            <AddRow
+              key={`${it.name}-${i}`}
+              item={it}
+              editable={Boolean(options)}
+              onEdit={() => setEditingIndex(i)}
+              onRemove={() => setAdd((prev) => prev.filter((_, j) => j !== i))}
+            />
           ))}
         </View>
       ) : null}
@@ -182,9 +251,36 @@ export function InventoryConfirmCard({
           <Button label="취소" variant="secondary" onPress={onDismiss} disabled={busy} />
         </View>
         <View className="flex-1">
-          <Button label="확인" onPress={submit} loading={busy} />
+          <Button label="확인" onPress={submit} loading={busy} disabled={nothingToApply} />
         </View>
       </View>
+
+      {/* 추가 항목 수정 — 채팅 스트림 한복판이라 인라인 폼 대신 모달로 띄운다(카드가 부풀며 스크롤이 튄다).
+          냉장고 탭의 수정과 같은 모달·같은 폼이다. */}
+      {options && editing ? (
+        <IngredientEditDialog
+          visible
+          title={`${editing.name} 수정`}
+          options={options}
+          initial={{
+            name: editing.name,
+            category: editing.category,
+            storage: editing.storage,
+            quantityNote: editing.quantityNote ?? '',
+            expiresAt: editing.estimatedExpiry,
+            expirySource: editing.expirySource,
+          }}
+          submitLabel="확인"
+          onClose={() => setEditingIndex(null)}
+          onSubmit={(v) => {
+            const at = editingIndex;
+            if (at !== null) {
+              setAdd((prev) => prev.map((it, j) => (j === at ? applyEdit(it, v) : it)));
+            }
+            return Promise.resolve();
+          }}
+        />
+      ) : null}
     </Card>
   );
 }
