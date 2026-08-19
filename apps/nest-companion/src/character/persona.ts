@@ -42,8 +42,6 @@ type TagGroup = {
   options: string[];
   category: 'ALLERGY' | 'PREFERENCE' | 'PROFILE' | 'OWNERSHIP';
   importance: number;
-  /** 선택값 → 저장할 기억 문장 */
-  toMemory: (value: string) => string;
 };
 
 export const TAG_GROUPS: TagGroup[] = [
@@ -63,7 +61,6 @@ export const TAG_GROUPS: TagGroup[] = [
     ],
     category: 'PREFERENCE',
     importance: 2,
-    toMemory: (v) => v, // 값 자체가 이미 문장
   },
   {
     key: 'allergy',
@@ -72,9 +69,6 @@ export const TAG_GROUPS: TagGroup[] = [
     options: ['갑각류', '견과류', '땅콩', '유제품', '계란', '밀(글루텐)', '메밀', '복숭아', '오이'],
     category: 'ALLERGY',
     importance: 3, // 안전 — 절대 묻히면 안 된다
-    // 문장으로 감싸지 않는다. ALLERGY 카테고리가 이미 "먹으면 안 됨"을 뜻하고,
-    // 이름만 있어야 재고·프롬프트에서 그대로 대조할 수 있다.
-    toMemory: (v) => v,
   },
   {
     key: 'appliance',
@@ -83,7 +77,6 @@ export const TAG_GROUPS: TagGroup[] = [
     options: ['전자레인지', '에어프라이어', '인덕션', '가스레인지', '오븐', '밥솥'],
     category: 'OWNERSHIP',
     importance: 2,
-    toMemory: (v) => `${v} 있음`,
   },
 ];
 
@@ -94,6 +87,12 @@ export const TAG_VALUES = TAG_GROUPS.flatMap((g) => g.options);
 /**
  * 선택한 태그 → 저장할 메모리(카테고리·중요도 포함). 모르는 값이면 null.
  * DTO 가 @IsIn 으로 이미 거르지만, 값이 바뀌었을 때 조용히 잘못된 카테고리로 새지 않게 여기서도 확인한다.
+ *
+ * **content 는 선택값 그대로 저장한다** — 문장으로 감싸지 않는다.
+ * 프롬프트가 카테고리별 섹션(`# 요리 장비` / `# ⚠️ 알레르기…`)으로 나뉘어 있어서 **헤더가 이미 의미를
+ * 말해준다.** 여기서 또 감싸면 "요리 장비: 에어프라이어 **있음**" 처럼 같은 말이 두 번 들어가고,
+ * 알레르기는 재고 이름과 그대로 대조해야 해서 이름만이어야 한다.
+ * (예전엔 조리도구만 `${v} 있음` 으로 감쌌다가 섹션을 나누면서 중복이 됐다)
  */
 export function tagToMemory(value: string): {
   category: 'ALLERGY' | 'PREFERENCE' | 'PROFILE' | 'OWNERSHIP';
@@ -104,7 +103,7 @@ export function tagToMemory(value: string): {
   if (!group) return null;
   return {
     category: group.category,
-    content: group.toMemory(value),
+    content: value,
     importance: group.importance,
   };
 }

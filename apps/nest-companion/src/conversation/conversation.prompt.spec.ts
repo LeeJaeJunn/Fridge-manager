@@ -6,10 +6,12 @@ import {
   buildPrompt,
   daysLeft,
   formatInventory,
-  splitAllergies,
+  splitMemories,
 } from './conversation.prompt';
 
 const mem = (content: string): RecalledMemory => ({ category: 'PROFILE', content });
+/** 조리도구 — 별도 섹션(요리 장비)으로 간다 */
+const tool = (content: string): RecalledMemory => ({ category: 'OWNERSHIP', content });
 /** 먹으면 안 되는 것 — content 는 재료 이름만 (문장 아님) */
 const banned = (name: string): RecalledMemory => ({ category: 'ALLERGY', content: name });
 
@@ -30,43 +32,58 @@ const NOW = new Date(2026, 6, 22, 23, 30); // 7/22 23:30
 const atNoon = (day: number) => new Date(2026, 6, day, 12, 0);
 
 describe('프롬프트 조립', () => {
-  describe('splitAllergies — 안전 정보 분리 (카테고리 기준)', () => {
+  describe('splitMemories — 섹션 분리 (카테고리 기준)', () => {
     it('ALLERGY 카테고리만 금지 쪽으로 간다', () => {
-      const { allergies, rest } = splitAllergies([
+      const { allergies, traits } = splitMemories([
         mem('자취 중'),
         banned('갑각류'),
         mem('매운 음식 좋아함'),
       ]);
       expect(allergies.map((m) => m.content)).toEqual(['갑각류']);
-      expect(rest).toHaveLength(2);
+      expect(traits).toHaveLength(2);
+    });
+
+    it('조리도구(OWNERSHIP)는 특성과 다른 섹션으로 간다', () => {
+      // "뭘 가지고 있는지"(조리 가능 여부)와 "어떤 사람인지"(요리 선택)는 쓰임이 달라 섞으면 안 된다.
+      const { equipment, traits } = splitMemories([
+        tool('에어프라이어'),
+        mem('요리 초보'),
+        tool('전자레인지'),
+      ]);
+      expect(equipment.map((m) => m.content)).toEqual(['에어프라이어', '전자레인지']);
+      expect(traits.map((m) => m.content)).toEqual(['요리 초보']);
     });
 
     it('내용에 "알레르기"가 들어 있어도 카테고리가 아니면 금지가 아니다', () => {
       // 예전엔 정규식이 content 를 훑어서 이런 문장을 금지로 잡았고, 부정문("없음")도 구분 못 했다.
-      const { allergies, rest } = splitAllergies([
+      const { allergies, traits } = splitMemories([
         mem('우유 알레르기는 없음'),
         mem('알레르기 검사를 받아본 적 있음'),
       ]);
       expect(allergies).toEqual([]);
-      expect(rest).toHaveLength(2);
+      expect(traits).toHaveLength(2);
     });
 
     it('온보딩이 시드하는 형태(이름만)를 그대로 담는다', () => {
       // persona.ts 의 toMemory 가 문장으로 감싸지 않는다 — 이름이 그대로 와야 목록이 깔끔하다
-      const { allergies } = splitAllergies([banned('견과류')]);
+      const { allergies } = splitMemories([banned('견과류')]);
       expect(allergies.map((m) => m.content)).toEqual(['견과류']);
     });
 
     it('금지가 없으면 빈 배열 (섹션 자체가 안 붙는다)', () => {
-      const { allergies, rest } = splitAllergies([mem('자취 중'), mem('에어프라이어 있음')]);
+      const { allergies, equipment, traits } = splitMemories([
+        mem('자취 중'),
+        tool('에어프라이어'),
+      ]);
       expect(allergies).toEqual([]);
-      expect(rest).toHaveLength(2);
+      expect(equipment).toHaveLength(1);
+      expect(traits).toHaveLength(1);
     });
 
-    it('기억을 잃지 않는다 — 두 갈래 합이 원본과 같다', () => {
-      const input = [mem('자취 중'), banned('계란'), mem('요리 초보')];
-      const { allergies, rest } = splitAllergies(input);
-      expect(allergies.length + rest.length).toBe(input.length);
+    it('기억을 잃지 않는다 — 세 갈래 합이 원본과 같다', () => {
+      const input = [mem('자취 중'), banned('계란'), tool('인덕션'), mem('요리 초보')];
+      const { allergies, equipment, traits } = splitMemories(input);
+      expect(allergies.length + equipment.length + traits.length).toBe(input.length);
     });
   });
 
@@ -135,10 +152,16 @@ describe('프롬프트 조립', () => {
    * 튜닝할 때마다 테스트가 깨져서 오히려 방해가 된다. 여기선 "무엇이 어느 쪽에, 몇 번째로"만 본다.
    */
   describe('buildPrompt — 조립 순서와 정적/동적 경계', () => {
+    /** 섹션 헤더 — 낱말이 아니라 이 표시로 "섹션이 있느냐"를 본다(지침 문장에도 같은 낱말이 나온다) */
+    const EQUIPMENT = '# 요리 장비';
+    const TRAITS = '# 사용자 특성';
+    const INVENTORY = '# 냉장고 재고';
+    const BANNED = '# ⚠️ 알레르기';
+
     const ctx = {
       character: { name: '초코', speechStyle: 'casual', userNickname: '집사' },
       userName: '재준',
-      memories: [mem('매운 음식 좋아함'), banned('갑각류')],
+      memories: [mem('매운 음식 좋아함'), tool('에어프라이어'), banned('갑각류')],
       inventory: [ing('대파', atNoon(23))],
       now: NOW,
     };
@@ -150,44 +173,56 @@ describe('프롬프트 조립', () => {
       expect(system).toContain('반말');
       expect(system).toContain('집사');
       expect(system).toContain('대화 규칙');
-      expect(system).toContain('요리를 추천할 때');
-      expect(system).toContain('하지 말 것');
+      expect(system).toContain('요리 추천');
+      expect(system).toContain('금지사항');
       // 턴마다 바뀌는 것은 여기 있으면 안 된다 (캐싱 절단선).
-      // 지침 예시에도 재료 이름이 등장하므로 낱말이 아니라 **섹션**이 없는지로 본다.
-      expect(system).not.toContain('지금 냉장고에 있는 재료');
-      expect(system).not.toContain('기억하는 것');
+      // 지침 예시에도 재료 이름·"먹으면 안 되는 재료" 같은 표현이 나오므로 **섹션 헤더**로 본다.
+      expect(system).not.toContain(INVENTORY);
+      expect(system).not.toContain(TRAITS);
+      expect(system).not.toContain(EQUIPMENT);
+      expect(system).not.toContain(BANNED);
       expect(system).not.toContain('매운 음식 좋아함');
-      expect(system).not.toContain('먹으면 안 되는 것');
     });
 
-    it('동적 블록에는 기억·재고·금지 재료만 들어간다', () => {
+    it('동적 블록에는 장비·특성·재고·금지 재료만 들어간다', () => {
       const { context } = buildPrompt(ctx);
+      expect(context).toContain('에어프라이어');
       expect(context).toContain('매운 음식 좋아함');
       expect(context).toContain('대파');
       expect(context).toContain('갑각류');
       expect(context).not.toContain('대화 규칙');
     });
 
+    it('조리도구와 사용자 특성은 서로 다른 섹션이다', () => {
+      const { context } = buildPrompt(ctx);
+      const traitsPart = context.slice(context.indexOf(TRAITS), context.indexOf(INVENTORY));
+      expect(context).toContain(EQUIPMENT);
+      expect(traitsPart).toContain('매운 음식 좋아함');
+      expect(traitsPart).not.toContain('에어프라이어'); // 장비가 특성 목록에 섞이면 안 된다
+    });
+
     it('금지 재료 블록이 **맨 끝**이다 (임박 재료 우선 규칙에 밀리지 않게)', () => {
       const { context } = buildPrompt(ctx);
-      const at = context.indexOf('먹으면 안 되는 것');
+      const at = context.indexOf(BANNED);
       expect(at).toBeGreaterThanOrEqual(0);
-      expect(at).toBeGreaterThan(context.indexOf('냉장고에 있는 재료'));
-      expect(at).toBeGreaterThan(context.indexOf('기억하는 것'));
+      expect(at).toBeGreaterThan(context.indexOf(INVENTORY));
+      expect(at).toBeGreaterThan(context.indexOf(TRAITS));
+      expect(at).toBeGreaterThan(context.indexOf(EQUIPMENT));
       // 뒤에 다른 섹션이 붙지 않았는지 — 마지막 '#' 섹션이 금지 재료여야 한다
       expect(context.lastIndexOf('\n# ')).toBeLessThan(at);
     });
 
-    it('알레르기는 기억 목록이 아니라 금지 재료 쪽으로 간다', () => {
+    it('알레르기는 특성 목록이 아니라 금지 재료 쪽으로 간다', () => {
       const { context } = buildPrompt(ctx);
-      const memoryPart = context.slice(0, context.indexOf('냉장고에 있는 재료'));
-      expect(memoryPart).not.toContain('갑각류');
+      const beforeInventory = context.slice(0, context.indexOf(INVENTORY));
+      expect(beforeInventory).not.toContain('갑각류');
     });
 
     it('비어 있는 블록은 섹션 자체가 안 붙는다', () => {
       const { context } = buildPrompt({ ...ctx, memories: [], inventory: [] });
-      expect(context).not.toContain('기억하는 것');
-      expect(context).not.toContain('먹으면 안 되는 것');
+      expect(context).not.toContain(TRAITS);
+      expect(context).not.toContain(EQUIPMENT);
+      expect(context).not.toContain(BANNED);
       expect(context).toContain('아직 등록된 재료가 없어'); // 비었다는 건 명시해야 한다
     });
   });

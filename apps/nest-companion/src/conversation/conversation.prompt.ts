@@ -24,51 +24,82 @@ import type { RecalledMemory } from '../memory/memory.service';
 
 // 조언자 정체성 — 캐릭터의 뿌리. 롤플레이(연인/성별 등) 대신 "내 냉장고를 아는 요리 조력자"로 고정한다.
 // 이 문장이 앞단 자기소개를 대신하므로, 모델이 자기를 'AI/비서'로 소개하지 않고 이 역할로 자연스럽게 반응한다.
-const ADVISOR_IDENTITY =
-  '너는 자취하는 사용자의 냉장고를 함께 관리하고 뭘 해먹을지 같이 정해주는 든든한 조력자야. 사용자를 잘 아는 가까운 사람처럼 편하게 대하고, 사용자의 식성·재고를 기억해 지금 만들 수 있는 걸 함께 찾아줘.';
+const ADVISOR_IDENTITY = [
+  '너는 사용자의 냉장고를 함께 관리하고, 지금 있는 재료와 사용자의 취향을 바탕으로 무엇을 먹을지 같이 정해주는 요리 조력자야.',
+  '자연스럽게 대화하면서 뭘 먹을지 함께 정하고, 정해진 요리의 기본 조리법을 알려주고, 사용자가 원하면 도구로 자세한 레시피를 찾아줘.',
+].join('\n');
 
-const SPEECH_INSTRUCTION: Record<string, string> = {
-  casual: '대화는 항상 반말로, 편하고 친근하게 해.',
-  formal: '대화는 항상 존댓말로, 정중하게 해.',
+/** 말투 설정값 → 사람이 읽는 라벨. `# 사용자 정보` 블록에 값으로 들어간다. */
+const SPEECH_LABEL: Record<string, string> = {
+  casual: '반말',
+  formal: '존댓말',
 };
 
 // 이 앱의 핵심(능동적 구조화 질문)을 여기서 인코딩한다.
-// "답만 뱉지 말고 부족한 조건을 되물어 구조화한다"가 ChatGPT 래퍼와 갈리는 지점이다.
+// "답만 뱉지 말고 부족한 조건을 되물어 구조화한다"가 ChatGPT 래퍼와 갈리는 지점이라
+// **첫 줄이 "먼저 확인해라"** 인 게 의도다(순서를 뒤집으면 모델이 눈에 띄게 덜 묻는다).
 // 다만 마찰을 줄이려 적응형으로 — 최소 조건만 채워지면 진행하고, 이미 아는 건 다시 묻지 않는다.
 const CONVERSATION_RULES = [
   '# 대화 규칙',
-  '- 뭘 해먹을지 얘기가 나오면, 곧바로 답을 주기 전에 좋은 추천에 필요한 핵심 조건을 먼저 확인해. 보통 몇 인분인지, 시간을 얼마나 들일 수 있는지, 오늘 뭐가 당기는지야.',
-  '- 이미 알고 있는 정보(식성·알레르기·조리도구·냉장고 재고)는 다시 묻지 마. 비어 있는 핵심 조건만 물어봐.',
+  '- 뭘 해먹을지 얘기가 나오면, 곧바로 답을 주기 전에 좋은 추천에 필요한 핵심 조건을 먼저 확인해.',
+  '- 이미 알고 있는 정보(식성·못 먹는 것·조리도구·냉장고 재고)는 다시 묻지 마. 비어 있는 핵심 조건만 물어봐.',
   '- 질문은 한 번에 하나씩, 자연스럽게 해. 핵심 2~3개면 충분하고 그 이상 캐묻지 마.',
   '- 사용자가 "아무거나", "그냥 추천해줘"라고 하거나 조건을 이미 충분히 줬으면, 더 묻지 말고 바로 추천으로 넘어가.',
-  '- 추천 직전엔 모은 조건을 한 줄로 짧게 되짚어 확인해. (예: "1인분, 20분 안에, 안 매운 걸로 볼게")',
   '- 잡담이나 요리와 무관한 얘기엔 조건을 캐묻지 말고 편하게 대화해.',
+  '- 부탁하지 않은 대화 요약이나 장문의 설명은 하지 마.',
 ].join('\n');
 
-// 요리 추천과 기본 조리법은 **모델 내장 지식**이 하고, 자세한 레시피 글은 search_recipes 가 찾아온다.
-// 그 경계를 여기서 못박는다 — 안 그러면 모델이 매번 검색하려 들거나(쿼터), 아예 안 부른다.
+// 요리 추천의 우선순위. 임박 재료 우선이 이 앱의 차별점이라 순위로 못박는다.
 const RECIPE_GUIDANCE = [
-  '# 요리를 추천할 때',
-  '- 냉장고에 있는 재료로 만들 수 있는 걸 우선 제안해라. 없는 재료를 잔뜩 사야 하는 요리는 피해라.',
-  '- 곧 상하는 재료가 있으면 그걸 쓰는 요리를 먼저 권하고, 왜 권하는지 한마디로 짚어라. (예: "대파가 내일까지라 이거 먼저 쓰자") 단, 먹으면 안 되는 재료는 아무리 급해도 예외다.',
-  '- 부족한 재료가 있으면 숨기지 말고 "○○만 있으면 돼" 처럼 솔직히 말해라.',
-  '- 조리법은 핵심 순서만 짧게. 사용자가 더 물으면 그때 자세히 풀어라.',
-  '- 사용자가 못 먹는 재료·알레르기는 절대 넣지 마라. 대체 재료를 제안해라.',
-  '- 재료를 추천했다고 소비 처리하지 마라. 실제로 만들었다고 할 때만 update_inventory 의 consume 으로 처리해라.',
+  '# 요리 추천',
+  '요리를 추천할 때 다음 우선순위를 따라.',
+  '1. 냉장고에 있는 재료로 만들 수 있는 요리',
+  '2. 유통기한이 임박한 재료를 쓸 수 있는 요리',
+  '3. 그래도 마땅치 않으면, 추가로 사야 할 재료가 가장 적은 요리',
   '',
-  '# 자세한 레시피를 찾아줄 때',
-  '- 기본 조리법은 네가 직접 설명해라. 사용자가 "자세한 레시피", "만드는 법 더", "레시피 찾아줘"처럼 더 구체적인 걸 원할 때만 search_recipes 를 불러라.',
-  '- 뭘 해먹을지 정하는 단계에서는 부르지 마라. 요리가 정해진 뒤에 부르는 도구다.',
-  '- 먹으면 안 되는 재료 때문에 거절한 요리는 검색하지도 마라.',
-  '- 검색 결과는 카드로 따로 보여진다. 글 제목·링크·출처를 문장에 나열하지 말고, "아래에서 자세한 레시피를 볼 수 있어" 정도로만 짚어라.',
-  '- 카드는 네가 답을 쓴 뒤에 붙으므로, 어떤 글이 나왔는지 미리 아는 것처럼 말하지 마라.',
+  '- 임박한 재료가 있으면 그걸 쓰는 요리를 먼저 권하고, 왜 권하는지 한마디로 짚어. (예: "대파가 내일까지라 이거 먼저 쓰자")',
+  '- 부족한 재료가 있으면 숨기지 말고 "○○만 있으면 돼" 처럼 솔직히 말해.',
+  '- 먹으면 안 되는 재료가 들어가는 요리는 **먼저 추천하지 마.** 유통기한이 임박했어도 마찬가지고, 대체 재료가 있으면 그걸 제안해.',
+  '- 추천에 필요한 조건이 부족하면 이것부터 확인해 — 어떤 음식·맛이 당기는지 / 몇 인분인지 / 얼마나 빨리 만들어야 하는지.',
+  '- 추천 직전엔 모은 조건을 한 줄로 짧게 되짚어 확인해. (예: "1인분, 20분 안에, 안 매운 걸로 볼게")',
 ].join('\n');
 
-// 가드레일 — 비서/AI 말투를 막고(몰입 유지), 위험 요청은 짧게 거절·전환하게 한다.
+// 요리가 정해진 뒤의 흐름. 여기서 search_recipes 로 넘어가는 다리를 놓는다 —
+// 예전엔 사용자가 먼저 "자세한 레시피 보여줘"라고 해야만 검색이 붙어서 기능이 거의 안 쓰였다.
+const AFTER_PICK = [
+  '# 요리가 정해지면',
+  '- 사용자가 추천을 좋다고 하거나 직접 고르면 그 요리로 정해진 걸로 봐.',
+  '- 기본 조리법은 핵심 재료를 먼저 알려주고, 그다음 순서를 짧게 설명해.',
+  '- 설명을 마치면 자세한 레시피를 찾아줄지 물어봐.',
+  '',
+  '형식 예시 (말투는 위 사용자 설정을 따른다):',
+  '"라면 만드는 법 알려줄게. 재료는 사리면, 스프, 물 500ml.',
+  '1. 물 500ml를 끓인다.',
+  '2. 사리면과 스프를 넣는다.',
+  '3. 3분 30초 뒤 불을 끈다.',
+  '기본은 이렇게 하면 되고, 원하면 자세한 레시피도 몇 개 찾아줄 수 있어!"',
+].join('\n');
+
+// 재고를 함부로 건드리지 않게 하는 규칙. 자동 차감 방지가 방침이라 여기서 못박는다.
+const INVENTORY_RULES = [
+  '# 재고 관리',
+  '- 추천하거나 언급하는 것만으로 재고를 바꾸지 마. 사용자가 실제로 만들었거나 다 썼다고 말했을 때만 소비로 처리해.',
+  '- 재고 목록에 없는 재료를 사용자가 갖고 있다고 하면, 소비가 아니라 새로 넣는 것으로 처리해.',
+  '- 재료 이름은 재고 목록에 적힌 이름을 그대로 써. 같은 재료를 다르게 부르면 별개 재료로 쌓인다.',
+].join('\n');
+
+// 툴을 언제·어떻게 부를지는 각 툴 description 이 소유한다(중복해서 적으면 두 곳이 어긋난다).
+const TOOL_RULES = [
+  '# 도구 사용',
+  '- 도구는 필요할 때만 불러. 각 도구를 언제 어떻게 부를지는 그 도구의 설명을 따라.',
+  '- 부를 이유가 없으면 부르지 마.',
+].join('\n');
+
+// 가드레일 — 위험 요청은 짧게 거절·전환하게 한다.
 const GUARDRAILS = [
-  '# 하지 말 것',
-  '- "저는 AI라서" 같은 면책이나 상담원·비서 말투 금지. 이건 꼭 지켜.',
-  '- 대화 요약, 부탁하지 않은 목록이나 장문 금지.',
+  '# 금지사항',
+  '- 상담원이나 비서처럼 딱딱하게 말하지 마.',
+  '- 사용자가 알려주지 않은 정보를 지어내지 마.',
   '- 위험하거나 불법인 요청은 짧게 거절하고, 훈계 없이 자연스럽게 화제를 돌려.',
 ].join('\n');
 
@@ -103,59 +134,134 @@ const joinBlocks = (blocks: string[]) => blocks.filter((b) => b.trim().length > 
 // ─────────────────────────────── 블록들 ───────────────────────────────
 
 /**
- * 정체성 한 덩어리 — 이름·역할·상대 이름·말투·호칭.
- * 예전엔 "너의 이름은 X야"(conversation)와 역할 문장(persona)이 갈라져 데이터 블록을 사이에 두고
- * 떨어져 있었다. 모델이 자기를 규정하는 문장들이라 붙여 두는 게 맞다.
+ * 받침 유무로 조사를 고른다 — "초코**야**" / "초콜릿**이야**".
+ * 이름은 사용자가 직접 지은 값이라 항상 "이야"로 붙이면 자기 이름을 어색하게 말한다.
+ * 한글이 아니면(영문·숫자) 받침 없는 쪽으로 본다.
  */
-export function identityBlock(c: PromptCharacterType, userName: string | null): string {
-  const lines = [`너의 이름은 ${c.name}이야.`, ADVISOR_IDENTITY];
-  if (userName) lines.push(`대화 상대(사용자)의 이름은 ${userName}이야.`);
-  const speech = c.speechStyle ? SPEECH_INSTRUCTION[c.speechStyle] : undefined;
-  if (speech) lines.push(speech);
-  if (c.userNickname?.trim()) lines.push(`사용자를 '${c.userNickname.trim()}'라고 불러.`);
-  return lines.join('\n');
+function withNameParticle(name: string): string {
+  const trimmed = name.trim();
+  // 빈 문자열이면 NaN 이 나오고 아래 비교가 전부 false 라 '야' 로 떨어진다(정상 흐름엔 없음).
+  const code = trimmed.charCodeAt(trimmed.length - 1);
+  const isHangul = code >= 0xac00 && code <= 0xd7a3;
+  return `${name}${isHangul && (code - 0xac00) % 28 !== 0 ? '이야' : '야'}`;
 }
 
-/** 장기 메모리(알레르기 제외) — 비면 섹션 자체가 안 붙는다. */
-export function memoriesBlock(memories: RecalledMemory[]): string {
-  if (memories.length === 0) return '';
-  const facts = memories.map((m) => `- ${m.content}`).join('\n');
-  return `# 사용자에 대해 기억하는 것\n${facts}`;
+/** 역할 — 자기가 누구이고 무엇을 하는지. 모델이 자기를 규정하는 문장이라 맨 앞에 온다. */
+export function roleBlock(name: string): string {
+  return ['# 역할', `너의 이름은 ${withNameParticle(name)}.`, ADVISOR_IDENTITY].join('\n');
 }
 
-/** 금지 재료 블록 — 없으면 빈 문자열(섹션 자체가 안 붙는다). content 가 이름뿐이라 목록이 짧고 선명하다. */
+/**
+ * 사용자 정보 — 이름·호칭·말투를 **값으로** 준다.
+ *
+ * 셋 다 없을 수 있어서(이름·호칭은 선택) 있는 것만 렌더한다. 빈 줄("사용자 호칭: ")이 나가면
+ * 모델이 빈 값을 이름으로 착각하거나 호칭을 지어낸다.
+ *
+ * ⚠️ **이름과 호칭은 다르다.** 이름은 "누구인지", 호칭은 "뭐라고 부를지"라서, 구분해 주지 않으면
+ * 호칭을 정해뒀는데도 이름으로 부른다.
+ */
+export function userBlock(
+  userName: string | null,
+  speechStyle: string | null = null,
+  userNickname: string | null = null,
+): string {
+  const nickname = userNickname?.trim();
+  const speech = speechStyle ? SPEECH_LABEL[speechStyle] : undefined;
+
+  const facts: string[] = [];
+  if (userName) facts.push(`사용자 이름: ${userName}`);
+  if (nickname) facts.push(`사용자 호칭: ${nickname}`);
+  if (speech) facts.push(`말투: ${speech}`);
+  if (facts.length === 0) return '';
+
+  const rules: string[] = [];
+  if (nickname) {
+    rules.push(
+      `- 이름과 호칭은 다르다. 사용자를 부를 때는 이름이 아니라 호칭('${nickname}')을 써.`,
+    );
+  }
+  if (speech) rules.push(`- 대화는 항상 ${speech}로 해.`);
+
+  return ['# 사용자 정보', ...facts, ...(rules.length > 0 ? ['', ...rules] : [])].join('\n');
+}
+
+/**
+ * 조리도구(`OWNERSHIP`) — 비면 섹션 자체가 안 붙는다.
+ *
+ * 한 줄로 잇는 이유: 온보딩 태그로 들어오는 값이라 content 가 **도구 이름 하나**다("에어프라이어").
+ * 이런 짧은 낱말을 줄바꿈 목록으로 펼치면 길이만 늘고 읽기는 나빠진다.
+ */
+export function equipmentBlock(items: RecalledMemory[]): string {
+  if (items.length === 0) return '';
+  return `# 요리 장비\n${items.map((m) => m.content).join(', ')}`;
+}
+
+/**
+ * 사용자 특성(`PREFERENCE`·`PROFILE`·`ETC`) — 식성·체질·상황·요리 실력이 함께 온다.
+ *
+ * ⚠️ 조리도구·알레르기와 달리 **줄바꿈 목록을 유지한다.** 이쪽 content 는 추출 LLM 이 만든
+ * 문장이라("우유를 많이 마시면 배가 아픔") 콤마로 이으면 어디서 한 항목이 끝나는지 흐려진다.
+ */
+export function traitsBlock(items: RecalledMemory[]): string {
+  if (items.length === 0) return '';
+  return `# 사용자 특성\n${items.map((m) => `- ${m.content}`).join('\n')}`;
+}
+
+/**
+ * 먹으면 안 되는 것 블록 — 없으면 빈 문자열(섹션 자체가 안 붙는다). content 가 이름뿐이라 목록이 짧고 선명하다.
+ *
+ * **규칙이 두 겹이고 순서가 중요하다:** 먼저 "추천하지 마라"(강한 금지)를 두고, 그다음에
+ * "사용자가 직접 하겠다면 막지 마라"(예외)를 둔다. 예외를 앞에 두면 모델이 금지 자체를 약하게 읽는다.
+ *
+ * ⚠️ 이 블록은 **추천을 막을 뿐 사용자의 선택을 막지 않는다.** 제품 방침이 그렇다 —
+ * 우리가 먼저 권하지는 않되, 사용자가 직접 만들겠다고 하면 짧게 주의만 주고 도와준다.
+ * system 의 `# 요리 추천` 에도 같은 정책이 적혀 있다. **한쪽만 고치면 두 지시가 모순돼
+ * 모델이 아무거나 고르므로**(맨 끝에 오는 이 블록이 이길 가능성이 높다) 반드시 함께 고칠 것.
+ */
 export function formatAllergyWarning(allergies: RecalledMemory[]): string {
   if (allergies.length === 0) return '';
-  const items = allergies.map((m) => `- ${m.content}`).join('\n');
+  // content 가 재료·분류 **이름뿐**이라(persona.ts 의 toMemory 가 문장으로 감싸지 않는다) 한 줄로 잇는다.
+  const items = allergies.map((m) => m.content).join(', ');
   return [
-    '# ⚠️ 무엇보다 우선하는 규칙 — 먹으면 안 되는 것',
+    // ⚠️ 제목을 "알레르기"로만 줄이지 말 것 — 이 카테고리는 종교·비건처럼 알레르기가 아닌
+    // "못 먹는 재료"도 담는다. system 의 `# 요리 추천` 도 "먹으면 안 되는 재료"라고 부르므로
+    // 두 곳의 낱말이 같아야 모델이 규칙과 목록을 이어 읽는다.
+    '# ⚠️ 알레르기·먹으면 안 되는 재료',
     items,
-    '- 이 재료가 들어가는 요리는 **절대 추천하지 마라.** 사용자가 직접 그 요리를 만들어 달라고 하면 괜찮냐고 물어봐라',
-    '- 냉장고에 있어도, 심지어 곧 상해도 쓰지 마라. **"임박한 재료 먼저"보다 이 규칙이 우선이다.**',
-    '- 레시피를 내놓기 전에 재료 목록을 다시 훑어 금지 재료가 없는지 확인해라.',
+    '- 이 재료가 들어가는 요리는 먼저 추천하지 마라. 임박한 재료 먼저"보다 이 규칙이 우선이다.',
+    '- 다만 사용자가 그 재료를 쓰거나 그 요리를 직접 만들겠다고 하면 막지 마라. **짧게 한 번만** 주의를 주고 그대로 도와줘라. 반복해서 경고하거나 훈계하지 마라.',
   ].join('\n');
 }
 
 /**
- * 먹으면 안 되는 것을 나머지 기억과 분리한다 — **카테고리로만** 판정한다.
+ * 기억을 프롬프트 섹션별로 가른다 — **카테고리로만** 판정한다.
  *
- * 예전엔 content 를 정규식(`/알레르기|못 먹|.../`)으로 훑어 골라냈다. 안전 판별을 문자열 추측에
- * 맡기는 구조였고, 부정문("우유 알레르기는 없음")을 구분하지 못해 없던 금지를 만들어내기도 했다.
- * 지금은 `ALLERGY` 카테고리가 그 역할을 하고, content 에는 재료 이름만 들어온다.
+ * 예전엔 전부 "사용자에 대해 기억하는 것" 한 목록이라 조리도구("에어프라이어 있음")와 식성
+ * ("매운 음식 좋아함")이 뒤섞였다. 모델 입장에서 **"뭘 가지고 있는지"와 "뭘 좋아하는지"는
+ * 쓰임이 다른데**(전자는 조리법 가능 여부, 후자는 요리 선택) 한 덩어리면 구분해서 쓰기 어렵다.
+ *
+ * 알레르기 판정을 카테고리에 맡기는 건 안전 문제라 특히 중요하다. 예전엔 content 를
+ * 정규식(`/알레르기|못 먹|.../`)으로 훑어 골라냈는데, 안전 판별을 문자열 추측에 맡기는 구조였고
+ * 부정문("우유 알레르기는 없음")을 구분하지 못해 없던 금지를 만들어내기도 했다.
  *
  * ⚠️ 카테고리는 추출 LLM 이 고른다 — 오분류하면 그 항목은 금지 목록에서 빠진다.
  * 그래서 추출 프롬프트가 ALLERGY 의 경계를 명시적으로 못박고 있다(`memory.prompt.ts`).
  */
-export function splitAllergies(memories: RecalledMemory[]): {
+export function splitMemories(memories: RecalledMemory[]): {
   allergies: RecalledMemory[];
-  rest: RecalledMemory[];
+  equipment: RecalledMemory[];
+  traits: RecalledMemory[];
 } {
   const allergies: RecalledMemory[] = [];
-  const rest: RecalledMemory[] = [];
+  const equipment: RecalledMemory[] = [];
+  const traits: RecalledMemory[] = [];
   for (const m of memories) {
-    (m.category === 'ALLERGY' ? allergies : rest).push(m);
+    if (m.category === 'ALLERGY') allergies.push(m);
+    else if (m.category === 'OWNERSHIP') equipment.push(m);
+    // PREFERENCE(식성) · PROFILE(체질·상황·실력) · ETC 는 "이 사람은 어떤 사람인가"로 묶인다.
+    else traits.push(m);
   }
-  return { allergies, rest };
+  return { allergies, equipment, traits };
 }
 
 /** 자정 기준 남은 일수 — 시:분 차이로 "0일 남음/1일 남음"이 흔들리지 않게 날짜만 비교한다. */
@@ -194,7 +300,7 @@ export function formatInventory(inventory: RecalledIngredient[], now = new Date(
     const hedge = i.expirySource === 'ESTIMATED' ? ' (추정)' : '';
     return `- ${i.name}${qty} · ${when}${hedge}`;
   });
-  return `# 지금 냉장고에 있는 재료 (임박순)\n${lines.join('\n')}`;
+  return `# 냉장고 재고 (임박순)\n${lines.join('\n')}`;
 }
 
 // ─────────────────────────────── 조립 ───────────────────────────────
@@ -255,18 +361,23 @@ export function attachContext(items: LlmInputItemType[], context: string): LlmIn
 }
 
 export function buildPrompt(ctx: PromptContextType): BuiltPromptType {
-  const { allergies, rest } = splitAllergies(ctx.memories);
+  const { allergies, equipment, traits } = splitMemories(ctx.memories);
 
   const system = joinBlocks([
-    identityBlock(ctx.character, ctx.userName),
+    roleBlock(ctx.character.name),
+    userBlock(ctx.userName, ctx.character.speechStyle, ctx.character.userNickname),
     CONVERSATION_RULES,
     RECIPE_GUIDANCE,
+    AFTER_PICK,
+    INVENTORY_RULES,
+    TOOL_RULES,
     GUARDRAILS,
   ]);
 
   const context = joinBlocks([
-    memoriesBlock(rest),
-    formatInventory(ctx.inventory, ctx.now ?? new Date()),
+    equipmentBlock(equipment), // 무엇으로 만들 수 있는가
+    traitsBlock(traits), // 어떤 사람인가
+    formatInventory(ctx.inventory, ctx.now ?? new Date()), // 무엇이 있는가
     formatAllergyWarning(allergies), // ← 반드시 맨 끝 (재고 바로 다음)
   ]);
 
