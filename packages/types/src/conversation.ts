@@ -45,7 +45,15 @@ export interface ConsumeProposalItemType {
   name: string;
   /** 현재 냉장고에 표시된 수량 메모 (없으면 null) — 카드에 "현재 5개"로 보여줌 */
   currentQuantityNote: string | null;
-  /** 제안된 남은 양. null = 다 씀(제거), 값 = 부분 소비(그 값으로 갱신) */
+  /**
+   * 다 써서 냉장고에서 뺄지. 카드의 "다 먹음" 토글이 이 값이다.
+   *
+   * ⚠️ **`remaining` 과 별개 필드인 게 요점이다.** 예전엔 `remaining: null` 하나가 "다 씀"과
+   * "얼마 남았는지 모름"을 겸했는데, 수량 메모가 없는 재고를 일부만 쓴 경우
+   * ("고추장 좀 썼어")에 모델이 남은 양을 적을 수 없어 **재료가 통째로 제거**됐다.
+   */
+  finished: boolean;
+  /** 제안된 남은 양. `null` = 수량을 그대로 둔다(모르거나 안 바뀜), 값 = 그 값으로 갱신 */
   remaining: string | null;
 }
 
@@ -107,7 +115,9 @@ export interface ApplyProposalRequestType {
    */
   consume: Array<{
     ingredientId: string;
-    /** 최종 남은 양. null = 다 씀(제거) */
+    /** 다 써서 냉장고에서 뺀다 */
+    finished: boolean;
+    /** 최종 남은 양. `null` = 수량을 건드리지 않는다 (`finished` 가 true 면 무시된다) */
     remaining: string | null;
   }>;
   /**

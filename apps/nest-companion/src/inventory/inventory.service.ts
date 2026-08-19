@@ -13,10 +13,16 @@ import { estimateExpiry, LIMITS } from './shelf-life';
 
 /**
  * 채팅 툴이 넘기는 소비 항목.
- * `remaining` 은 **쓴 양이 아니라 남은 양**이다 — 있으면 부분 소비(수량만 갱신),
- * 없으면 전부 소비(냉장고에서 제거). 산수는 재고를 프롬프트로 받은 모델이 하고 서버는 결과만 저장한다.
+ *
+ * **두 값이 나뉘어 있는 게 요점이다:**
+ *  - `finished` — 다 써서 냉장고에서 뺄지. **명시적으로 true 일 때만** 제거한다.
+ *  - `remaining` — 쓴 양이 아니라 **남은 양**. 없으면 "얼마인지 모름"이라 수량을 건드리지 않는다.
+ *
+ * 예전엔 `remaining` 하나가 둘을 겸해서(없으면 = 다 씀), 수량 메모가 없는 재고를 일부만 쓴 경우
+ * 모델이 남은 양을 적을 방법이 없어 **재료가 통째로 제거**됐다("고추장 좀 썼어" → 고추장 사라짐).
+ * 이제 위험한 쪽(제거)이 명시적 신호를 요구하므로, 모델이 애매하면 재고가 유지되는 쪽으로 실패한다.
  */
-export type ConsumeItem = { name: string; remaining?: string };
+export type ConsumeItem = { name: string; finished?: boolean; remaining?: string };
 
 /**
  * 프롬프트 주입용 경량 재고 — 채팅이 "지금 냉장고에 뭐가 있는지" 를 알기 위한 최소 형태.
@@ -28,6 +34,8 @@ export type ConsumeItem = { name: string; remaining?: string };
 export type RecalledIngredient = {
   id: string;
   name: string;
+  category: IngredientCategoryType;
+  storage: StorageAreaType;
   quantityNote: string | null;
   expiresAt: Date;
   expirySource: string;
@@ -77,6 +85,28 @@ const toDto = (i: IngredientRow): IngredientType => ({
 export const normalize = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
 
 const clip = (s: string, max: number) => s.trim().slice(0, max);
+
+/** 스키마 기본값 — 모델이 "그냥 채운" 값인지 판단하는 기준이라 상수로 둔다. */
+const DEFAULT_STORAGE: StorageAreaType = 'FRIDGE';
+
+/**
+ * 제안에 쓸 보관 위치를 고른다 — **모델이 보낸 `FRIDGE` 는 의도가 아니라 기본값 채우기로 본다.**
+ *
+ * 툴 설명이 "이미 재고 목록에 있는 재료는 생략하라"고 못박아도 실측에서 모델은 매번 `FRIDGE` 를
+ * 채워 보냈다. 그대로 쓰면 **냉동실 재료가 냉장으로 바뀌고** 만료일까지 짧게 재추정된다
+ * (냉동 육류 180일 → 냉장 3일). 반면 `FREEZER`/`PANTRY` 는 기본값이 아니라 사용자가 말했을 때만
+ * 나오므로 그대로 존중한다("사서 냉동실에 넣었어").
+ *
+ * ⚠️ **제안 단계에서만 보정한다.** 사용자가 정말 냉장으로 옮기려면 확인 카드에서 직접 고르면 되고,
+ * 그렇게 확인된 값은 `add()` 가 그대로 저장한다(사용자 의도 > 모델 추측).
+ */
+function pickStorage(
+  fromModel: StorageAreaType | undefined,
+  fromExisting: StorageAreaType | undefined,
+): StorageAreaType {
+  if (fromModel && fromModel !== DEFAULT_STORAGE) return fromModel;
+  return fromExisting ?? fromModel ?? DEFAULT_STORAGE;
+}
 
 @Injectable()
 export class InventoryService {
@@ -185,7 +215,15 @@ export class InventoryService {
     return this.prisma.ingredient.findMany({
       where: { userId, consumedAt: null },
       orderBy: { expiresAt: 'asc' },
-      select: { id: true, name: true, quantityNote: true, expiresAt: true, expirySource: true },
+      select: {
+        id: true,
+        name: true,
+        category: true,
+        storage: true,
+        quantityNote: true,
+        expiresAt: true,
+        expirySource: true,
+      },
     });
   }
 
@@ -263,68 +301,6 @@ export class InventoryService {
   }
 
   /**
-   * 이름으로 소비 처리 — 채팅 툴 경로. LLM 은 id 를 모르고 "대파, 계란" 처럼 이름만 안다.
-   *
-   * **얼마를 썼는지가 아니라 뭐가 남았는지**(`remaining`)를 받는다. 그래야 서버가 산수를 안 한다 —
-   * "계란 5개 중 3개" 같은 계산은 재고가 프롬프트에 주입된 모델이 한 번 판단하고 결과만 넘긴다.
-   *  - `remaining` 있음 → 아직 남았다. quantityNote 만 갱신하고 냉장고에 그대로 둔다.
-   *  - `remaining` 없음 → 다 썼다. consumedAt 을 찍어 냉장고에서 뺀다.
-   *
-   * 다 쓴 재료의 quantityNote 는 **건드리지 않는다**. consumedAt 이 이미 "없음"을 뜻하는데
-   * 수량에도 "0개"를 적으면 같은 사실이 두 군데에 생겨 어긋날 수 있고, 마지막 수량을 남겨두는 쪽이
-   * 이력으로도 정확하다("2개 남은 상태에서 다 먹었다").
-   *
-   * 매칭 실패한 이름을 함께 돌려줘서, 모델이 "대파는 원래 없었어" 라고 솔직히 말할 수 있게 한다.
-   */
-  async consumeByNames(
-    userId: string,
-    items: ConsumeItem[],
-  ): Promise<{ consumed: string[]; updated: string[]; notFound: string[] }> {
-    const wanted = items
-      .map((it) => ({ name: it.name?.trim() ?? '', remaining: it.remaining?.trim() }))
-      .filter((it) => it.name.length > 0);
-    if (wanted.length === 0) return { consumed: [], updated: [], notFound: [] };
-
-    const rows = await this.prisma.ingredient.findMany({
-      where: { userId, consumedAt: null },
-      select: { id: true, name: true },
-    });
-    const byName = new Map(rows.map((r) => [normalize(r.name), r]));
-
-    const usedUpIds: string[] = [];
-    const consumed: string[] = [];
-    const updated: string[] = [];
-    const notFound: string[] = [];
-
-    for (const item of wanted) {
-      const hit = byName.get(normalize(item.name));
-      if (!hit) {
-        notFound.push(item.name);
-        continue;
-      }
-      if (item.remaining) {
-        // 일부만 씀 — 남은 양으로 갱신하고 재고에 유지
-        await this.prisma.ingredient.update({
-          where: { id: hit.id },
-          data: { quantityNote: clip(item.remaining, LIMITS.quantityNoteMax) },
-        });
-        updated.push(hit.name);
-      } else {
-        usedUpIds.push(hit.id);
-        consumed.push(hit.name);
-      }
-    }
-
-    await this.consume(userId, usedUpIds);
-    // 모델이 사용자가 말하지 않은 재료를 건드리는 일이 실제로 관측됐다(자동 차감의 고질적 위험).
-    // 무엇이 왜 사라졌는지 사후에 추적할 수 있어야 해서 남긴다.
-    this.logger.log(
-      `재고 소비 (user=${userId}) 다씀=[${consumed.join(', ')}] 일부=[${updated.join(', ')}] 없음=[${notFound.join(', ')}]`,
-    );
-    return { consumed, updated, notFound };
-  }
-
-  /**
    * 소비 "제안" 생성 — 채팅 소비 툴의 **비-mutating** 버전 (확인 카드용).
    * 이름으로 재고 행을 찾아 현재 수량 + 제안된 남은 양을 돌려주고, 아무것도 쓰지 않는다.
    * 실제 반영은 사용자 확인 후 `applyConsume` 가 id 기준으로 한다.
@@ -340,7 +316,13 @@ export class InventoryService {
     existing: { id: string; name: string; quantityNote: string | null }[],
   ): { matched: ConsumeProposalItemType[]; notFound: string[] } {
     const wanted = items
-      .map((it) => ({ name: it.name?.trim() ?? '', remaining: it.remaining?.trim() }))
+      .map((it) => ({
+        name: it.name?.trim() ?? '',
+        // ⚠️ **명시적으로 true 일 때만 "다 씀"** 이다. 값이 빠졌으면(모델이 안 채웠거나 옛 형식)
+        // 제거가 아니라 유지 쪽으로 떨어뜨린다 — 잘못 지운 재고는 사용자가 알아채기 어렵다.
+        finished: it.finished === true,
+        remaining: it.remaining?.trim(),
+      }))
       .filter((it) => it.name.length > 0);
     if (wanted.length === 0) return { matched: [], notFound: [] };
 
@@ -362,7 +344,10 @@ export class InventoryService {
         ingredientId: hit.id,
         name: hit.name,
         currentQuantityNote: hit.quantityNote,
-        remaining: item.remaining ? clip(item.remaining, LIMITS.quantityNoteMax) : null,
+        finished: item.finished,
+        // 다 썼다면 남은 양은 의미가 없다(카드도 입력칸을 잠근다).
+        remaining:
+          !item.finished && item.remaining ? clip(item.remaining, LIMITS.quantityNoteMax) : null,
       });
     }
     return { matched, notFound };
@@ -370,19 +355,25 @@ export class InventoryService {
 
   /**
    * 확인된 소비 제안을 실제로 반영 — id 기준 (사용자가 확인·편집한 최종 값).
-   * `remaining=null` → 소비(soft delete), 값 → `quantityNote` 갱신. 전부 본인(userId) 것만, 멱등.
+   *
+   * 세 갈래다:
+   *  - `finished` → 소비 처리(soft delete)
+   *  - `remaining` 값 있음 → `quantityNote` 갱신
+   *  - 둘 다 아님 → **아무것도 하지 않는다** (썼지만 얼마 남았는지 모르는 경우)
+   *
+   * 전부 본인(userId) 것만, 멱등.
    */
   async applyConsume(
     userId: string,
-    items: { ingredientId: string; remaining: string | null }[],
+    items: { ingredientId: string; finished: boolean; remaining: string | null }[],
   ): Promise<{ consumedIds: string[]; updatedIds: string[] }> {
     const usedUpIds: string[] = [];
     const updatedIds: string[] = [];
 
     for (const item of items) {
-      if (item.remaining === null) {
+      if (item.finished) {
         usedUpIds.push(item.ingredientId);
-      } else {
+      } else if (item.remaining !== null) {
         const res = await this.prisma.ingredient.updateMany({
           where: { id: item.ingredientId, userId, consumedAt: null },
           data: { quantityNote: clip(item.remaining, LIMITS.quantityNoteMax) },
@@ -413,7 +404,12 @@ export class InventoryService {
    */
   previewAdd(
     items: AddIngredientInputType[],
-    existing?: { name: string; quantityNote: string | null }[],
+    existing?: {
+      name: string;
+      category?: IngredientCategoryType;
+      storage?: StorageAreaType;
+      quantityNote: string | null;
+    }[],
   ): AddProposalItemType[] {
     const now = new Date();
     const clean = items
@@ -430,8 +426,15 @@ export class InventoryService {
     const existingByName = new Map((existing ?? []).map((e) => [normalize(e.name), e]));
 
     return [...unique.values()].slice(0, LIMITS.itemsMax).map((item) => {
-      const category = item.category ?? 'ETC';
-      const storage = item.storage ?? 'FRIDGE';
+      const prev = existingByName.get(normalize(item.name));
+      // ⚠️ 폴백이 **기존 재고 → 기본값** 순인 게 `add()` 와 같아야 한다. 여기서 기본값을 박으면
+      // 그 값이 제안에 실려 나가고, 앱이 확인하며 **그대로 되돌려보내** `add()` 의 폴백이
+      // 무력화된다(명시적으로 온 값이라 기존 재고를 못 본다). 실제로 모델이 category 를 생략했을 때
+      // 냉장고의 `계란(EGG·3주)` 이 `ETC(7일)` 로 덮어써지는 걸 확인했다.
+      const category = item.category ?? prev?.category ?? 'ETC';
+      // 보관은 폴백이 아니라 `pickStorage` 로 고른다 — 모델이 보낸 기본값(FRIDGE)을 의도로 읽으면
+      // 재입고 때 냉동 재료가 냉장으로 뒤집힌다(위 함수 주석 참고).
+      const storage = pickStorage(item.storage, prev?.storage);
       const userExpiry = item.expiresAt ? new Date(item.expiresAt) : null;
       const hasUserExpiry = userExpiry !== null && !Number.isNaN(userExpiry.getTime());
       const expiresAt = hasUserExpiry ? userExpiry : estimateExpiry(category, storage, now);
@@ -440,7 +443,6 @@ export class InventoryService {
         : undefined;
       // 이미 있는 재료면 기존 수량을 함께 싣는다 — 카드가 "기존 2개 → 추가 후 4개"로 설명한다.
       // 수량 메모가 없던 재고는 보여줄 근거가 없으므로 merge 를 붙이지 않는다(빈 칸이 더 혼란스럽다).
-      const prev = existingByName.get(normalize(item.name));
       return {
         name: item.name,
         category,

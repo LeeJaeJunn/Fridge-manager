@@ -39,6 +39,23 @@ function toStructuredInput(
   return [{ role: 'user', content }];
 }
 
+/**
+ * 한 응답에 툴을 **하나만** 부르게 강제한다 (벤더 기본값은 `true` = 병렬 허용).
+ *
+ * 끈 이유: 도메인이 여러 호출을 합칠 방법이 없다. `pickInventoryCall` 은 첫 `update_inventory`
+ * 하나만 채택하고 나머지를 **버리는데**, 실측에서 모델이 한 턴에 두 번 불러 뒤 호출이 통째로
+ * 유실되는 걸 확인했다(`ignored` 경고). 합치는 안은 이미 접었다 — 뒤 호출이 앞 판단과 어긋나고
+ * (같은 재료가 add·consume 양쪽에), 확인 카드에 같은 재고 행이 두 줄 올라와 key 가 충돌했다.
+ * 재고 유실은 **조용한 데이터 손실**이라 눈에 보이는 불편보다 나쁘다.
+ *
+ * ⚠️ **대가**: 한 턴에 `update_inventory` 와 `search_recipes` 를 같이 못 부른다. 레시피를 종결
+ * 툴로 둔 장점 중 하나가 "재고 툴과 같은 턴에 불려도 둘 다 살아남는다" 였는데 그게 사라진다.
+ * 되살리고 싶어지면 이 값을 되돌리기 **전에** 여러 호출을 병합하는 규칙부터 정할 것.
+ *
+ * ⚠️ Gemini 엔 대응 옵션이 없다 — 그래서 `pickInventoryCall` 의 방어와 경고 로그는 그대로 둔다.
+ */
+const PARALLEL_TOOL_CALLS = false;
+
 /** function_call 인자(JSON 문자열)를 안전하게 파싱한다. 손상되면 빈 객체로 흘려보낸다(크래시 방지). */
 function parseArgs(raw: string): Record<string, unknown> {
   try {
@@ -201,17 +218,14 @@ export class OpenAiLlmProvider implements LlmProvider {
         outputTokens += u.output_tokens;
         totalTokens += u.total_tokens;
       };
-      console.log('input: ', JSON.stringify(input));
-
       let res = await this.client.responses.create({
         model,
         instructions,
         input,
         tools: toolParams,
+        parallel_tool_calls: PARALLEL_TOOL_CALLS,
       });
       accumulate(res.usage);
-
-      console.log('\n\n', JSON.stringify(res));
 
       // 모델이 툴을 더 안 부를 때까지(또는 상한까지) 반복
       for (let round = 0; round < maxRounds; round++) {
@@ -267,6 +281,7 @@ export class OpenAiLlmProvider implements LlmProvider {
           input,
           tools: toolParams,
           tool_choice: lastRound ? 'none' : 'auto',
+          parallel_tool_calls: PARALLEL_TOOL_CALLS,
         });
         accumulate(res.usage);
       }

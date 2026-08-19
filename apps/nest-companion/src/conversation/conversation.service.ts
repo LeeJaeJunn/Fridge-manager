@@ -514,10 +514,12 @@ export class ConversationService {
     if (toConsume.length > 0) {
       await this.inventory.applyConsume(userId, toConsume);
       const byId = new Map((proposal.consume ?? []).map((c) => [c.ingredientId, c.name]));
+      // 모델이 다음 턴에 "뭐가 어떻게 됐는지" 읽는 기록이라 세 갈래를 구분해 담는다.
+      // 수량을 모른 채 일부만 쓴 항목(다 씀도 아니고 갱신도 아님)은 재고가 그대로라 어느 쪽에도 안 넣는다.
       for (const it of toConsume) {
         const name = byId.get(it.ingredientId) ?? '';
-        if (it.remaining === null) consumed.push(name);
-        else updatedQty.push(`${name} → ${it.remaining}`);
+        if (it.finished) consumed.push(name);
+        else if (it.remaining !== null) updatedQty.push(`${name} → ${it.remaining}`);
       }
     }
 

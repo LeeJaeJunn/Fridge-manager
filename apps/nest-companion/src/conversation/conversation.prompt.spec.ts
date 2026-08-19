@@ -20,7 +20,10 @@ const ing = (
   expiresAt: Date,
   extra: Partial<RecalledIngredient> = {},
 ): RecalledIngredient => ({
+  id: `ing-${name}`,
   name,
+  category: 'ETC',
+  storage: 'FRIDGE',
   quantityNote: null,
   expiresAt,
   expirySource: 'ESTIMATED',

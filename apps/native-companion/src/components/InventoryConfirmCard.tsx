@@ -17,17 +17,26 @@ import { IngredientEditDialog } from './IngredientEditDialog';
 
 const PLACEHOLDER = '#A1A1AA';
 
-/** 소비 항목 한 줄 — 남은 양 편집 + "다 먹음" 토글(누르면 remaining=null → 제거). */
+/**
+ * 소비 항목 한 줄 — "다 먹음" 토글 + 남은 양 편집.
+ *
+ * 토글(`finished`)과 남은 양(`remaining`)은 **별개 값**이다. 예전엔 토글이 `remaining=null` 로
+ * 인코딩돼 있어서, 남은 양을 비워두면(= 얼마인지 모름) 자동으로 "다 먹음"이 돼 재료가 사라졌다.
+ * 이제 비워두면 **수량을 그대로 둔다**는 뜻이고, 제거는 토글을 켤 때만 일어난다.
+ */
 function ConsumeRow({
   item,
-  value,
+  finished,
+  remaining,
   onChange,
 }: {
   item: ConsumeProposalItemType;
-  value: string | null;
-  onChange: (v: string | null) => void;
+  finished: boolean;
+  remaining: string;
+  onChange: (next: { finished: boolean; remaining: string }) => void;
 }) {
-  const usedUp = value === null;
+  const usedUp = finished;
+  const value = remaining;
   return (
     <View className="gap-1.5">
       <View className="flex-row items-center justify-between">
@@ -42,13 +51,14 @@ function ConsumeRow({
             usedUp ? 'bg-line text-ink-faint' : 'bg-sand text-ink'
           }`}
           editable={!usedUp}
-          value={value ?? ''}
-          onChangeText={onChange}
-          placeholder="남은 양 (예: 2개)"
+          value={value}
+          onChangeText={(v) => onChange({ finished, remaining: v })}
+          // 비워두면 "수량을 그대로 둔다"는 뜻이다 — 제거는 오른쪽 토글로만 일어난다.
+          placeholder="남은 양 (모르면 비워둬요)"
           placeholderTextColor={PLACEHOLDER}
         />
         <Pressable
-          onPress={() => onChange(usedUp ? '' : null)}
+          onPress={() => onChange({ finished: !finished, remaining })}
           className={`rounded-xl border px-3 py-2 ${
             usedUp ? 'border-lavender bg-lavender-soft' : 'border-line bg-white'
           }`}
@@ -143,9 +153,16 @@ function formatExpiry(item: AddProposalItemType): string {
   return item.expirySource === 'ESTIMATED' ? `${label}쯤` : `${label}까지`;
 }
 
-/** 편집된 남은 양 정규화 — null(다 씀)은 그대로, 공백뿐이면 "다 씀"으로 본다. */
-function normalizeRemaining(v: string | null | undefined): string | null {
-  if (v === null || v === undefined) return null;
+/** 카드가 들고 있는 소비 편집값 — 토글과 입력칸이 각각 하나씩. */
+type ConsumeEditType = { finished: boolean; remaining: string };
+
+/**
+ * 편집된 남은 양 정규화 — 공백뿐이면 `null`(**수량을 그대로 둔다**).
+ *
+ * ⚠️ 예전엔 공백을 "다 씀"으로 봤다. 그래서 남은 양을 모르는 채 확인하면 재료가 사라졌다.
+ * 이제 제거는 `finished` 로만 일어난다.
+ */
+function normalizeRemaining(v: string): string | null {
   const trimmed = v.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
@@ -180,9 +197,15 @@ export function InventoryConfirmCard({
 }) {
   const consume = proposal.consume ?? [];
 
-  // 소비 편집값: ingredientId → 남은 양(string) 또는 null(다 씀). 제안값으로 초기화.
-  const [edits, setEdits] = useState<Record<string, string | null>>(() =>
-    Object.fromEntries(consume.map((it) => [it.ingredientId, it.remaining])),
+  // 소비 편집값: ingredientId → { 다 씀 여부, 남은 양 }. 제안값으로 초기화.
+  // 빈 문자열은 "수량을 모르니 그대로 둔다"는 뜻이고, 제거는 finished 로만 일어난다.
+  const [edits, setEdits] = useState<Record<string, ConsumeEditType>>(() =>
+    Object.fromEntries(
+      consume.map((it) => [
+        it.ingredientId,
+        { finished: it.finished, remaining: it.remaining ?? '' },
+      ]),
+    ),
   );
   // 추가 항목은 **목록 자체가 편집 대상**이라(수정·빼기) 값으로 들고 있는다.
   const [add, setAdd] = useState<AddProposalItemType[]>(() => proposal.add ?? []);
@@ -201,10 +224,14 @@ export function InventoryConfirmCard({
   // 서버는 **여기서 보낸 값만** 반영한다(저장해둔 제안을 다시 읽지 않는다).
   const submit = () =>
     onApply({
-      consume: consume.map((it) => ({
-        ingredientId: it.ingredientId,
-        remaining: normalizeRemaining(edits[it.ingredientId]),
-      })),
+      consume: consume.map((it) => {
+        const e = edits[it.ingredientId] ?? { finished: it.finished, remaining: '' };
+        return {
+          ingredientId: it.ingredientId,
+          finished: e.finished,
+          remaining: e.finished ? null : normalizeRemaining(e.remaining),
+        };
+      }),
       add: add.map(toAddInput),
     });
 
@@ -222,8 +249,9 @@ export function InventoryConfirmCard({
             <ConsumeRow
               key={it.ingredientId}
               item={it}
-              value={edits[it.ingredientId] ?? null}
-              onChange={(v) => setEdits((prev) => ({ ...prev, [it.ingredientId]: v }))}
+              finished={edits[it.ingredientId]?.finished ?? it.finished}
+              remaining={edits[it.ingredientId]?.remaining ?? ''}
+              onChange={(next) => setEdits((prev) => ({ ...prev, [it.ingredientId]: next }))}
             />
           ))}
         </View>

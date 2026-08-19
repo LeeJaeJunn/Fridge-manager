@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsNotEmpty,
   IsString,
   MaxLength,
@@ -18,7 +19,11 @@ class ApplyProposalConsumeDto {
   @IsNotEmpty()
   ingredientId!: string;
 
-  // null(다 씀) 은 허용하고, 문자열일 때만 길이 검증한다.
+  /** 다 써서 냉장고에서 뺀다 — 제거는 이 값으로만 일어난다(`remaining` 이 겸하지 않는다). */
+  @IsBoolean()
+  finished!: boolean;
+
+  // null(수량 그대로 두기) 은 허용하고, 문자열일 때만 길이 검증한다.
   @ValidateIf((o: ApplyProposalConsumeDto) => o.remaining !== null)
   @IsString()
   @MaxLength(LIMITS.quantityNoteMax)

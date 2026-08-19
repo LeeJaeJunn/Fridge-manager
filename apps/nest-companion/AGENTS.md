@@ -154,10 +154,14 @@
 - 채팅 경로는 `InventoryService` 를 **직접** 호출한다(HTTP 안 탐). 아래 컨트롤러는 냉장고 화면의 **수동 교정 경로**다.
 - **제안(비-mutating)과 반영(mutating)이 나뉘어 있다** — 채팅 툴이 종결 툴이라 확인 전엔 아무것도 쓰면 안 되기 때문이다.
   - `previewAdd`(기본 분류·보관 + 만료일 추정 + 기존 수량 `merge.existing`. 같은 이름이 여러 번 오면 **첫 번째가 이긴다**) / `resolveConsume`(이름→행 + 현재 수량, 같은 행 중복 제안 제거) → 확인 카드용
+  - ⚠️ **`previewAdd` 는 모델이 보낸 `storage`(`FRIDGE`)를 의도로 믿지 않는다**(`pickStorage`). 툴 설명이 "이미 있는 재료는 생략하라"고 못박아도 모델이 매번 기본값을 채워 보내는 걸 실측했고, 그대로 두면 **냉동실 재료가 냉장으로 뒤집히고** 만료일까지 재추정된다(냉동 육류 180일 → 냉장 3일). `FREEZER`/`PANTRY` 는 기본값이 아니라 사용자가 말했을 때만 나오므로 존중한다. **보정은 제안 단계에서만** 하고, 사용자가 카드에서 고른 값은 `add()` 가 그대로 저장한다(사용자 의도 > 모델 추측).
   - **둘 다 DB 를 직접 안 보고 호출자가 읽은 재고 목록을 받는다**(순수·동기). 채팅 한 턴은 프롬프트 주입용으로 이미 재고를 읽으므로(`recall`), 그 스냅샷을 그대로 넘기면 같은 테이블을 다시 읽지 않는다 — 예전엔 한 턴에 `Ingredient` 를 **세 번**(프롬프트 + merge 근거 + 이름 매칭) 읽었다. 덤으로 **모델이 프롬프트에서 본 목록과 정확히 같은 목록**에 매칭돼 카드와 모델의 판단이 어긋날 여지가 없다.
   - 그래서 `recall` 은 프롬프트에 안 쓰는 `id` 도 함께 담는다 — 이 재사용이 없으면 `resolveConsume` 이 id 때문에 테이블을 또 읽어야 한다.
-  - `add` / `applyConsume` → 확인 후 실제 반영. `applyConsume` 는 `remaining=null` 이면 소비(soft delete), 값이면 `quantityNote` 갱신.
-  - `consumeByNames` 는 확인 카드 전환 후 **호출자가 없다**(테스트만 남음).
+  - `add` / `applyConsume` → 확인 후 실제 반영.
+  - **소비는 `finished` 와 `remaining` 두 값으로 갈린다**(세 갈래): `finished` → 소비(soft delete) / `remaining` 값 있음 → `quantityNote` 갱신 / **둘 다 아님 → 아무것도 안 함**(썼지만 얼마 남았는지 모름).
+    - ⚠️ **`remaining=null` 하나가 "다 씀"을 겸하게 되돌리지 말 것.** 예전엔 그랬는데, **수량 메모가 없는 재고**를 일부만 쓴 경우("고추장 좀 썼어") 모델이 남은 양을 적을 방법이 없어 **재료가 통째로 사라졌다.** 실측으로 확인한 케이스다.
+    - 제거는 `finished === true` **일 때만** 일어난다 — 값이 빠지면 유지 쪽으로 떨어진다. 잘못 지운 재고는 사용자가 알아채기 어렵기 때문에 위험한 쪽이 명시적 신호를 요구하게 뒀다.
+    - 앱 카드의 "다 먹음" 토글이 곧 `finished` 이고, 입력칸을 비워두면 "수량 그대로"다(예전엔 비우면 삭제였다).
 - API(`InventoryModule`, 전부 현재 유저 기준): `GET /inventory`(임박순), `GET /inventory/expiring?days=N`(홈 "먼저 먹어요"), `GET /inventory/options`, `POST /inventory`(여러 건), `PATCH /inventory/:id`(교정 — 만료일 직접 고치면 `USER` 승격, 표기일 없이 분류·보관만 바꾸면 만료일 재추정. 유통기한 직접 편집이 없는 앱에선 보관 변경이 유일한 간접 조정 수단), `DELETE /inventory/:id`(=consume, soft), `POST /inventory/:id/restore`, `DELETE /inventory/:id/hard`. `:id` 라우트는 반드시 리터럴 경로(`options`/`expiring`) **아래**에 둔다(Nest 는 선언순 매칭).
 
 ### 영수증·사진 스캔 (`POST /inventory/scan`)
