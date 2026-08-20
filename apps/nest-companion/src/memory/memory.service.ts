@@ -16,7 +16,6 @@ type MemoryRow = {
   id: string;
   category: MemoryCategoryType;
   content: string;
-  importance: number;
   createdAt: Date;
 };
 
@@ -24,12 +23,10 @@ const toDto = (m: MemoryRow): MemoryType => ({
   id: m.id,
   category: m.category,
   content: m.content,
-  importance: m.importance,
   createdAt: m.createdAt.toISOString(),
 });
 
 const normalize = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
-const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(n)));
 
 @Injectable()
 export class MemoryService {
@@ -50,23 +47,29 @@ export class MemoryService {
   }
 
   /**
-   * 주입용 메모리 선택 (← 벡터 교체 seam). 지금은 importance 높은 순으로 전부 반환.
-   * 수가 많아지면 이 메서드 내부만 top-N(importance) / 유사도 top-k 로 바꾸면 된다.
+   * 주입용 메모리 선택 (← 벡터 교체 seam). 지금은 오래된 순으로 전부 반환.
+   *
+   * 정렬이 사실상 의미가 없는 게 정상이다 — 호출자(`buildPrompt`)가 `splitMemories` 로
+   * **카테고리별 섹션**을 만들고 각 섹션을 전부 렌더하므로, 여기서 무슨 순으로 주든
+   * 섹션 안 줄 순서만 바뀐다. 수가 많아지면 이 메서드 **내부만** 카테고리별 top-N /
+   * 유사도 top-k(pgvector `vector` 컬럼 추가)로 바꾼다.
+   *
+   * ⚠️ 그때도 `ALLERGY` 는 **자르지 말 것** — 안전 정보라 하나 빠지면 사람이 다친다.
    */
   recall(userId: string): Promise<RecalledMemory[]> {
     return this.prisma.memory.findMany({
       where: { userId },
-      orderBy: [{ importance: 'desc' }, { createdAt: 'asc' }],
+      orderBy: { createdAt: 'asc' },
       select: { category: true, content: true },
     });
   }
 
-  /** 표시용 — 내 메모리 전부 (관리 화면). 카테고리·중요도 순. */
+  /** 표시용 — 내 메모리 전부 (관리 화면). 카테고리별로 묶어 오래된 순. */
   async list(userId: string): Promise<MemoryType[]> {
     const rows = await this.prisma.memory.findMany({
       where: { userId },
-      orderBy: [{ category: 'asc' }, { importance: 'desc' }, { createdAt: 'asc' }],
-      select: { id: true, category: true, content: true, importance: true, createdAt: true },
+      orderBy: [{ category: 'asc' }, { createdAt: 'asc' }],
+      select: { id: true, category: true, content: true, createdAt: true },
     });
     return rows.map(toDto);
   }
@@ -82,9 +85,16 @@ export class MemoryService {
    */
   async extractMemory(userId: string, conversationId: string): Promise<void> {
     try {
-      // 1. 최근 윈도우 메시지 (본인 대화만) — 오래된 사실은 이전 패스에서 처리됨
+      // 1. 최근 윈도우 **말풍선**(본인 대화만) — 오래된 사실은 이전 패스에서 처리됨
+      //
+      // ⚠️ **`TEXT` 만 읽는다** (`countText` 가 트리거를 셀 때와 같은 규칙). 아이템 구조로 바뀐 뒤
+      // 같은 테이블에 `FUNCTION_CALL`·`FUNCTION_CALL_OUTPUT` 이 함께 쌓이는데, 그 행들은
+      // `role`·`content` 가 **둘 다 null** 이라 필터가 없으면 두 가지가 동시에 망가진다:
+      //  1. transcript 에 `컴패니언: null` 줄이 섞여 들어간다 (추출 LLM 이 읽는 입력이 오염된다)
+      //  2. 한 턴이 2~3행이라 툴 행이 window 정원을 잡아먹어 **실제로 보는 말풍선 수가 줄어든다**
+      // "몇 마디를 넣는가"라는 window 의 의미를 유지하려면 세는 대상이 말풍선이어야 한다.
       const recent = await this.prisma.message.findMany({
-        where: { conversationId, conversation: { userId } },
+        where: { conversationId, conversation: { userId }, type: 'TEXT' },
         orderBy: { createdAt: 'desc' },
         take: this.window,
         select: { role: true, content: true },
@@ -111,7 +121,7 @@ export class MemoryService {
         model: this.model,
       });
 
-      // 4. 코드측 안전망 중복 제거 + importance 클램프
+      // 4. 코드측 안전망 중복 제거 (LLM 의 의미 중복 제거에 더한 정확일치 2중 방어)
       const known = new Set(existingContents.map(normalize));
       const fresh = parsed.memories
         .map((m) => ({ ...m, content: m.content.trim() }))
@@ -120,7 +130,6 @@ export class MemoryService {
           userId,
           category: m.category,
           content: m.content,
-          importance: clamp(m.importance, 1, 3),
         }));
       if (fresh.length === 0) return;
 

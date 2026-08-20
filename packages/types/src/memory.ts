@@ -15,6 +15,5 @@ export interface MemoryType {
   id: string;
   category: MemoryCategoryType;
   content: string;
-  importance: number;
   createdAt: string;
 }

@@ -138,12 +138,16 @@ enum MemoryCategory {
 }
 
 // 대화에서 추출한 장기 메모리 (MVP1: ~5개, 벡터 검색 아직 불필요)
+//
+// importance(1~3) 컬럼이 있었는데 걷어냈다. 무게를 카테고리가 이미 지고 있어서다 —
+// 프롬프트가 category 로 섹션을 가르고(splitMemories) 각 섹션을 **전부** 렌더하므로,
+// 알레르기가 묻히지 않는 건 "중요도 3" 이 아니라 "전용 블록이 맨 끝에 온다" 가 보장한다.
+// 정렬에만 쓰이면서 추출 LLM 이 매번 값을 지어내야 하는 필드였다.
 model Memory {
   id         String         @id @default(cuid())
   userId     String
   category   MemoryCategory @default(ETC)
   content    String // 짧고 읽을 수 있는 사실 1개. 주입(프롬프트)+표시 겸용. 예: "밤에 공부하는 편"
-  importance Int            @default(1)
   createdAt  DateTime       @default(now())
   updatedAt  DateTime       @updatedAt
 

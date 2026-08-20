@@ -58,8 +58,8 @@ export class CharacterService {
   /**
    * 캐릭터 상세 생성 (유저당 1개).
    * 캐릭터 생성 + 온보딩 태그를 메모리로 시드하는 걸 **한 트랜잭션**으로 묶는다(반쪽 생성 방지).
-   * 태그는 그룹에 따라 서로 다른 카테고리·중요도로 들어간다
-   * (식성→PREFERENCE / 알레르기→PROFILE importance 3 / 조리도구→OWNERSHIP).
+   * 태그는 그룹에 따라 서로 다른 카테고리로 들어간다
+   * (식성→PREFERENCE / 알레르기→ALLERGY / 조리도구→OWNERSHIP).
    * instruction 은 저장하지 않는다 — 프롬프트 시점에 필드에서 조립.
    */
   async create(userId: string, dto: CreateCharacterRequestType): Promise<CharacterType> {

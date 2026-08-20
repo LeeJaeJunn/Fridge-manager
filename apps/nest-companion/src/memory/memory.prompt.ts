@@ -5,14 +5,16 @@ export const EXTRACTION_SCHEMA_NAME = 'memory_extraction';
 /**
  * 추출 LLM 의 구조화 출력 스키마 (zod → SDK 가 JSON 스키마를 자동 생성).
  * category 는 enum 으로 제약해 잘못된 값을 원천 차단한다.
- * importance 범위(1~3)는 프롬프트 지시 + 저장 시 코드 클램프로 통제한다.
+ *
+ * **필드는 딱 둘이다.** importance(1~3)가 있었는데 걷어냈다 — 프롬프트가 category 로 섹션을
+ * 갈라 전부 렌더하므로 정렬 말고는 쓰이는 데가 없었고, 모델에게 매번 지어내게 하는 값이었다.
+ * 뽑을 게 적을수록 category 판정이 정확해진다(특히 ALLERGY).
  */
 export const ExtractionSchema = z.object({
   memories: z.array(
     z.object({
       category: z.enum(['ALLERGY', 'PREFERENCE', 'PROFILE', 'OWNERSHIP', 'ETC']),
       content: z.string(),
-      importance: z.number().int(),
     }),
   ),
 });
@@ -64,6 +66,5 @@ ${known}
 
 [content 형식] 짧고 자연스러운 한 구절("자취 중"). 사실 1개 = 항목 1개.
   ※ 단 ALLERGY 는 위 규칙대로 **이름만**.
-[importance] 1~3 정수 (1=사소, 2=보통, 3=핵심). ALLERGY 는 안전 문제라 반드시 3.
 새로 기억할 게 없으면 빈 배열을 반환하라.`;
 }

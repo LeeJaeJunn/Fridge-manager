@@ -31,9 +31,10 @@ export const SPEECH_STYLES: OptionType[] = [
 /**
  * 온보딩 태그 그룹 — 캐릭터가 아니라 **유저 정보**라 생성 시 Memory row 로 시드된다.
  *
- * 그룹마다 들어가는 메모리 카테고리와 중요도가 다르다. 특히 알레르기는 `importance: 3` 인데,
- * 이건 정렬 취향이 아니라 **안전 문제**다 — 모델이 놓치면 사람이 다친다.
- * 대화로도 쌓이지만, 첫 레시피를 추천하기 전에 이미 알고 있어야 해서 온보딩에서 먼저 받는다.
+ * 그룹마다 들어가는 메모리 카테고리가 다르고, **카테고리가 곧 무게다** — 알레르기가 묻히지
+ * 않는 건 중요도 숫자가 아니라 `ALLERGY` 가 프롬프트에서 전용 블록으로 맨 끝에 오기 때문이다.
+ * 알레르기는 대화로도 쌓이지만, 첫 레시피를 추천하기 전에 이미 알고 있어야 해서
+ * (안전 문제 — 모델이 놓치면 사람이 다친다) 온보딩에서 먼저 받는다.
  */
 type TagGroup = {
   key: string;
@@ -41,7 +42,6 @@ type TagGroup = {
   hint: string;
   options: string[];
   category: 'ALLERGY' | 'PREFERENCE' | 'PROFILE' | 'OWNERSHIP';
-  importance: number;
 };
 
 export const TAG_GROUPS: TagGroup[] = [
@@ -60,15 +60,13 @@ export const TAG_GROUPS: TagGroup[] = [
       '가벼운 식사 선호',
     ],
     category: 'PREFERENCE',
-    importance: 2,
   },
   {
     key: 'allergy',
     label: '알레르기·못 먹는 것',
     hint: '이건 절대 추천하지 않을게',
     options: ['갑각류', '견과류', '땅콩', '유제품', '계란', '밀(글루텐)', '메밀', '복숭아', '오이'],
-    category: 'ALLERGY',
-    importance: 3, // 안전 — 절대 묻히면 안 된다
+    category: 'ALLERGY', // 안전 — 프롬프트의 전용 블록(맨 끝)이 이 카테고리로 판정된다
   },
   {
     key: 'appliance',
@@ -76,7 +74,6 @@ export const TAG_GROUPS: TagGroup[] = [
     hint: '있는 도구로 만들 수 있는 걸 추천할게',
     options: ['전자레인지', '에어프라이어', '인덕션', '가스레인지', '오븐', '밥솥'],
     category: 'OWNERSHIP',
-    importance: 2,
   },
 ];
 
@@ -85,7 +82,7 @@ export const SPEECH_STYLE_VALUES = SPEECH_STYLES.map((o) => o.value);
 export const TAG_VALUES = TAG_GROUPS.flatMap((g) => g.options);
 
 /**
- * 선택한 태그 → 저장할 메모리(카테고리·중요도 포함). 모르는 값이면 null.
+ * 선택한 태그 → 저장할 메모리(카테고리 포함). 모르는 값이면 null.
  * DTO 가 @IsIn 으로 이미 거르지만, 값이 바뀌었을 때 조용히 잘못된 카테고리로 새지 않게 여기서도 확인한다.
  *
  * **content 는 선택값 그대로 저장한다** — 문장으로 감싸지 않는다.
@@ -97,14 +94,12 @@ export const TAG_VALUES = TAG_GROUPS.flatMap((g) => g.options);
 export function tagToMemory(value: string): {
   category: 'ALLERGY' | 'PREFERENCE' | 'PROFILE' | 'OWNERSHIP';
   content: string;
-  importance: number;
 } | null {
   const group = TAG_GROUPS.find((g) => g.options.includes(value));
   if (!group) return null;
   return {
     category: group.category,
     content: value,
-    importance: group.importance,
   };
 }
 
@@ -123,7 +118,7 @@ export const LIMITS: CharacterLimitsType = {
 export function characterOptions(): CharacterOptionsType {
   return {
     speechStyles: SPEECH_STYLES.map((o) => ({ ...o })),
-    // 어떤 카테고리로 시드되는지(category/importance)는 서버 내부 사정이라 내려주지 않는다.
+    // 어떤 카테고리로 시드되는지는 서버 내부 사정이라 내려주지 않는다.
     tagGroups: TAG_GROUPS.map((g) => ({
       key: g.key,
       label: g.label,
