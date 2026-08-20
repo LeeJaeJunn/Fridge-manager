@@ -113,13 +113,19 @@ export class MemoryService {
       const existingContents = existing.map((e) => e.content);
 
       // 3. LLM 추출 (구조화 출력)
-      const { parsed } = await this.llm.structured({
-        instructions: buildExtractionInstruction(existingContents),
-        input: transcript,
-        schema: ExtractionSchema,
-        schemaName: EXTRACTION_SCHEMA_NAME,
-        model: this.model,
-      });
+      const { parsed } = await this.llm.structured(
+        {
+          instructions: buildExtractionInstruction(existingContents),
+          input: transcript,
+          schema: ExtractionSchema,
+          schemaName: EXTRACTION_SCHEMA_NAME,
+          model: this.model,
+        },
+        // ⚠️ **billable: false** — 유저가 시킨 적 없는 백그라운드 작업이다. 여기서 한도를 깎으면
+        // `MEMORY_EXTRACT_EVERY_N` 을 6→3 으로 튜닝하는 순간 모든 유저의 한도가 조용히 줄어든다.
+        // 원가에는 잡히되(행은 남는다) 쿼터에서만 빠진다.
+        { userId, feature: 'memory_extract', conversationId, billable: false },
+      );
 
       // 4. 코드측 안전망 중복 제거 (LLM 의 의미 중복 제거에 더한 정확일치 2중 방어)
       const known = new Set(existingContents.map(normalize));

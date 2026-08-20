@@ -607,6 +607,9 @@ export class ConversationService {
       [UPDATE_INVENTORY_TOOL, SEARCH_RECIPES_TOOL],
       executors,
       this.model,
+      // 유저가 직접 보낸 메시지라 쿼터에 센다. conversationId 는 "긴 대화가 실제로 얼마나
+      // 비싼가"를 나중에 물어보기 위한 참조다 — 이 앱은 매 턴 히스토리를 통째로 재생한다.
+      { userId, feature: 'chat', conversationId, billable: true },
     );
 
     // 모델은 **텍스트와 툴 호출을 같이 낼 수 있다** → 각각 별개 아이템으로 쌓는다.

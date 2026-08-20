@@ -12,6 +12,7 @@ import { MemoryModule } from './memory/memory.module';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { RecipeModule } from './recipe/recipe.module';
+import { UsageModule } from './usage/usage.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { RecipeModule } from './recipe/recipe.module';
     PrismaModule,
     AuthModule,
     CharacterModule,
+    UsageModule, // LlmModule 앞 — 의존 방향(llm → usage)을 읽는 사람에게 보이려는 순서
     LlmModule,
     OcrModule,
     MemoryModule,

@@ -128,16 +128,21 @@ export class ScanService {
     // 알아보면 되므로 낮춰 토큰을 아낀다.
     const detail = kind === 'receipt' ? 'high' : 'auto';
 
-    const { parsed, usage } = await this.llm.structured({
-      // 재고는 **입력이 아니라 instruction** 에 넣는다 — 사진에서 뽑을 대상이 아니라 합산 판단용
-      // 배경 정보라서다. 입력에 섞으면 모델이 그걸 이번에 산 품목으로 착각한다.
-      instructions: buildScanInstruction(kind, existing),
-      input: ocrText,
-      images: [{ dataUrl, detail }],
-      schema: ScanSchema,
-      schemaName: RECEIPT_SCHEMA_NAME,
-      model: this.model,
-    });
+    const { parsed, usage } = await this.llm.structured(
+      {
+        // 재고는 **입력이 아니라 instruction** 에 넣는다 — 사진에서 뽑을 대상이 아니라 합산 판단용
+        // 배경 정보라서다. 입력에 섞으면 모델이 그걸 이번에 산 품목으로 착각한다.
+        instructions: buildScanInstruction(kind, existing),
+        input: ocrText,
+        images: [{ dataUrl, detail }],
+        schema: ScanSchema,
+        schemaName: RECEIPT_SCHEMA_NAME,
+        model: this.model,
+      },
+      // 유저가 사진을 올려 시킨 일이라 쿼터에 센다. 대화 밖이라 conversationId 는 없다.
+      // 이미지 토큰이 붙어 건당 원가가 큰 경로라 기능을 따로 가르는 값어치가 크다.
+      { userId, feature: 'scan', billable: true },
+    );
 
     // category/storage 는 zod enum 이 `CATEGORY_VALUES`/`STORAGE_VALUES` 로 이미 제약했지만,
     // 그 vocab 을 문자열 유니온으로 좁히지 않는 레포 방침 때문에 타입이 `string` 이라 경계에서 단언한다.
