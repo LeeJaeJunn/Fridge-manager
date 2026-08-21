@@ -19,22 +19,74 @@ enum Role {
   assistant
 }
 
-// 로그인 사용자 (loginId/passwordHash 기반 인증)
+// 로그인 사용자.
+//
+// **로그인 수단은 여기 없다** — `AuthIdentity` 가 1:N 으로 들고 있다(그 모델 주석 참고).
+// 여기 남는 건 "사람"에 대한 것뿐이다: 누구인지(email·name)와 비밀번호(이메일 가입자만).
 model User {
-  id           String   @id @default(cuid())
-  loginId      String   @unique
-  passwordHash String
-  name         String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String    @id @default(cuid())
+  // 로그인 키 겸 연락처. 예전 `loginId`(임의 문자열)를 대체한다.
+  //
+  // **인증 수단이 아니라 "사람 동일성"의 축이라 필수(NOT NULL)다.** 카카오 id 와 구글 id 는
+  // 서로 아무 관계가 없어서, 이메일이 없으면 같은 사람이 두 수단으로 로그인했을 때 동일인인지
+  // 알 방법이 전혀 없다 → 계정이 갈라지고 재고가 한쪽에만 쌓인다(이 앱에선 치명적).
+  // 결제 연락처(영수증·결제 실패·만료 안내)이기도 하다.
+  // nullable 로 두면 이메일을 쓰는 모든 경로가 null 분기를 떠안으므로, 쓸 때 보장한다
+  // (`Ingredient.expiresAt` 과 같은 판단) — 소셜이 이메일을 안 주면 **가입을 거부**한다.
+  // ⚠️ 애플의 Private Relay 주소는 앱마다 달라 다른 provider 의 이메일과 절대 일치하지 않는다.
+  //    그래서 애플 유저의 동일인 판정은 이메일로 안 되고, 명시적 "계정 연결"이 답이다.
+  email         String    @unique
+  // 인증 시각. null = 미인증. 지금은 미인증도 로그인 가능하고, 결제를 붙일 때 여기를 요구한다.
+  // 소셜은 provider 가 검증한 이메일만 받으므로 가입 시점에 채운다.
+  emailVerified DateTime?
+  // 이메일 가입자만 갖는다. 소셜 전용 유저는 null.
+  // ⚠️ 비밀번호는 **여기 한 곳**이다 — `AuthIdentity` 에 두지 않는다. 참고한 프로젝트가 양쪽에
+  // 두고 한쪽이 죽은 컬럼이 돼 있었는데, 두 기록이 어긋나는 전형적인 모양이다.
+  passwordHash  String?
+  name          String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   character       Character? // 1:1 — 유저당 캐릭터 하나
   conversations   Conversation[]
   memories        Memory[]
   inventory       Ingredient[] // 냉장고 재고
   refreshSessions RefreshSession[]
+  identities      AuthIdentity[] // 로그인 수단 (LOCAL/KAKAO/…)
   // ⚠️ 유일하게 cascade 가 **아닌** 관계다 — 탈퇴해도 원장은 남고 userId 만 끊긴다(LlmUsage 주석 참고).
   llmUsage        LlmUsage[]
+}
+
+// 로그인 수단 한 개 = 행 한 개. **"이 사람이 어느 문으로 들어오는가."**
+//
+// 한 유저가 수단을 **여러 개** 가질 수 있어서 별도 테이블이다(카카오로 가입했다가 나중에 구글을
+// 연결). `User` 에 provider 컬럼을 박으면 문이 하나뿐이라 두 번째에서 막히고, iOS 심사 때문에
+// 애플을 붙이는 순간 실제로 그 상황이 온다. `RefreshSession` 이 별도 테이블인 것과 같은 1:N 이다.
+//
+// 로그인 흐름: 카카오가 "이 사람 3820156789번" 이라고 알려주면 `(provider, providerUserId)` 로
+// 이 표를 찾아 `userId` 를 얻는다 — **저쪽 번호 → 우리 번호 번역표**다.
+// ⚠️ 이메일이 아니라 `providerUserId` 가 키인 이유: 이메일은 바뀐다. 그쪽 회원번호는 안 바뀐다.
+model AuthIdentity {
+  id             String   @id @default(cuid())
+  userId         String
+  // 'LOCAL' | 'KAKAO' | 'NAVER' | 'GOOGLE' (나중에 'APPLE').
+  // ⚠️ DB enum 이 아니라 String 이다 — `speechStyle` 과 같은 판단이고, Prisma 생성 enum 을
+  // `===` 로 비교하면 no-unsafe-enum-comparison 이 걸린다. 덤으로 provider 추가에 마이그레이션이
+  // 필요 없다. 값 목록의 단일 출처는 코드 상수(`PROVIDER_VALUES`)이고 DTO 검증도 거기서 쓴다.
+  provider       String
+  // 그쪽 서비스가 그 사람에게 붙인 안정적 식별자. **LOCAL 은 외부 서비스가 없어서 null**
+  // (그 유저의 비밀번호는 `User.passwordHash` 에 있다).
+  providerUserId String?
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 한 소셜 계정이 두 유저에 붙는 것 방지. **번호만으론 부족하다** — 카카오 123 과 구글 123 은
+  // 우연히 둘 다 존재할 수 있고 서로 다른 사람이라, 열쇠는 두 컬럼의 짝이다.
+  @@unique([provider, providerUserId])
+  // 한 유저에게 같은 provider 가 두 번 붙는 것 방지 (LOCAL 이 두 줄 생기는 것도 여기서 막힌다).
+  @@unique([userId, provider])
+  @@index([userId])
 }
 
 // 리프레시 세션 — access token 재발급의 근거. 로그인/기기마다 1개.
