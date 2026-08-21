@@ -252,7 +252,10 @@ describe('InventoryService', () => {
     it('이미 지난 것도 포함한다 (상한만 있고 하한이 없다)', async () => {
       await service.expiringSoon('u1', 3);
       const { where } = readArg(prisma.ingredient.findMany);
-      expect(where.expiresAt.gte).toBeUndefined();
+      // ⚠️ `gte` 만 보면 `expiresAt` 자체가 없을 때도 통과한다(= 상한도 없는 상태를 놓친다).
+      // 상한이 있다는 것부터 확인해야 "상한만 있고 하한이 없다"가 실제로 검증된다.
+      expect(where.expiresAt).toBeDefined();
+      expect(where.expiresAt?.gte).toBeUndefined();
     });
   });
 
@@ -266,7 +269,8 @@ describe('InventoryService', () => {
 
     it('이미 소비한 건 다시 건드리지 않는다 (멱등)', async () => {
       await service.consume('u1', ['i1']);
-      expect(writeArg(prisma.ingredient.updateMany).where.consumedAt).toBeNull();
+      // `where` 가 아예 없으면 undefined 라 toBeNull() 이 실패한다 — 조용히 통과하지 않는다.
+      expect(writeArg(prisma.ingredient.updateMany).where?.consumedAt).toBeNull();
     });
 
     it('빈 배열이면 쿼리를 아예 안 날린다', async () => {
@@ -281,7 +285,7 @@ describe('InventoryService', () => {
 
     it('남의 재료는 못 건드린다 (userId 로 격리)', async () => {
       await service.consume('u1', ['i1']);
-      expect(writeArg(prisma.ingredient.updateMany).where.userId).toBe('u1');
+      expect(writeArg(prisma.ingredient.updateMany).where?.userId).toBe('u1');
     });
   });
 

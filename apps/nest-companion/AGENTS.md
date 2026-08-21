@@ -247,13 +247,26 @@ LLM 호출 1건 = `LlmUsage` 행 1개. **지금은 계측만 하고 제한은 �
 - `@CurrentUser()` 데코레이터로 컨트롤러에서 `req.userId` 를 꺼낸다. 모든 유저 스코프 라우트는 이 값 기준. (가드가 `DevAuthGuard`→`JwtAuthGuard` 로 바뀌었지만 `req.userId` 계약이 같아 컨트롤러/서비스는 무변경.)
 - **회전(rotation)은 원자적**: `refresh` 는 옛 세션 삭제+새 세션 생성을 **`$transaction` 으로 묶고 `deleteMany` 의 count가 정확히 1일 때만** 성공시킨다 → 같은 refresh 로 동시 요청이 와도 진 쪽은 count 0 → 재사용 401(500 아님). 탈취된 옛 refresh 재사용도 401. **로그아웃**(`POST /auth/logout`)은 해당 refresh 세션을 삭제(멱등).
 - **AuthService**:
-  - `signup` — 유저 생성 + 최초 세션을 **한 트랜잭션**으로(반쪽 가입 방지). 중복은 사전조회 없이 **unique 제약(P2002)→`ConflictException`** (동시 가입 경합도 안전).
+  - `signup` — 유저 + **`LOCAL` 신원** + 최초 세션을 **한 트랜잭션**으로(반쪽 가입 방지). 중복은 사전조회 없이 **unique 제약(P2002)→`ConflictException`** (동시 가입 경합도 안전).
   - `login` — 유저가 없어도 **더미 해시로 `bcrypt.compare` 를 수행**(계정 열거 타이밍 공격 방지), 실패 메시지도 동일. 성공 시 만료된 세션을 기회적으로 정리.
   - `getCurrentUser`(=`GET /auth/me` 로직), `refresh`, `logout`. bcrypt 는 순수 JS `bcryptjs`.
 - API: `POST /auth/signup|login|refresh|logout`(가드 없음), `GET /auth/me`(`JwtAuthGuard`). signup/login 은 `{ accessToken, refreshToken, user }` 반환.
 - env: `JWT_SECRET`(≥16자, 프로덕션은 무작위로 교체 필수), `JWT_ACCESS_TTL`, `REFRESH_TTL_DAYS`. **시작 시 `config/env.validation.ts`(zod, `ConfigModule.validate`)로 검증** — 빈 secret·NaN TTL·프로덕션의 `change-me` 면 부팅을 차단한다. `JwtModule` 은 `global: true` 로 등록해 각 모듈의 `@UseGuards(JwtAuthGuard)` 가 `JwtService` 를 주입받게 한다.
-- 데이터: `RefreshSession`(userId, `tokenHash` @unique, expiresAt). `User` 에 이미 `loginId`/`passwordHash` 존재.
+- 데이터: `RefreshSession`(userId, `tokenHash` @unique, expiresAt), `User`(`email` @unique, `emailVerified`, `passwordHash?`), `AuthIdentity`.
 - **미구현(배포 전)**: 로그인/회원가입 rate limit(`@nestjs/throttler`) — 브루트포스·bcrypt CPU 소모 방어.
+
+### 로그인 수단 — 이메일(`LOCAL`) + 소셜 (`AuthIdentity`)
+
+**로그인 키는 이메일**이다(예전 `loginId` 임의 문자열은 제거). 그리고 **로그인 수단은 `User` 가 아니라 `AuthIdentity` 가 1:N 으로** 들고 있다 — 한 사람이 수단을 여러 개 가질 수 있어서다(카카오로 가입했다가 나중에 구글 연결). 자세한 근거는 schema.prisma 의 두 모델 주석 참고.
+
+- **`email` 은 인증 수단이 아니라 "사람 동일성"의 축**이다. 카카오 id 와 구글 id 는 서로 무관해서, 이메일이 없으면 같은 사람이 두 수단으로 로그인했을 때 동일인인지 알 방법이 없다 → 계정이 갈라지고 **재고가 한쪽에만 쌓인다**(이 앱에선 치명적). 그래서 NOT NULL 이고, 소셜이 이메일을 안 주면 **가입을 거부**한다.
+- **이메일 정규화(`auth/email.ts`)는 단일 출처**다. 저장·조회·검증이 같은 규칙을 써야 `Kim@x.com` 과 `kim@x.com` 이 두 계정이 되지 않는다.
+  - ⚠️ **DTO 의 `@Transform` 이 `@IsEmail()` 보다 먼저 다듬어야 한다.** 검증은 원본을 보므로 trim 을 안 하면 앞뒤 공백이 붙은 이메일이 "형식 오류"로 거절된다(실측). 서비스도 같은 함수를 부르는데, 멱등이고 **소셜 경로는 DTO 를 안 거치므로** 양쪽 다 필요하다.
+- `login` 은 **`passwordHash` 가 null 이면(=소셜 전용 유저) 같은 401** 로 거절한다. 다른 에러로 흘리면 응답만 보고 "이 이메일은 카카오로 가입돼 있다"를 알아낼 수 있다(계정 열거).
+- provider 어휘의 단일 출처는 **`auth/providers.ts`**(`PROVIDER_VALUES`/`LOCAL_PROVIDER`/`SOCIAL_PROVIDER_VALUES`). DB 는 String 컬럼이라 값을 강제하지 못한다. **애플 추가 = 여기 한 줄, 마이그레이션 불필요.**
+- ⚠️ **이메일이 같다고 자동 병합하지 말 것.** provider 가 그 이메일 소유를 검증했는지 보장할 수 없어 계정 탈취 경로가 된다. 충돌하면 **막되 잠기지 않게** 한다 — "이미 카카오로 가입된 이메일이에요"처럼 **어느 수단으로 가입했는지 알려주면**(`AuthIdentity` 목록으로 판정) 사용자는 항상 원래 수단으로 들어올 수 있다. 병합은 나중에 로그인된 상태의 "계정 연결"로만 연다.
+  - ⚠️ 애플의 Private Relay 주소는 앱마다 달라 다른 provider 의 이메일과 **절대 일치하지 않는다** — 애플 유저의 동일인 판정은 이메일로 안 되고 명시적 연결이 답이다.
+- **미구현**: 소셜 로그인 자체(카카오→네이버→구글), 이메일 인증(발송·코드 테이블). 소셜을 붙일 때 **앱은 토큰이 아니라 인가코드를 보내고 서버가 provider 에 확인**해야 한다 — 앱이 `providerUserId` 를 직접 보내면 아무나 남의 계정으로 들어온다(신뢰 경계).
 
 ## DB / Prisma
 
@@ -279,7 +292,8 @@ LLM 호출 1건 = `LlmUsage` 행 1개. **지금은 계측만 하고 제한은 �
   - ❌ 안 만든다 — **프롬프트 문구**. 앞으로 계속 다듬을 것이라 스펙이 매번 깨져 오히려 방해가 된다. 문구가 아니라 **데이터가 문자열로 렌더되는 로직**만 볼 가치가 있다.
   - 스펙을 안 만들기로 했으면 **"스펙으로 고정된다"는 주석도 함께 지운다** — 없는 안전망을 있다고 적어두면 다음 사람이 속는다.
 - `lint` 는 **검사만**(`--fix` 없음), 자동수정은 `lint:fix`. CI 가 위반을 잡아야 하므로 둘을 분리한다.
-- 레포 루트 `pnpm verify` = `format:check → lint → test → test:e2e → build`. **push 전에 이걸 돌린다.** CI(`.github/workflows/ci.yml`)도 동일 체인 + 더미 env(로컬 `.env` 없이 부팅되도록)로 실행한다.
+- 레포 루트 `pnpm verify` = `format:check → lint → typecheck → test → test:e2e → build`. **push 전에 이걸 돌린다.** CI(`.github/workflows/ci.yml`)도 동일 체인 + 더미 env(로컬 `.env` 없이 부팅되도록)로 실행한다.
+  - `typecheck`(`tsc --noEmit`)는 **`build` 가 안 보는 것까지 본다** — `tsconfig.build.json` 이 `*.spec.ts` 를 제외하므로 스펙의 타입 오류는 빌드로는 안 잡힌다.
 - 테스트에서 `expect(p).rejects.toBeInstanceOf(X)` 쓸 때 `X`(예외 클래스)를 **반드시 import** — 안 하면 `toBeInstanceOf(undefined)` 가 동기 throw → 미처리 rejection 으로 Node 가 워커를 죽인다.
 
 ## 개발 워크플로우 주의

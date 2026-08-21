@@ -10,9 +10,10 @@
     "lint": "pnpm -r --if-present lint",
     "test": "pnpm -r --if-present test",
     "test:e2e": "pnpm --filter @companion/api test:e2e --runInBand",
-    "verify": "pnpm format:check && pnpm lint && pnpm test && pnpm test:e2e && pnpm build",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm test:e2e && pnpm build",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "typecheck": "pnpm -r --if-present typecheck"
   },
   "devDependencies": {
     "prettier": "3.8.4",

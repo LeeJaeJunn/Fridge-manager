@@ -117,10 +117,10 @@ export default function AccountSettingsScreen() {
         {error && <Text className="text-sm text-red-500">{error}</Text>}
       </View>
 
-      {/* 아이디 (읽기 전용) */}
+      {/* 이메일 (읽기 전용 — 로그인 키라 앱에서 바꾸지 않는다) */}
       <View className="gap-1">
-        <Text className="text-ink-soft">아이디</Text>
-        <Text className="text-lg text-ink">@{user?.loginId ?? '-'}</Text>
+        <Text className="text-ink-soft">이메일</Text>
+        <Text className="text-lg text-ink">{user?.email ?? '-'}</Text>
       </View>
 
       <View className="mt-auto gap-3">

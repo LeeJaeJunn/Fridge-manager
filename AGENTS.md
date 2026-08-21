@@ -20,7 +20,8 @@ companion/
 - 패키지 매니저: **pnpm**. Expo/Metro 호환을 위해 **`pnpm-workspace.yaml` 에 `nodeLinker: hoisted`** 필수 (없으면 `react-native-css-interop` 등 transitive 의존성을 Metro 가 못 찾음). pnpm 11 은 이 설정을 `.npmrc` 가 아니라 `pnpm-workspace.yaml` 에서 읽는다.
 - 포매팅: 루트 `prettier` + `prettier-plugin-tailwindcss` (루트에서 `pnpm format`)
 - 에디터 설정: 루트 `.vscode/` (워크스페이스 전체 공통)
-- CI/검증: `.github/workflows/ci.yml` 이 **`pnpm verify`**(= `format:check → lint → test → test:e2e → build`)를 돌린다. push 전에 로컬에서 `pnpm verify` 로 같은 체인을 확인한다.
+- CI/검증: `.github/workflows/ci.yml` 이 **`pnpm verify`**(= `format:check → lint → **typecheck** → test → test:e2e → build`)를 돌린다. push 전에 로컬에서 `pnpm verify` 로 같은 체인을 확인한다.
+  - ⚠️ **`typecheck` 가 없으면 네이티브 앱은 타입 검사를 아무도 안 한다.** `test`·`build` 는 `--if-present` 라 스크립트가 없는 native 를 건너뛰고, `expo lint` 는 eslint 라 타입을 안 본다. 실제로 `loginId`→`email` 전환 때 **앱이 타입 에러 6개인 채로 verify 가 통과**했다. 두 앱 모두 `typecheck: tsc --noEmit` 을 갖고 있어야 한다.
 
 ## 백엔드 방침
 

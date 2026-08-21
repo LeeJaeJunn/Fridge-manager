@@ -10,23 +10,25 @@ type Mode = 'login' | 'signup';
 export default function LoginScreen() {
   const { login, signup } = useAuth();
   const [mode, setMode] = useState<Mode>('login');
-  const [loginId, setLoginId] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isSignup = mode === 'signup';
-  const canSubmit = loginId.trim().length > 0 && password.length > 0 && !submitting;
+  const canSubmit = email.trim().length > 0 && password.length > 0 && !submitting;
 
   const submit = async () => {
     setError(null);
     setSubmitting(true);
     try {
+      // 공백·대소문자 정규화는 **서버가** 한다(`auth/email.ts` 가 단일 출처) — 여기서 또 다듬으면
+      // 규칙이 두 곳에 흩어지고, 소셜 경로와도 어긋난다. 여기선 그대로 보낸다.
       if (isSignup) {
-        await signup({ loginId: loginId.trim(), password, name: name.trim() || undefined });
+        await signup({ email, password, name: name.trim() || undefined });
       } else {
-        await login({ loginId: loginId.trim(), password });
+        await login({ email, password });
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : '문제가 발생했어요. 다시 시도해 주세요.');
@@ -51,10 +53,13 @@ export default function LoginScreen() {
 
       <View className="gap-3">
         <Field
-          label="아이디"
-          value={loginId}
-          onChangeText={setLoginId}
-          placeholder="영문/숫자/밑줄 4~20자"
+          label="이메일"
+          value={email}
+          onChangeText={setEmail}
+          placeholder="you@example.com"
+          // 이메일 전용 키보드 + 자동 대문자·자동수정 해제 (모바일 기본값이 이메일을 망가뜨린다)
+          keyboardType="email-address"
+          textContentType="emailAddress"
           autoCapitalize="none"
           autoCorrect={false}
         />

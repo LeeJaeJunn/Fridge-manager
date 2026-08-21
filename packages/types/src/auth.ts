@@ -1,21 +1,27 @@
-/** 현재 인증된 유저 (표시용 필드만 — passwordHash 등 민감값 제외) */
+/**
+ * 현재 인증된 유저 (표시용 필드만 — passwordHash 등 민감값 제외).
+ *
+ * 로그인 키는 **이메일**이다(예전 `loginId` 임의 문자열을 대체). 이메일은 인증 수단이라기보다
+ * "사람 동일성"의 축이다 — 카카오 id 와 구글 id 는 서로 무관해서, 이메일이 없으면 같은 사람이
+ * 두 수단으로 로그인했을 때 동일인인지 알 방법이 없다.
+ */
 export type CurrentUserType = {
   id: string;
-  loginId: string;
+  email: string;
   name: string | null;
   createdAt: string;
 };
 
-/** 회원가입 요청 본문 */
+/** 회원가입 요청 본문 (이메일+비밀번호 = `LOCAL` 가입. 소셜은 별도 경로) */
 export type SignupRequestType = {
-  loginId: string;
+  email: string;
   password: string;
   name?: string;
 };
 
-/** 로그인 요청 본문 */
+/** 로그인 요청 본문 (`LOCAL` 가입자만 — 소셜 유저는 비밀번호가 없다) */
 export type LoginRequestType = {
-  loginId: string;
+  email: string;
   password: string;
 };
 

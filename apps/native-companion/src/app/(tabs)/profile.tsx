@@ -21,7 +21,8 @@ function SettingsRow({ label, onPress }: { label: string; onPress: () => void })
 export default function ProfileScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const name = user?.name ?? user?.loginId ?? '사용자';
+  // 이름을 안 정했으면 이메일 앞부분으로 대신한다 — 주소 전체는 아바타·제목에 길고 사적이다.
+  const name = user?.name ?? user?.email?.split('@')[0] ?? '사용자';
 
   return (
     <Screen scroll contentClassName="gap-8 px-6 py-8">
@@ -30,7 +31,7 @@ export default function ProfileScreen() {
         <Avatar name={name} />
         <View className="items-center gap-0.5">
           <Text className="text-xl font-bold text-ink">{name}</Text>
-          {user?.loginId && <Text className="text-sm text-ink-soft">@{user.loginId}</Text>}
+          {user?.email && <Text className="text-sm text-ink-soft">{user.email}</Text>}
         </View>
       </View>
 

@@ -5,10 +5,14 @@ import * as bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 
-type CreateUserArg = { data: { loginId: string; passwordHash: string; name?: string | null } };
+type CreateUserArg = { data: { email: string; passwordHash: string; name?: string | null } };
+type CreateIdentityArg = {
+  data: { userId: string; provider: string; providerUserId: string | null };
+};
 
 type PrismaMock = {
   user: { findUnique: jest.Mock; create: jest.Mock<Promise<unknown>, [CreateUserArg]> };
+  authIdentity: { create: jest.Mock<Promise<unknown>, [CreateIdentityArg]> };
   refreshSession: {
     create: jest.Mock;
     findUnique: jest.Mock;
@@ -25,6 +29,7 @@ describe('AuthService', () => {
   beforeEach(() => {
     prisma = {
       user: { findUnique: jest.fn(), create: jest.fn() },
+      authIdentity: { create: jest.fn().mockResolvedValue(undefined) },
       refreshSession: {
         create: jest.fn().mockResolvedValue(undefined),
         findUnique: jest.fn(),
@@ -47,22 +52,22 @@ describe('AuthService', () => {
     it('unique 위반(P2002)이면 ConflictException', async () => {
       prisma.user.create.mockRejectedValue({ code: 'P2002' });
       await expect(
-        service.signup({ loginId: 'taken', password: 'password123' }),
+        service.signup({ email: 'taken@example.com', password: 'password123' }),
       ).rejects.toBeInstanceOf(ConflictException);
     });
 
     it('성공 시 비번을 해시로 저장하고 세션 토큰을 발급', async () => {
       prisma.user.create.mockResolvedValue({
         id: 'u1',
-        loginId: 'newbie',
+        email: 'newbie@example.com',
         name: null,
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
       });
 
-      const res = await service.signup({ loginId: 'newbie', password: 'password123' });
+      const res = await service.signup({ email: 'newbie@example.com', password: 'password123' });
 
       const created = prisma.user.create.mock.calls[0][0];
-      expect(created.data.loginId).toBe('newbie');
+      expect(created.data.email).toBe('newbie@example.com');
       expect(created.data.passwordHash).not.toBe('password123'); // 원문 저장 금지
       await expect(bcrypt.compare('password123', created.data.passwordHash)).resolves.toBe(true);
 
@@ -70,49 +75,116 @@ describe('AuthService', () => {
       expect(res.refreshToken).toEqual(expect.any(String));
       expect(res.user).toEqual({
         id: 'u1',
-        loginId: 'newbie',
+        email: 'newbie@example.com',
         name: null,
         createdAt: '2026-01-01T00:00:00.000Z',
       });
       expect(prisma.refreshSession.create).toHaveBeenCalledTimes(1);
+    });
+
+    // 이걸 빠뜨려도 가입은 성공하고 로그인도 된다 — 나중에 소셜 충돌 안내를 붙일 때가 돼서야
+    // "가입 수단이 하나도 없는 유저"가 드러난다. 조용히 깨지는 종류라 스펙으로 고정한다.
+    it('LOCAL 신원 행을 함께 만든다 (providerUserId 는 null)', async () => {
+      prisma.user.create.mockResolvedValue({
+        id: 'u1',
+        email: 'newbie@example.com',
+        name: null,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
+
+      await service.signup({ email: 'newbie@example.com', password: 'password123' });
+
+      expect(prisma.authIdentity.create).toHaveBeenCalledTimes(1);
+      expect(prisma.authIdentity.create.mock.calls[0][0].data).toEqual({
+        userId: 'u1',
+        provider: 'LOCAL',
+        providerUserId: null, // 외부 서비스가 없어서 저쪽 번호라는 게 존재하지 않는다
+      });
+    });
+
+    // 대소문자를 안 맞추면 `email @unique` 를 통과해 **같은 사람의 계정이 두 개** 생긴다
+    // → 재고가 한쪽에만 쌓인다. 저장과 조회가 같은 규칙을 쓰는지 양쪽에서 고정한다.
+    it('이메일을 소문자로 정규화해 저장한다', async () => {
+      prisma.user.create.mockResolvedValue({
+        id: 'u1',
+        email: 'kim@example.com',
+        name: null,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
+
+      await service.signup({ email: '  KIM@Example.COM  ', password: 'password123' });
+
+      expect(prisma.user.create.mock.calls[0][0].data.email).toBe('kim@example.com');
     });
   });
 
   describe('login', () => {
     it('없는 유저면 UnauthorizedException', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
-      await expect(service.login({ loginId: 'ghost', password: 'x' })).rejects.toBeInstanceOf(
-        UnauthorizedException,
-      );
+      await expect(
+        service.login({ email: 'ghost@example.com', password: 'x' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
 
     it('비번 불일치면 UnauthorizedException', async () => {
       const passwordHash = await bcrypt.hash('correct-horse', 10);
       prisma.user.findUnique.mockResolvedValue({
         id: 'u1',
-        loginId: 'bob',
+        email: 'bob@example.com',
         name: null,
         createdAt: new Date(),
         passwordHash,
       });
-      await expect(service.login({ loginId: 'bob', password: 'wrong' })).rejects.toBeInstanceOf(
-        UnauthorizedException,
-      );
+      await expect(
+        service.login({ email: 'bob@example.com', password: 'wrong' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    // 소셜 전용 유저는 passwordHash 가 null 이다. 여기서 "비밀번호 없음"을 다른 에러로 흘리면
+    // 응답만 보고 **"이 이메일은 카카오로 가입돼 있다"** 를 알아낼 수 있다(계정 열거).
+    it('소셜 전용 유저(passwordHash=null)는 같은 에러로 거절한다', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        email: 'social@example.com',
+        name: null,
+        createdAt: new Date(),
+        passwordHash: null,
+      });
+      await expect(
+        service.login({ email: 'social@example.com', password: 'anything' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
 
     it('일치하면 세션 발급', async () => {
       const passwordHash = await bcrypt.hash('correct-horse', 10);
       prisma.user.findUnique.mockResolvedValue({
         id: 'u1',
-        loginId: 'bob',
+        email: 'bob@example.com',
         name: '밥',
         createdAt: new Date(),
         passwordHash,
       });
-      const res = await service.login({ loginId: 'bob', password: 'correct-horse' });
-      expect(res.user.loginId).toBe('bob');
+      const res = await service.login({ email: 'bob@example.com', password: 'correct-horse' });
+      expect(res.user.email).toBe('bob@example.com');
       expect(res.accessToken).toBe('access.jwt.token');
       expect(prisma.refreshSession.create).toHaveBeenCalledTimes(1);
+    });
+
+    // 저장 쪽(위 signup 스펙)과 짝이다 — 조회도 같은 규칙을 써야 대소문자만 다른 입력으로
+    // 로그인이 실패하지 않는다.
+    it('조회할 때도 이메일을 소문자로 정규화한다', async () => {
+      const passwordHash = await bcrypt.hash('correct-horse', 10);
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        email: 'bob@example.com',
+        name: '밥',
+        createdAt: new Date(),
+        passwordHash,
+      });
+      await service.login({ email: '  BOB@Example.COM ', password: 'correct-horse' });
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { email: 'bob@example.com' },
+      });
     });
   });
 
@@ -169,13 +241,13 @@ describe('AuthService', () => {
     it('있으면 표시용 유저 반환', async () => {
       prisma.user.findUnique.mockResolvedValue({
         id: 'u1',
-        loginId: 'bob',
+        email: 'bob@example.com',
         name: '밥',
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
       });
       await expect(service.getCurrentUser('u1')).resolves.toEqual({
         id: 'u1',
-        loginId: 'bob',
+        email: 'bob@example.com',
         name: '밥',
         createdAt: '2026-01-01T00:00:00.000Z',
       });

@@ -10,13 +10,17 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import type { AuthResponseType, CurrentUserType, RefreshResponseType } from '@companion/types';
 import { PrismaService } from '../prisma/prisma.service';
+import { normalizeEmail } from './email';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
+import { LOCAL_PROVIDER } from './providers';
 
 const BCRYPT_ROUNDS = 10;
 
 // 토큰 발급에 필요한 User 필드 (passwordHash 제외)
-type UserRow = { id: string; loginId: string; name: string | null; createdAt: Date };
+type UserRow = { id: string; email: string; name: string | null; createdAt: Date };
+
+const USER_SELECT = { id: true, email: true, name: true, createdAt: true } as const;
 
 // 새로 발급할 refresh 토큰 한 벌 (원문 + 저장용 해시 + 만료)
 type NewRefresh = { raw: string; tokenHash: string; expiresAt: Date };
@@ -48,17 +52,25 @@ export class AuthService {
     this.refreshTtlMs = days * 24 * 60 * 60 * 1000;
   }
 
+  /** 이메일+비밀번호 가입 (`LOCAL`). 소셜 가입은 별도 경로이고 여기를 타지 않는다. */
   async signup(dto: SignupDto): Promise<AuthResponseType> {
+    const email = normalizeEmail(dto.email);
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     const refresh = this.newRefresh();
 
     let user: UserRow;
     try {
-      // 유저 생성 + 최초 세션을 한 트랜잭션으로 — 세션 생성이 실패하면 유저도 롤백(반쪽 가입 방지).
+      // 유저 + 로그인 수단 + 최초 세션을 한 트랜잭션으로 — 하나라도 실패하면 전부 롤백(반쪽 가입 방지).
       user = await this.prisma.$transaction(async (tx) => {
         const created = await tx.user.create({
-          data: { loginId: dto.loginId, passwordHash, name: dto.name ?? null },
-          select: { id: true, loginId: true, name: true, createdAt: true },
+          data: { email, passwordHash, name: dto.name ?? null },
+          select: USER_SELECT,
+        });
+        // ⚠️ **`LOCAL` 신원 행을 반드시 함께 만든다.** 이게 없으면 "이 이메일은 어느 수단으로
+        // 가입됐나" 조회가 빈 목록을 돌려주고, 나중에 소셜 충돌 안내가 성립하지 않는다.
+        // `providerUserId` 는 null — 외부 서비스가 없어서 저쪽 번호라는 게 존재하지 않는다.
+        await tx.authIdentity.create({
+          data: { userId: created.id, provider: LOCAL_PROVIDER, providerUserId: null },
         });
         await tx.refreshSession.create({
           data: { userId: created.id, tokenHash: refresh.tokenHash, expiresAt: refresh.expiresAt },
@@ -68,7 +80,7 @@ export class AuthService {
     } catch (err) {
       // 사전 조회 없이 unique 제약으로 중복을 판정 → 동시 가입 경합도 409 로 안전하게 변환.
       if (isUniqueViolation(err)) {
-        throw new ConflictException('이미 사용 중인 아이디예요.');
+        throw new ConflictException('이미 가입된 이메일이에요.');
       }
       throw err;
     }
@@ -77,13 +89,21 @@ export class AuthService {
     return { accessToken, refreshToken: refresh.raw, user: this.toCurrentUser(user) };
   }
 
+  /**
+   * 이메일+비밀번호 로그인.
+   *
+   * ⚠️ **소셜 전용 유저는 `passwordHash` 가 null 이라 여기로 못 들어온다.** 그 경우에도
+   * 더미 해시로 비교해 "가입 안 된 이메일"과 구분이 안 가게 한다 — 안 그러면 응답만 보고
+   * "이 이메일은 카카오로 가입돼 있다"를 알아낼 수 있다(계정 열거).
+   */
   async login(dto: LoginDto): Promise<AuthResponseType> {
-    const user = await this.prisma.user.findUnique({ where: { loginId: dto.loginId } });
-    // 유저가 없어도 동일 비용의 비교를 수행 → 타이밍으로 계정 존재 여부가 새지 않게 한다.
-    // 메시지도 아이디 없음/비번 불일치 모두 동일 (계정 존재 여부 노출 방지).
+    const email = normalizeEmail(dto.email);
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    // 유저가 없어도(또는 비밀번호가 없어도) 동일 비용의 비교를 수행 → 타이밍으로 계정 존재 여부가
+    // 새지 않게 한다. 메시지도 이메일 없음/비번 불일치 모두 동일 (계정 존재 여부 노출 방지).
     const ok = await bcrypt.compare(dto.password, user?.passwordHash ?? this.dummyHash);
-    if (!user || !ok) {
-      throw new UnauthorizedException('아이디 또는 비밀번호가 올바르지 않습니다.');
+    if (!user || !user.passwordHash || !ok) {
+      throw new UnauthorizedException('이메일 또는 비밀번호가 올바르지 않습니다.');
     }
 
     const refresh = this.newRefresh();
@@ -102,7 +122,7 @@ export class AuthService {
   async getCurrentUser(userId: string): Promise<CurrentUserType> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, loginId: true, name: true, createdAt: true },
+      select: USER_SELECT,
     });
     if (!user) {
       throw new NotFoundException('유저를 찾을 수 없습니다.');
@@ -115,7 +135,7 @@ export class AuthService {
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: { name },
-      select: { id: true, loginId: true, name: true, createdAt: true },
+      select: USER_SELECT,
     });
     return this.toCurrentUser(user);
   }
@@ -181,7 +201,7 @@ export class AuthService {
   private toCurrentUser(user: UserRow): CurrentUserType {
     return {
       id: user.id,
-      loginId: user.loginId,
+      email: user.email,
       name: user.name,
       createdAt: user.createdAt.toISOString(),
     };
