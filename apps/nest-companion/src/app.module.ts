@@ -7,6 +7,7 @@ import { CharacterModule } from './character/character.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { LlmModule } from './llm/llm.module';
+import { MailModule } from './mail/mail.module';
 import { OcrModule } from './ocr/ocr.module';
 import { MemoryModule } from './memory/memory.module';
 import { validateEnv } from './config/env.validation';
@@ -19,6 +20,7 @@ import { UsageModule } from './usage/usage.module';
     // .env 를 읽어 ConfigService 로 노출. isGlobal: 어디서든 주입 가능. validate: 시작 시 검증
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     PrismaModule,
+    MailModule, // AuthModule 앞 — 인증 코드 발송이 여기 의존한다
     AuthModule,
     CharacterModule,
     UsageModule, // LlmModule 앞 — 의존 방향(llm → usage)을 읽는 사람에게 보이려는 순서

@@ -11,6 +11,7 @@ import * as bcrypt from 'bcryptjs';
 import type { AuthResponseType, CurrentUserType, RefreshResponseType } from '@companion/types';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeEmail } from './email';
+import { EmailVerificationService, PURPOSE_SIGNUP } from './email-verification.service';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 import { LOCAL_PROVIDER } from './providers';
@@ -46,15 +47,26 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly verification: EmailVerificationService,
     config: ConfigService,
   ) {
     const days = Number(config.get<string>('REFRESH_TTL_DAYS') ?? '30');
     this.refreshTtlMs = days * 24 * 60 * 60 * 1000;
   }
 
-  /** 이메일+비밀번호 가입 (`LOCAL`). 소셜 가입은 별도 경로이고 여기를 타지 않는다. */
+  /**
+   * 이메일+비밀번호 가입 (`LOCAL`). 소셜 가입은 별도 경로이고 여기를 타지 않는다.
+   *
+   * **이메일 인증을 먼저 통과해야 한다** — `verify-code` 가 준 증표를 대조하고, 그때 실제로
+   * 코드를 맞춘 시각(`verifiedAt`)을 `emailVerified` 에 넣는다(지금 시각이 아니라 그때가 진실).
+   */
   async signup(dto: SignupDto): Promise<AuthResponseType> {
     const email = normalizeEmail(dto.email);
+    const verifiedAt = await this.verification.assertVerified(
+      email,
+      PURPOSE_SIGNUP,
+      dto.verificationToken,
+    );
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     const refresh = this.newRefresh();
 
@@ -63,7 +75,7 @@ export class AuthService {
       // 유저 + 로그인 수단 + 최초 세션을 한 트랜잭션으로 — 하나라도 실패하면 전부 롤백(반쪽 가입 방지).
       user = await this.prisma.$transaction(async (tx) => {
         const created = await tx.user.create({
-          data: { email, passwordHash, name: dto.name ?? null },
+          data: { email, emailVerified: verifiedAt, passwordHash, name: dto.name ?? null },
           select: USER_SELECT,
         });
         // ⚠️ **`LOCAL` 신원 행을 반드시 함께 만든다.** 이게 없으면 "이 이메일은 어느 수단으로
@@ -84,6 +96,11 @@ export class AuthService {
       }
       throw err;
     }
+
+    // 소비 — 가입이 끝났으니 대기 중인 인증이 남을 이유가 없다.
+    // 트랜잭션 밖인 건 의도다: 여기서 실패해도 이메일이 이미 unique 라 재사용으로 계정이
+    // 하나 더 생기지 않고, 남은 행은 10분이면 만료된다.
+    await this.verification.clear(email, PURPOSE_SIGNUP);
 
     const accessToken = await this.signAccess(user.id);
     return { accessToken, refreshToken: refresh.raw, user: this.toCurrentUser(user) };

@@ -12,11 +12,45 @@ export type CurrentUserType = {
   createdAt: string;
 };
 
+/** 인증 코드 발송 요청 (`POST /auth/email/send-code`) */
+export type SendCodeRequestType = {
+  email: string;
+};
+
+/**
+ * 인증 코드 발송 응답.
+ *
+ * **숫자를 앱에 하드코딩하지 말고 이 값을 쓴다** — 앱이 자기 상수를 들고 있으면 서버와 어긋나
+ * "재전송 가능"으로 보이는데 429 를 맞는다. 제한값의 주인은 서버다(`GET /inventory/options` 와 같은 방식).
+ */
+export type SendCodeResponseType = {
+  /** 재전송까지 기다려야 하는 초 — 카운트다운에 쓴다 */
+  retryAfterSec: number;
+  /** 코드 유효 시간(초) */
+  expiresInSec: number;
+};
+
+/** 인증 코드 확인 요청 (`POST /auth/email/verify-code`) */
+export type VerifyCodeRequestType = {
+  email: string;
+  code: string;
+};
+
+/**
+ * 인증 코드 확인 응답 — **증표 토큰**.
+ * 이걸 `signup` 에 그대로 실어 보내야 가입이 된다(코드를 본 클라이언트만 가입하게 하는 끈).
+ */
+export type VerifyCodeResponseType = {
+  verificationToken: string;
+};
+
 /** 회원가입 요청 본문 (이메일+비밀번호 = `LOCAL` 가입. 소셜은 별도 경로) */
 export type SignupRequestType = {
   email: string;
   password: string;
   name?: string;
+  /** `verify-code` 가 준 증표. 이메일 인증을 통과했다는 증명이라 필수다. */
+  verificationToken: string;
 };
 
 /** 로그인 요청 본문 (`LOCAL` 가입자만 — 소셜 유저는 비밀번호가 없다) */

@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import type { SignupRequestType } from '@companion/types';
 import { normalizeEmail } from '../email';
 import { MaxByteLength } from './max-byte-length.decorator';
@@ -20,6 +20,13 @@ export class SignupDto implements SignupRequestType {
   @MinLength(8)
   @MaxByteLength(72) // bcrypt 72바이트 상한 (문자 수가 아니라 바이트 수로 제한)
   password!: string;
+
+  // `verify-code` 가 준 증표. **필수다** — 선택으로 두면 안 보내고 가입할 수 있어서
+  // 이메일 인증을 붙이는 의미가 사라진다.
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(128)
+  verificationToken!: string;
 
   @IsOptional()
   @IsString()

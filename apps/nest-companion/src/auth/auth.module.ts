@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtModule, type JwtSignOptions } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { EmailVerificationService } from './email-verification.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 // access token 발급자 식별자 — 서명/검증 양쪽에 동일하게 적용
@@ -32,7 +33,7 @@ const JWT_ISSUER = 'companion';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard],
+  providers: [AuthService, EmailVerificationService, JwtAuthGuard],
   exports: [JwtAuthGuard],
 })
 export class AuthModule {}

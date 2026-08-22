@@ -5,8 +5,12 @@ export type {
   LogoutRequestType,
   RefreshRequestType,
   RefreshResponseType,
+  SendCodeRequestType,
+  SendCodeResponseType,
   SignupRequestType,
   UpdateMeRequestType,
+  VerifyCodeRequestType,
+  VerifyCodeResponseType,
 } from './auth';
 
 export type {

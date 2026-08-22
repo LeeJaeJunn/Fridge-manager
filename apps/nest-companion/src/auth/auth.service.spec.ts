@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailVerificationService } from './email-verification.service';
 
 type CreateUserArg = { data: { email: string; passwordHash: string; name?: string | null } };
 type CreateIdentityArg = {
@@ -21,9 +22,18 @@ type PrismaMock = {
   $transaction: jest.Mock;
 };
 
+/** 가입 스펙이 매번 넘겨야 하는 증표 — 실제 검증은 EmailVerificationService 스펙이 본다. */
+const VERIFIED_AT = new Date('2026-01-01T00:00:00.000Z');
+const SIGNUP_INPUT = {
+  email: 'newbie@example.com',
+  password: 'password123',
+  verificationToken: 'verify-token',
+};
+
 describe('AuthService', () => {
   let prisma: PrismaMock;
   let jwt: { signAsync: jest.Mock };
+  let verification: { assertVerified: jest.Mock; clear: jest.Mock };
   let service: AuthService;
 
   beforeEach(() => {
@@ -40,10 +50,15 @@ describe('AuthService', () => {
     // 트랜잭션은 콜백에 같은 mock 을 tx 로 넘겨 실행 (원자성 자체가 아니라 흐름을 검증)
     prisma.$transaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(prisma));
     jwt = { signAsync: jest.fn().mockResolvedValue('access.jwt.token') };
+    verification = {
+      assertVerified: jest.fn().mockResolvedValue(VERIFIED_AT),
+      clear: jest.fn().mockResolvedValue(undefined),
+    };
     const config = { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService;
     service = new AuthService(
       prisma as unknown as PrismaService,
       jwt as unknown as JwtService,
+      verification as unknown as EmailVerificationService,
       config,
     );
   });
@@ -52,7 +67,7 @@ describe('AuthService', () => {
     it('unique 위반(P2002)이면 ConflictException', async () => {
       prisma.user.create.mockRejectedValue({ code: 'P2002' });
       await expect(
-        service.signup({ email: 'taken@example.com', password: 'password123' }),
+        service.signup({ ...SIGNUP_INPUT, email: 'taken@example.com' }),
       ).rejects.toBeInstanceOf(ConflictException);
     });
 
@@ -64,7 +79,7 @@ describe('AuthService', () => {
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
       });
 
-      const res = await service.signup({ email: 'newbie@example.com', password: 'password123' });
+      const res = await service.signup(SIGNUP_INPUT);
 
       const created = prisma.user.create.mock.calls[0][0];
       expect(created.data.email).toBe('newbie@example.com');
@@ -92,7 +107,7 @@ describe('AuthService', () => {
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
       });
 
-      await service.signup({ email: 'newbie@example.com', password: 'password123' });
+      await service.signup(SIGNUP_INPUT);
 
       expect(prisma.authIdentity.create).toHaveBeenCalledTimes(1);
       expect(prisma.authIdentity.create.mock.calls[0][0].data).toEqual({
@@ -112,7 +127,7 @@ describe('AuthService', () => {
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
       });
 
-      await service.signup({ email: '  KIM@Example.COM  ', password: 'password123' });
+      await service.signup({ ...SIGNUP_INPUT, email: '  KIM@Example.COM  ' });
 
       expect(prisma.user.create.mock.calls[0][0].data.email).toBe('kim@example.com');
     });
