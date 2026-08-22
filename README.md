@@ -82,3 +82,9 @@ style: 스타일 수정
 refactor: 코드 리팩토링
 test: 테스트 코드 추가
 chore: 빌드 수정, 패키지 매니저 수정
+
+## Todo
+
+로그인 기능 구현.
+gmail SMTP APP PW까지 만들어놓음.
+인증 구현해야함

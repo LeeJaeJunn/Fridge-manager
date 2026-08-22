@@ -104,6 +104,44 @@ model RefreshSession {
   @@index([userId])
 }
 
+// 이메일 인증 한 건의 **상태**. 한 행 = "코드를 한 번 발급한 사건"이고, 발급→시도→인증→소비까지
+// 살아 있다가 지워진다. 발송 로그가 아니라 계속 바뀌는 상태다.
+//
+// **`User` 와 관계를 걸지 않는다** — 가입 *전에* 존재해야 해서 매달 유저가 없다.
+//
+// 왜 테이블이 필요한가: 서버가 "이 주소에 어떤 코드를 보냈는지" 기억하지 못하면 대조 자체가
+// 불가능하다. 메모리에 두면 watch 재시작마다 날아가고(개발이 안 된다) 서버가 2대가 되면 성립하지
+// 않는다. 그리고 6자리 숫자는 **시도 제한이 없으면 뚫린다** — 100만 조합이라 초당 수백 번이면
+// 10분 창 안에 유의미한 확률이 나오고, 재발급을 반복하면 계속 누적된다. `failCount` 가 그걸
+// 100만분의 5로 만든다. `@nestjs/throttler` 가 붙기 전까지는 **이게 유일한 무차별 대입 방어**다.
+//
+// 컬럼이 각각 방어 질문 하나에 답한다:
+//   expiresAt  = 아직 유효한가          failCount = 몇 번 틀렸나(5회 잠금)
+//   createdAt  = 언제 보냈나(쿨다운·시간당 상한)
+//   verifiedAt = 인증에 성공했나        tokenHash = 그 인증을 통과한 클라이언트가 맞는가
+model EmailVerification {
+  id         String    @id @default(cuid())
+  email      String
+  // 'SIGNUP' (앞으로 'RESET_PASSWORD' | 'CHANGE_EMAIL'). 가입용 코드로 비밀번호를 바꾸지
+  // 못하게 용도를 갈라 둔다. provider 와 같은 이유로 DB enum 이 아니라 String 이다.
+  purpose    String
+  // sha256(6자리 코드). ⚠️ 솔직히 6자리는 해시의 방어력이 약하다(오프라인이면 즉시 크랙).
+  // 진짜 방어는 failCount + expiresAt 이고, 이건 로그·덤프에 코드가 그대로 남지 않게 하는 정도다.
+  codeHash   String
+  expiresAt  DateTime
+  verifiedAt DateTime?
+  failCount  Int       @default(0)
+  // 인증 성공 시 발급하는 증표. **가입 단계와 인증 단계를 잇는 유일한 끈**이다 —
+  // 이게 없으면 verifiedAt 만 보고 가입시키게 되는데, 그러면 코드를 못 본 제3자도
+  // "이미 인증된 이메일"에 얹혀 가입할 수 있다. nullable 이지만 Postgres 는 NULL 중복을
+  // 허용하므로 미인증 행끼리 유니크 제약에 걸리지 않는다(User.email 과 같은 방식).
+  tokenHash  String?   @unique
+  createdAt  DateTime  @default(now())
+
+  // 최신 행 조회(검증·쿨다운) + 최근 1시간 카운트(시간당 상한) + 정리를 한 인덱스로 커버
+  @@index([email, purpose, createdAt])
+}
+
 // 유저의 단 하나뿐인 컴패니언 (선택 목록이 아님)
 // model(LLM)은 캐릭터 데이터가 아님 — 관리자 소유로 env(LLM_MODEL)에서 온다.
 model Character {
