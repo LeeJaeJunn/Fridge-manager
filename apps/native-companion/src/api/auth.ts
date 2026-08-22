@@ -4,9 +4,32 @@ import type {
   AuthResponseType,
   CurrentUserType,
   LoginRequestType,
+  SendCodeRequestType,
+  SendCodeResponseType,
   SignupRequestType,
   UpdateMeRequestType,
+  VerifyCodeRequestType,
+  VerifyCodeResponseType,
 } from '@companion/types';
+
+/**
+ * 가입용 인증번호 발송. 이미 가입된 이메일이면 409 로 `ApiError` 가 던져진다.
+ * 응답의 `retryAfterSec`·`expiresInSec`·`codeDigits` 는 **서버가 소유한 값**이라 그대로 쓴다.
+ */
+export function sendSignupCode(body: SendCodeRequestType): Promise<SendCodeResponseType> {
+  return apiFetch<SendCodeResponseType>('/auth/email/send-code', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/** 인증번호 확인 → 가입에 쓸 증표 토큰. 틀리면 400 + 남은 횟수 메시지 */
+export function verifySignupCode(body: VerifyCodeRequestType): Promise<VerifyCodeResponseType> {
+  return apiFetch<VerifyCodeResponseType>('/auth/email/verify-code', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
 
 /** 로그인 → 토큰 저장 후 현재 유저 반환 */
 export async function login(body: LoginRequestType): Promise<CurrentUserType> {

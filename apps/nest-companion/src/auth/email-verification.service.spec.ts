@@ -78,10 +78,11 @@ describe('sendCode', () => {
     expect(createArg(prisma).data.codeHash).toBe(sha256(code));
     expect(createArg(prisma).data.codeHash).not.toBe(code);
 
-    // 앱이 카운트다운을 그리려면 서버가 숫자를 내려줘야 한다 (앱 하드코딩 금지)
+    // 앱이 카운트다운·입력칸을 그리려면 서버가 숫자를 내려줘야 한다 (앱 하드코딩 금지)
     expect(res).toEqual({
       retryAfterSec: VERIFICATION.resendCooldownSec,
       expiresInSec: VERIFICATION.ttlMinutes * 60,
+      codeDigits: VERIFICATION.codeDigits,
     });
   });
 

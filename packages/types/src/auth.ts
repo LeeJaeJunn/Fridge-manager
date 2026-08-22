@@ -28,6 +28,8 @@ export type SendCodeResponseType = {
   retryAfterSec: number;
   /** 코드 유효 시간(초) */
   expiresInSec: number;
+  /** 코드 자리수 — 입력칸 `maxLength`·자동 제출 기준. 앱이 6을 박아두지 않게 서버가 준다 */
+  codeDigits: number;
 };
 
 /** 인증 코드 확인 요청 (`POST /auth/email/verify-code`) */

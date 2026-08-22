@@ -1,5 +1,5 @@
-import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { BadRequestException, HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -62,7 +62,7 @@ export class EmailVerificationService {
   async sendCode(
     email: string,
     purpose: string,
-  ): Promise<{ retryAfterSec: number; expiresInSec: number }> {
+  ): Promise<{ retryAfterSec: number; expiresInSec: number; codeDigits: number }> {
     await this.assertSendAllowed(email, purpose);
 
     const code = generateCode();
@@ -83,7 +83,7 @@ export class EmailVerificationService {
 
     await this.mail.send(
       email,
-      '[Companion] 이메일 인증번호',
+      '[뉑좡궈] 이메일 인증번호',
       [
         `인증번호는 ${code} 입니다.`,
         '',
@@ -94,9 +94,11 @@ export class EmailVerificationService {
 
     // ⚠️ 코드는 절대 로그에 남기지 않는다 — 로그를 볼 수 있으면 남의 계정을 인증할 수 있다.
     this.logger.log(`인증코드 발송 (purpose=${purpose})`);
+    // 앱이 카운트다운·입력칸을 그리는 데 필요한 숫자는 전부 여기서 내려준다(앱 하드코딩 금지).
     return {
       retryAfterSec: VERIFICATION.resendCooldownSec,
       expiresInSec: VERIFICATION.ttlMinutes * 60,
+      codeDigits: VERIFICATION.codeDigits,
     };
   }
 
