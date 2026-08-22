@@ -47,7 +47,6 @@ export default function LoginScreen() {
    * 자리를 비워도 비밀번호가 남지 않는다.
    */
   const [showPassword, setShowPassword] = useState(false);
-  const [name, setName] = useState('');
 
   /** verify 가 준 증표 — 이게 있어야 가입이 된다 */
   const [verificationToken, setVerificationToken] = useState('');
@@ -113,7 +112,7 @@ export default function LoginScreen() {
   // ── 3단계: 비밀번호 → 가입 ──
   const submitSignup = () =>
     run(async () => {
-      await signup({ email, password, name: name.trim() || undefined, verificationToken });
+      await signup({ email, password, verificationToken });
     });
 
   const submitLogin = () => run(async () => login({ email, password }));
@@ -237,12 +236,6 @@ export default function LoginScreen() {
               secureTextEntry={!showPassword}
             />
             {mismatch && <Text className="text-sm text-red-500">비밀번호가 일치하지 않아요.</Text>}
-            <Field
-              label="이름 (선택)"
-              value={name}
-              onChangeText={setName}
-              placeholder="AI가 부를 이름"
-            />
           </>
         )}
       </View>

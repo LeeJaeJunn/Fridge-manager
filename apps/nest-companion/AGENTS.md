@@ -32,10 +32,12 @@
 
 ## 캐릭터 데이터
 
-캐릭터는 **"내 냉장고를 아는 요리 조력자"** 톤으로 축소된 얇은 페르소나다. 유저가 정하는 건 이름·말투·호칭뿐이고, 정체성(조력자)은 고정이다. 연인·성별·관계·상세 성격 필드는 제거됐다.
+캐릭터는 **"내 냉장고를 아는 요리 조력자"** 톤으로 축소된 얇은 페르소나다. 유저가 정하는 건 **이름·말투**뿐이고, 정체성(조력자)은 고정이다. 연인·성별·관계·상세 성격 필드는 제거됐다.
 
 - **유저당 캐릭터는 하나다** (여러 개 중 선택이 아님). DB에서 `User` ↔ `Character` 1:1 (`Character.userId @unique`).
-- 캐릭터의 구조화 필드는 `name`(필수) + `speechStyle`(온보딩 필수, `casual`/`formal`) + `userNickname`(선택)뿐이다. 전부 사용자가 정하고 `PATCH me` 로 부분수정한다.
+- 캐릭터의 구조화 필드는 `name`(필수) + `speechStyle`(온보딩 필수, `casual`/`formal`) **둘뿐**이다. 사용자가 정하고 `PATCH me` 로 부분수정한다.
+- ⚠️ **`userNickname`(캐릭터가 사용자를 부르는 호칭)은 걷어냈다.** 이름스러운 값이 셋(캐릭터 이름 · 내 이름 · 호칭)이라 유저가 헷갈렸고, 사용자를 부르는 말은 `User.name` 하나면 된다. 소셜 로그인이 이름을 주므로 그쪽은 자동으로 채워지고, 결제·시스템 메일에도 쓸 수 있다("오빠" 같은 호칭은 메일에 못 쓴다). 대신 **반말 + 이름이면 모델이 호격 조사를 붙여야 한다**("재준**아**" vs "민서**야**") — 어색하게 부르는 게 관측되면 `conversation.prompt.ts` 의 `withNameParticle`(캐릭터 이름에 이미 쓰는 함수)을 사용자 이름에도 적용하면 된다.
+- **사용자 본인 이름(`User.name`)은 온보딩에서 받는다.** `POST /characters` 가 `userName` 을 함께 받아 **같은 트랜잭션에서** `User.name` 에 쓴다 — 별도 `PATCH /auth/me` 로 쪼개면 "이름은 저장됐는데 캐릭터는 실패"가 생긴다. 가입 화면에서 안 받는 이유는 이름스러운 입력이 여러 화면에 흩어지면 유저가 헷갈려서다(가입은 이메일·비밀번호로 끝난다). DB 상 `User.name` 은 nullable 이지만 `speechStyle` 과 같은 방식으로 **DTO 가 필수를 강제**한다(마이그레이션 없이 보장).
 - **`instruction`(시스템 프롬프트)은 저장하지 않는다** — 구조화 필드에서 **프롬프트 시점에 매번 조립**한다. 조립은 `conversation/conversation.prompt.ts` 의 `buildPrompt` 가 하고, `persona.ts` 는 **프롬프트 문구를 갖지 않는다**(아래 "프롬프트 조립" 참고). 템플릿을 고치면 기존 캐릭터도 자동 반영. (신뢰 경계: 클라는 설정값을 보내지만 조립된 instruction/model 은 서버 소유·비노출.)
 - `persona.ts` 는 이제 **캐릭터 API 의 데이터만** 담당한다 — 선택지 vocab·`LIMITS`·`TAG_GROUPS`/`tagToMemory`. 프롬프트 문구는 전부 `conversation.prompt.ts` 로 옮겼다(예전엔 양쪽에 흩어져 있어서 한 줄 고치려면 두 파일을 오갔고, 최종 프롬프트에서 무엇이 몇 번째로 들어가는지 읽어낼 수 없었다).
 - `speechStyle` 은 안정적 키를 **String 컬럼**에 저장한다(DB enum 회피). 값→한국어 라벨, 선택지 vocab(말투/온보딩 태그), **입력 제한값(`LIMITS`)** 은 전부 **`persona.ts` 가 소유**하고 `GET options` 로 native 에 내려준다. DTO 검증(@IsIn/@MaxLength)도 같은 상수를 쓴다 — **DTO 에 숫자를 직접 쓰지 말 것**(숫자가 두 곳에 박히면 한쪽만 고쳐 어긋난다).
@@ -43,7 +45,7 @@
 - ⚠️ **vocab·제한값을 `@companion/types` 에 상수로 옮기지 말 것.** 그 패키지는 타입 전용(런타임 엔트리 없음)이라 값을 import 하면 **tsc·CI 는 통과하는데 서버 부팅이 죽는다**(`ERR_PACKAGE_PATH_NOT_EXPORTED`). 실제로 확인함. 값은 API 로 내려주는 게 정답이고, 덤으로 앱 배포 없이 vocab·제한을 바꿀 수 있다. ⚠️ vocab 은 문자열-리터럴 유니온으로 좁히지 말 것(`as const` 금지) — `===`/`!==` 비교 시 `no-unsafe-enum-comparison` 규칙이 크래시한다. 같은 이유로 이 레포는 `x !== undefined` 대신 `typeof x !== 'undefined'` 를 쓴다.
 - **온보딩 태그는 캐릭터가 아니라 유저 정보**다 → 생성 시 **Memory row 로 시드**한다(캐릭터·태그 생성을 한 `$transaction`). 태그는 **세 그룹**이고 그룹마다 카테고리가 다르다 — 식성→`PREFERENCE`, **알레르기→`ALLERGY`(안전)**, 조리도구→`OWNERSHIP`. **content 는 선택값을 그대로** 저장한다 — 문장으로 감싸지 않는다("오이", "에어프라이어"). 프롬프트가 카테고리별 섹션(`# 요리 장비` / `# ⚠️ 알레르기…`)으로 나뉘어 **헤더가 이미 의미를 말해주기** 때문이고, 알레르기는 재고 이름과 그대로 대조해야 해서 이름이어야 한다. (조리도구만 `${v} 있음` 으로 감쌌다가 섹션을 나누면서 "요리 장비: 에어프라이어 **있음**" 이 돼 걷어냈다. 그때 기존 행도 함께 정리했다.) ⚠️ **섹션 헤더와 content 는 짝이다** — 헤더를 없애거나 다시 한 목록으로 합치면 "에어프라이어"만 남아 뜻을 잃는다. 매핑은 `persona.ts` 의 `TAG_GROUPS`/`tagToMemory` 가 소유하고, 요청 내 중복은 서비스에서 제거한다. recall 주입/표시 파이프라인을 그대로 타서 첫 대화부터 작동하고, 관리(삭제)는 메모리 API 로 한다. 캐릭터엔 태그 컬럼이 없다.
 - **파생 데이터는 저장하지 않는다.** `model` 도 캐릭터 데이터가 아니다(관리자 소유, env `LLM_MODEL`).
-- API는 `src/character/` (`CharacterModule`): `GET options`(선택지 vocab + 태그 그룹), `GET me`, `POST`(name·speechStyle·userNickname·tags 로 생성), `PATCH me`(부분수정), `DELETE me`. 표시용 필드만 내려주고 `instruction`/`model` 은 노출하지 않는다.
+- API는 `src/character/` (`CharacterModule`): `GET options`(선택지 vocab + 태그 그룹 + `LIMITS`), `GET me`, `POST`(name·speechStyle·**userName**·tags 로 생성), `PATCH me`(부분수정), `DELETE me`. 표시용 필드만 내려주고 `instruction`/`model` 은 노출하지 않는다.
 
 ## 대화 저장 (Conversation)
 
@@ -66,7 +68,7 @@
 **문구와 순서를 이 파일 하나가 소유한다.** Nest·DB·LLM 을 모르는 순수 모듈이라 `conversation.prompt.spec.ts` 로 전부 고정된다.
 
 - 나누는 축은 **"턴마다 바뀌느냐"** 이고, 그게 그대로 프롬프트 캐싱의 절단선이다. 새 블록을 넣을 때 "이건 턴마다 바뀌나?"만 답하면 자리가 정해진다.
-  - `system` — 정체성(이름·역할·유저 이름·말투·호칭) → 대화 규칙 → 레시피 지침 → 가드레일. **대화 내내 그대로.**
+  - `system` — 정체성(캐릭터 이름·역할·유저 이름·말투) → 대화 규칙 → 레시피 지침 → 가드레일. **대화 내내 그대로.** `userBlock` 은 이름을 사실로만 주지 않고 **"'재준' 이라고 불러"** 규칙까지 넣는다 — 값만 주면 모델이 안 부르고 넘어간다.
   - `context` — 요리 장비 → 사용자 특성 → 냉장고 재고 → **알레르기(맨 끝)**. **매 턴 달라진다.**
     - **기억을 카테고리별 섹션으로 가른다**(`splitMemories`). 예전엔 전부 "기억하는 것" 한 목록이라 조리도구("에어프라이어")와 식성("매운 음식 좋아함")이 뒤섞였는데, 모델 입장에서 **"뭘 가지고 있는지"(조리 가능 여부)와 "어떤 사람인지"(요리 선택)는 쓰임이 다르다.** `OWNERSHIP`→요리 장비 / `PREFERENCE`·`PROFILE`·`ETC`→사용자 특성 / `ALLERGY`→맨 끝 전용 블록.
     - 짧은 이름만 오는 섹션(장비·알레르기)은 **콤마로 한 줄**, 추출 LLM 이 문장을 만드는 사용자 특성은 **줄바꿈 목록**이다. 문장을 콤마로 이으면 어디서 한 항목이 끝나는지 흐려진다.
@@ -240,7 +242,7 @@ LLM 호출 1건 = `LlmUsage` 행 1개. **지금은 계측만 하고 제한은 �
 
 ## 인증 — 로그인(JWT access + refresh)
 
-- `src/auth/`(`AuthModule`, `@Global`). loginId/password 로그인 + JWT 기반 세션.
+- `src/auth/`(`AuthModule`, `@Global`). **이메일/비밀번호** 로그인 + JWT 기반 세션 (예전 `loginId` 임의 문자열은 제거).
 - **토큰 2종**:
   - **access token** = JWT(서명, payload `{ sub: userId, type:'access', iss:'companion' }`), 짧은 수명(`JWT_ACCESS_TTL`, 기본 15분). 모든 API 요청의 `Authorization: Bearer` 로 사용. `JwtAuthGuard` 가 서명·만료·`issuer` 를 검증하고 **payload 형태도 런타임 확인**(`sub` 가 비어있지 않은 문자열 + `type==='access'`)한 뒤 `req.userId` 에 심는다. (서명만 통과한 이상 토큰이 `req.userId=undefined` 로 흘러 소유권 쿼리를 오작동시키는 것 방지)
   - **refresh token** = 랜덤 문자열(hex 64자), 긴 수명(`REFRESH_TTL_DAYS`, 기본 30일). access 재발급(`POST /auth/refresh`)에만 쓰고 일반 API엔 안 쓴다. 원문은 저장하지 않고 **sha256 해시만** `RefreshSession` 에 저장(DB 유출 시 원문 복원 방지).
@@ -266,7 +268,24 @@ LLM 호출 1건 = `LlmUsage` 행 1개. **지금은 계측만 하고 제한은 �
 - provider 어휘의 단일 출처는 **`auth/providers.ts`**(`PROVIDER_VALUES`/`LOCAL_PROVIDER`/`SOCIAL_PROVIDER_VALUES`). DB 는 String 컬럼이라 값을 강제하지 못한다. **애플 추가 = 여기 한 줄, 마이그레이션 불필요.**
 - ⚠️ **이메일이 같다고 자동 병합하지 말 것.** provider 가 그 이메일 소유를 검증했는지 보장할 수 없어 계정 탈취 경로가 된다. 충돌하면 **막되 잠기지 않게** 한다 — "이미 카카오로 가입된 이메일이에요"처럼 **어느 수단으로 가입했는지 알려주면**(`AuthIdentity` 목록으로 판정) 사용자는 항상 원래 수단으로 들어올 수 있다. 병합은 나중에 로그인된 상태의 "계정 연결"로만 연다.
   - ⚠️ 애플의 Private Relay 주소는 앱마다 달라 다른 provider 의 이메일과 **절대 일치하지 않는다** — 애플 유저의 동일인 판정은 이메일로 안 되고 명시적 연결이 답이다.
-- **미구현**: 소셜 로그인 자체(카카오→네이버→구글), 이메일 인증(발송·코드 테이블). 소셜을 붙일 때 **앱은 토큰이 아니라 인가코드를 보내고 서버가 provider 에 확인**해야 한다 — 앱이 `providerUserId` 를 직접 보내면 아무나 남의 계정으로 들어온다(신뢰 경계).
+- **미구현**: 소셜 로그인(카카오→네이버→구글). 붙일 때 **앱은 토큰이 아니라 인가코드를 보내고 서버가 provider 에 확인**해야 한다 — 앱이 `providerUserId` 를 직접 보내면 아무나 남의 계정으로 들어온다(신뢰 경계).
+
+### 이메일 인증 (`EmailVerification` + `src/mail/`)
+
+**인증 후 가입**이다: `send-code` → `verify-code`(증표 발급) → `signup`(증표 대조). 미인증 유저가 DB 에 안 쌓이는 대신 가입 화면이 3단계가 되는 절충이고, 앱의 단계 구성이 이 순서와 짝이다.
+
+- ⚠️ **증표 토큰(`tokenHash`)이 인증과 가입을 잇는 유일한 끈이다.** `verifiedAt` 만 보고 가입시키면 **코드를 못 본 제3자도** 그 이메일로 가입할 수 있다(참고한 CooKeep 이 그 구조였다). `verify-code` 가 랜덤 문자열을 주고 원문은 저장하지 않으며(sha256 만), `signup` 이 대조한다.
+- `User.emailVerified` 에는 **가입 시각이 아니라 코드를 맞춘 시각**(`verifiedAt`)을 넣는다. 그때가 진실이다.
+- 정책 숫자의 단일 출처는 `email-verification.service.ts` 의 `VERIFICATION` — 코드 6자리 · 만료 10분 · 실패 5회 잠금 · 재전송 쿨다운 60초 · 시간당 5회 · 증표 30분.
+  - **앱이 쓰는 값(`retryAfterSec`·`expiresInSec`·`codeDigits`)은 `send-code` 응답으로 내려준다.** 앱이 60을 박아두면 정책을 바꿨을 때 "재전송 가능"으로 보이는데 429 를 맞는다(`GET /inventory/options` 와 같은 방식).
+- ⚠️ **`failCount` 가 지금 유일한 무차별 대입 방어다.** 6자리는 100만 조합이라 시도 제한이 없으면 10분 창 안에 유의미한 확률로 뚫린다. `@nestjs/throttler` 가 붙기 전까지 이게 전부이니 약화시키지 말 것.
+  - 실측: DB 의 `codeHash` 에서 코드를 역산하는 데 **600ms** 걸렸다. **해시는 방어가 아니다** — 로그·덤프에 원문이 안 남게 하는 정도이고, 진짜 방어는 `failCount` + 만료다.
+- `send-code` 는 **이미 가입된 이메일이면 409 로 알려준다**(제품 결정). 대가로 계정 열거가 열리고, `login` 쪽의 동일 메시지 방어가 일관성을 잃는다. 주소를 바꿔가며 훑는 열거는 이메일당 상한으로는 못 막고 **IP 단위 제한이 있어야** 한다 — 배포 전 청소 항목이다.
+- 발송은 `src/mail/`(`MailService.send` 하나만 노출, Gmail SMTP + 앱 비밀번호). 벤더 격리는 `recipe/`·`ocr/` 와 같은 패턴이다.
+  - ⚠️ **생성자에서 키를 강제하지 않는다**(`getOrThrow` 금지). CI 는 `.env` 없이 `AppModule` 을 부팅해 e2e 를 돌리므로 여기서 던지면 `pnpm verify` 가 통째로 깨진다. 발송 시점에만 예외를 던진다.
+  - env(`MAIL_USER`/`MAIL_APP_PASSWORD`/`MAIL_FROM`)는 **선택**이다(`NAVER_OCR_*` 와 같은 판단). 발송 전용 계정을 쓰는 게 좋다 — 앱 비밀번호가 새도 개인 메일함이 안 열린다.
+  - ⚠️ **수신자·본문을 로그에 남기지 않는다.** 본문에 코드가 있어서, 로그를 볼 수 있으면 남의 계정을 인증할 수 있다.
+- **미구현**: `RESET_PASSWORD`·`CHANGE_EMAIL`(`purpose` 컬럼만 있고 안 쓴다). ⚠️ 지금 **비밀번호 재설정이 없어서 가입 때 오타를 내면 그 계정은 영구히 못 들어간다**(이메일이 선점돼 재가입도 불가) — 앱이 확인란 + 꾹 눌러 보기로 막고 있지만 근본 해결은 재설정 흐름이다. 붙일 때 발송·검증·증표 흐름을 그대로 재사용하면 된다.
 
 ## DB / Prisma
 

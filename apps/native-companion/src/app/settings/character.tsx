@@ -23,8 +23,6 @@ import type {
 const INPUT = 'rounded-xl bg-sand px-4 py-3 text-base text-ink';
 const PLACEHOLDER = '#A1A1AA'; // ink-faint
 
-const trimOrNull = (s: string): string | null => s.trim() || null;
-
 export default function CharacterSettingsScreen() {
   const router = useRouter();
   const { character, setCharacter } = useCharacter();
@@ -40,7 +38,6 @@ export default function CharacterSettingsScreen() {
   const [speechStyle, setSpeechStyle] = useState<SpeechStyleType | null>(
     character?.speechStyle ?? null,
   );
-  const [userNickname, setUserNickname] = useState(character?.userNickname ?? '');
 
   const loadOptions = useCallback(() => {
     void fetchCharacterOptions()
@@ -66,7 +63,6 @@ export default function CharacterSettingsScreen() {
       const body: UpdateCharacterRequestType = {
         name: name.trim(),
         speechStyle,
-        userNickname: trimOrNull(userNickname),
       };
       const updated = await updateCharacter(body);
       setCharacter(updated); // 홈 인사·프로필 등 전역 즉시 반영
@@ -107,10 +103,7 @@ export default function CharacterSettingsScreen() {
   const { limits } = options;
 
   // 바뀐 게 있고, 필수값이 유효할 때만 저장을 연다.
-  const changed =
-    name.trim() !== character.name ||
-    speechStyle !== character.speechStyle ||
-    trimOrNull(userNickname) !== character.userNickname;
+  const changed = name.trim() !== character.name || speechStyle !== character.speechStyle;
   const canSave = changed && name.trim().length > 0 && Boolean(speechStyle);
 
   return (
@@ -137,18 +130,6 @@ export default function CharacterSettingsScreen() {
               options={options.speechStyles}
               value={speechStyle}
               onChange={(v) => setSpeechStyle(v as SpeechStyleType)}
-            />
-          </Field>
-
-          <Field label="날 부르는 호칭">
-            <TextInput
-              className={INPUT}
-              value={userNickname}
-              onChangeText={setUserNickname}
-              placeholder="예: ○○님, 오빠"
-              placeholderTextColor={PLACEHOLDER}
-              maxLength={limits.userNicknameMax}
-              returnKeyType="done"
             />
           </Field>
 

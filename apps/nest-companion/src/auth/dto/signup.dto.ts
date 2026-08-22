@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
 import type { SignupRequestType } from '@companion/types';
 import { normalizeEmail } from '../email';
 import { MaxByteLength } from './max-byte-length.decorator';
@@ -27,9 +27,4 @@ export class SignupDto implements SignupRequestType {
   @IsNotEmpty()
   @MaxLength(128)
   verificationToken!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  name?: string;
 }

@@ -31,7 +31,8 @@ export interface CharacterOptionType {
  */
 export interface CharacterLimitsType {
   nameMax: number;
-  userNicknameMax: number;
+  /** 사용자 본인 이름 최대 길이 (`User.name`) */
+  userNameMax: number;
 }
 
 /**
@@ -60,7 +61,6 @@ export interface CharacterType {
   id: string;
   name: string;
   speechStyle: SpeechStyleType | null;
-  userNickname: string | null;
   createdAt: string;
 }
 
@@ -74,8 +74,12 @@ export interface CharacterType {
  */
 export interface CreateCharacterRequestType {
   name: string;
+  /**
+   * **사용자 본인의 이름** (캐릭터 이름이 아니다). 온보딩에서 함께 받아 `User.name` 에 저장한다.
+   * 가입 화면에서 받지 않는 이유: 이름스러운 입력이 여러 화면에 흩어지면 유저가 헷갈린다.
+   */
+  userName: string;
   speechStyle: SpeechStyleType;
-  userNickname?: string;
   /** 모든 그룹에서 고른 값을 한 배열로 (그룹 구분은 서버가 값으로 되찾는다) */
   tags?: string[];
 }
@@ -84,5 +88,4 @@ export interface CreateCharacterRequestType {
 export interface UpdateCharacterRequestType {
   name?: string;
   speechStyle?: SpeechStyleType;
-  userNickname?: string | null;
 }

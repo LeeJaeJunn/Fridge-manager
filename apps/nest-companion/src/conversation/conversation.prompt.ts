@@ -109,7 +109,6 @@ const GUARDRAILS = [
 export type PromptCharacterType = {
   name: string;
   speechStyle?: string | null;
-  userNickname?: string | null;
 };
 
 export type PromptContextType = {
@@ -152,34 +151,26 @@ export function roleBlock(name: string): string {
 }
 
 /**
- * 사용자 정보 — 이름·호칭·말투를 **값으로** 준다.
+ * 사용자 정보 — 이름·말투를 **값으로** 준다.
  *
- * 셋 다 없을 수 있어서(이름·호칭은 선택) 있는 것만 렌더한다. 빈 줄("사용자 호칭: ")이 나가면
- * 모델이 빈 값을 이름으로 착각하거나 호칭을 지어낸다.
+ * 둘 다 없을 수 있어서 있는 것만 렌더한다. 빈 줄("사용자 이름: ")이 나가면 모델이 빈 값을
+ * 이름으로 착각하거나 지어낸다.
  *
- * ⚠️ **이름과 호칭은 다르다.** 이름은 "누구인지", 호칭은 "뭐라고 부를지"라서, 구분해 주지 않으면
- * 호칭을 정해뒀는데도 이름으로 부른다.
+ * 예전엔 `호칭`(캐릭터가 사용자를 부르는 말)이 따로 있었는데 걷어냈다 — 이름스러운 값이 셋이라
+ * 유저가 헷갈렸고, 부를 말은 이름 하나면 된다.
  */
-export function userBlock(
-  userName: string | null,
-  speechStyle: string | null = null,
-  userNickname: string | null = null,
-): string {
-  const nickname = userNickname?.trim();
+export function userBlock(userName: string | null, speechStyle: string | null = null): string {
+  const name = userName?.trim();
   const speech = speechStyle ? SPEECH_LABEL[speechStyle] : undefined;
 
   const facts: string[] = [];
-  if (userName) facts.push(`사용자 이름: ${userName}`);
-  if (nickname) facts.push(`사용자 호칭: ${nickname}`);
+  if (name) facts.push(`사용자 이름: ${name}`);
   if (speech) facts.push(`말투: ${speech}`);
   if (facts.length === 0) return '';
 
   const rules: string[] = [];
-  if (nickname) {
-    rules.push(
-      `- 이름과 호칭은 다르다. 사용자를 부를 때는 이름이 아니라 호칭('${nickname}')을 써.`,
-    );
-  }
+  // ⚠️ 이름을 사실로만 주면 모델이 부르지 않고 넘어가는 경우가 있어 "부르라"고 명시한다.
+  if (name) rules.push(`- 사용자를 부를 때는 '${name}' 이라고 불러.`);
   if (speech) rules.push(`- 대화는 항상 ${speech}로 해.`);
 
   return ['# 사용자 정보', ...facts, ...(rules.length > 0 ? ['', ...rules] : [])].join('\n');
@@ -365,7 +356,7 @@ export function buildPrompt(ctx: PromptContextType): BuiltPromptType {
 
   const system = joinBlocks([
     roleBlock(ctx.character.name),
-    userBlock(ctx.userName, ctx.character.speechStyle, ctx.character.userNickname),
+    userBlock(ctx.userName, ctx.character.speechStyle),
     CONVERSATION_RULES,
     RECIPE_GUIDANCE,
     AFTER_PICK,

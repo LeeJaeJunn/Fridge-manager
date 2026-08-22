@@ -14,7 +14,6 @@ type CharacterRow = {
   id: string;
   name: string;
   speechStyle: string | null;
-  userNickname: string | null;
   createdAt: Date;
 };
 
@@ -22,7 +21,6 @@ const toDto = (c: CharacterRow): CharacterType => ({
   id: c.id,
   name: c.name,
   speechStyle: c.speechStyle as SpeechStyleType | null,
-  userNickname: c.userNickname,
   createdAt: c.createdAt.toISOString(),
 });
 
@@ -30,12 +28,8 @@ const SELECT = {
   id: true,
   name: true,
   speechStyle: true,
-  userNickname: true,
   createdAt: true,
 } as const;
-
-const trimOrNull = (v: string | null | undefined): string | null | undefined =>
-  typeof v === 'string' ? v.trim() : v;
 
 @Injectable()
 export class CharacterService {
@@ -77,10 +71,13 @@ export class CharacterService {
           userId,
           name: dto.name.trim(),
           speechStyle: dto.speechStyle,
-          userNickname: trimOrNull(dto.userNickname) || null,
         },
         select: SELECT,
       });
+
+      // 사용자 본인 이름은 `User` 에 있다 — 온보딩 제출 하나로 끝나야 하므로 같은 트랜잭션에서
+      // 함께 쓴다. 별도 `PATCH /auth/me` 로 쪼개면 "이름은 저장됐는데 캐릭터는 실패"가 생긴다.
+      await tx.user.update({ where: { id: userId }, data: { name: dto.userName.trim() } });
 
       // 온보딩 태그 → 메모리 시드 (기존과 정확일치 중복은 건너뜀 — 재생성 시 중복 방지)
       // 요청 안의 중복도 먼저 제거한다 — DTO 는 값이 vocab 에 있는지만 보므로 같은 태그가 여러 번 올 수 있다.
@@ -123,7 +120,6 @@ export class CharacterService {
     const data: Record<string, unknown> = {};
     if (isSet(dto.name)) data.name = (dto.name as string).trim();
     if (isSet(dto.speechStyle)) data.speechStyle = dto.speechStyle;
-    if (isSet(dto.userNickname)) data.userNickname = trimOrNull(dto.userNickname) || null;
 
     const row = await this.prisma.character.update({
       where: { userId },

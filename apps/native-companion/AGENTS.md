@@ -8,8 +8,8 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v56.0.0/ before 
 src/
 ├─ app/                      # expo-router v56 (파일 = 라우트)
 │  ├─ _layout.tsx            # 루트: SplashScreen + Auth→Character 3단 Stack.Protected 게이트
-│  ├─ login.tsx              # 미인증 (로그인/회원가입 폼 토글)
-│  ├─ onboarding.tsx         # 캐릭터 없을 때 (이름·말투·호칭 + 식성/알레르기/조리도구 태그 → 생성)
+│  ├─ login.tsx              # 미인증 (로그인 / 회원가입 3단계: 이메일→인증번호→비밀번호)
+│  ├─ onboarding.tsx         # 캐릭터 없을 때 (캐릭터 이름·내 이름·말투 + 식성/알레르기/조리도구 태그 → 생성)
 │  ├─ (tabs)/                # 홈 / 냉장고 / [FAB] / 채팅(대화 목록) / 프로필(허브)
 │  ├─ settings/             # 프로필 하위 페이지: character(설정) · memory(AI가 기억하는 나) · account
 │  ├─ inventory/add.tsx      # 재료 직접 추가 (FAB 메뉴에서 진입)
@@ -66,6 +66,13 @@ src/
 - 메시지 전송·확인·취소 응답은 전부 `{ messages: [...] }`(이번에 새로 생긴 아이템들)라 화면은 **뒤에 이어붙이기만** 한다. 한 턴에 말풍선과 카드가 함께 올 수 있다.
 - 스타일은 **NativeWind**(`className`) + **클린 중립 디자인 토큰**(`tailwind.config.js` theme.extend): 배경 `cream`(=연한 쿨그레이 캔버스 `#F7F8FC`, 토큰명 유지) · 들어간/독립 회색면 `sand`(입력·회색 말풍선·비선택 칩) · 보더/구분선 `line` · 텍스트 `ink`(쿨 뉴트럴) · 포인트 `lavender` · 보조 `peach`/`blush` · 카테고리 틴트 `mint`/`sky`/`amber`. 배경 기본 `bg-cream`, 상태바는 `style="dark"`. **3단 엘리베이션**(틴트 캔버스 < 흰 카드): 카드는 `Card` 가 `bg-white`+`border-line` 로 캔버스 위에서 떠 보이게 하고, `sand` 는 캔버스보다 살짝 진해 그 위 독립 회색면(말풍선 등)이 묻히지 않는다. **색을 하드코딩하지 말고 토큰**을 쓰고, 반복 UI는 `src/components/` 공통 컴포넌트(`Screen`/`Button`/`Card`/`Avatar`/`Bubble`)로 뽑는다 — 디자인 변경은 토큰·컴포넌트 한 곳만 고치면 전 화면 반영.
 - 프로필 탭은 **허브**다: 상단 내 정보 + 섹션 행(캐릭터 설정 → `settings/character`, AI 메모리 관리 → `settings/memory`). 하위 페이지는 캐릭터 가드 블록의 `Stack.Screen`(파스텔 테마 네이티브 헤더 = 뒤로가기 자동). 새 라우트 추가 시 typedRoutes 재생성 필요(`expo start` 가 `.expo/types` 갱신).
+- **회원가입은 3단계**다(`login.tsx` 의 `Step`): 이메일 → 인증번호 → 비밀번호. 서버가 **인증 후 가입**이라 코드를 맞춘 사람만 마지막 단계에 도달한다(백엔드 AGENTS.md "이메일 인증" 참고).
+  - ⚠️ **숫자를 앱에 박지 않는다.** 재전송 쿨다운·코드 유효시간·코드 자리수는 전부 `send-code` 응답(`retryAfterSec`/`expiresInSec`/`codeDigits`)으로 받아 쓴다. 앱이 자기 상수를 들고 있으면 서버 정책을 바꿨을 때 "재전송 가능"으로 보이는데 429 를 맞는다(`GET /inventory/options` 와 같은 방식).
+  - 증표(`verificationToken`)는 `useState` 에만 둔다 — 앱을 닫으면 사라지고 다시 인증해야 한다. 계정은 3단계를 눌러야 만들어지므로 중간에 나가도 **아무것도 안 남는다**.
+  - 인증이 끝나면 이메일 칸을 감춘다(바꾸려면 "이메일 다시 입력"으로 뒤로 — 안 그러면 증표와 어긋난다). 모드를 토글하면 진행 중이던 인증 상태를 전부 버린다.
+  - 비밀번호는 **확인란 + 꾹 눌러 보기**(`onHoldReveal`)로 오타를 막는다. ⚠️ 지금 **비밀번호 재설정 흐름이 없어서** 가입 때 오타를 내면 그 계정은 영구히 못 들어간다(이메일이 선점돼 재가입도 불가) — 그래서 확인란이 편의가 아니라 방어선이다. `passwordConfirm` 은 **서버로 보내지 않는다**(앱만 알면 되고, 서버가 받아봐야 공격자는 같은 값 두 개를 보낸다).
+- **사용자 본인 이름은 온보딩에서 받는다**(가입 화면 아님). `POST /characters` 가 `userName` 을 함께 실어 보내고 서버가 `User.name` 에 쓴다. 온보딩 1단계의 라벨을 **"캐릭터 이름" / "내 이름"** 으로 갈라 두는 게 중요하다 — 둘 다 "이름"이면 유저가 헷갈린다(예전엔 `호칭`까지 있어서 셋이었다).
+- 아이콘은 `@expo/vector-icons`(Ionicons). 색은 `className` 으로 못 주므로 `tailwind.config.js` 의 토큰 값을 상수로 빼서 쓴다(`placeholderTextColor` 를 하드코딩하는 것과 같은 사정). 나머지 문자 기호(`‹ › ⋯ ✓ ✕`)는 아직 안 바꿨다.
 - 모든 백엔드 호출은 `api/client.ts` 의 `apiFetch` 를 거친다. 저장된 **access token**(`Authorization: Bearer`)을 자동 첨부하고, 401(만료)이면 **refresh 로 새 access 를 받아 1회 자동 재시도**한다. 실패 응답은 status 를 담은 `ApiError` 로 throw 한다. 토큰은 `api/token.ts` 가 **access/refresh 를 한 JSON 객체**로 SecureStore(웹은 localStorage — 웹은 배포 대상 아님)에 보관하고, 인증 상태·로그인/회원가입/로그아웃은 `context/auth.tsx` 가 관리한다 (백엔드 AGENTS.md "인증" 참고).
 - **토큰 폐기의 소유권은 `client.ts` 한 곳**이다: refresh 가 **확정 실패(400/401/403)면** 토큰을 비우고 `auth-events` 로 인증만료를 쏜다(→ `auth.tsx` 가 상태만 반영). **일시 오류(5xx/429/네트워크)면 토큰을 유지**하고 에러를 던져 재시도 가능하게 둔다. `auth.tsx`(bootstrap 포함)는 토큰을 **직접 지우지 않는다** — 일시적 서버 오류에 강제 로그아웃되는 것을 막는 불변식.
 - **신뢰 경계**: instruction/model/대화 히스토리를 클라이언트가 만들지 않는다. 메시지 `content` 만 보내고 서버가 나머지를 해석한다.

@@ -17,9 +17,4 @@ export class UpdateCharacterDto implements UpdateCharacterRequestType {
   @IsOptional()
   @IsIn(SPEECH_STYLE_VALUES)
   speechStyle?: SpeechStyleType;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(LIMITS.userNicknameMax)
-  userNickname?: string | null;
 }

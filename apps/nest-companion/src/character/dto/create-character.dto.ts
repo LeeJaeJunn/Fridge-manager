@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import type { CreateCharacterRequestType, SpeechStyleType } from '@companion/types';
 import { LIMITS, SPEECH_STYLE_VALUES, TAG_VALUES } from '../persona';
 
@@ -17,10 +17,12 @@ export class CreateCharacterDto implements CreateCharacterRequestType {
   @IsIn(SPEECH_STYLE_VALUES)
   speechStyle!: SpeechStyleType;
 
-  @IsOptional()
+  // **사용자 본인 이름**(캐릭터 이름이 아니다). `User.name` 은 DB 상 nullable 이지만
+  // 신규 생성은 여기서 필수로 강제한다 — `speechStyle` 과 같은 처리(마이그레이션 없이 보장).
   @IsString()
-  @MaxLength(LIMITS.userNicknameMax)
-  userNickname?: string;
+  @IsNotEmpty()
+  @MaxLength(LIMITS.userNameMax)
+  userName!: string;
 
   // 개수 상한은 두지 않는다 — @IsIn 이 값을 고정 vocab 으로 묶으므로 고를 수 있는 종류가 이미 유한하고,
   // 같은 값이 반복돼도 서비스가 중복을 제거한다.

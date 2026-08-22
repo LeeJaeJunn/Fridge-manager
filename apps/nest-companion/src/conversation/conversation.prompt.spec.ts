@@ -162,7 +162,7 @@ describe('프롬프트 조립', () => {
     const BANNED = '# ⚠️ 알레르기';
 
     const ctx = {
-      character: { name: '초코', speechStyle: 'casual', userNickname: '집사' },
+      character: { name: '초코', speechStyle: 'casual' },
       userName: '재준',
       memories: [mem('매운 음식 좋아함'), tool('에어프라이어'), banned('갑각류')],
       inventory: [ing('대파', atNoon(23))],
@@ -171,10 +171,9 @@ describe('프롬프트 조립', () => {
 
     it('정적 블록에는 페르소나·규칙만, 데이터는 안 들어간다', () => {
       const { system } = buildPrompt(ctx);
-      expect(system).toContain('초코');
-      expect(system).toContain('재준');
+      expect(system).toContain('초코'); // 캐릭터 이름
+      expect(system).toContain('재준'); // 사용자 이름 (예전엔 별도 '호칭' 도 있었으나 걷어냄)
       expect(system).toContain('반말');
-      expect(system).toContain('집사');
       expect(system).toContain('대화 규칙');
       expect(system).toContain('요리 추천');
       expect(system).toContain('금지사항');

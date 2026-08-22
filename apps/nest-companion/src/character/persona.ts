@@ -2,7 +2,7 @@
  * 캐릭터 페르소나 — 선택지 vocab + 시스템 프롬프트(instruction) 조립.
  *
  * 캐릭터는 "조언자 톤"의 얇은 페르소나로 축소됐다(제품 방향: 의사결정 컴패니언, 루트 README).
- * 유저가 정하는 건 **이름·말투·호칭**뿐이고, 정체성(조언자)은 고정이다.
+ * 유저가 정하는 건 **이름·말투**뿐이고, 정체성(조언자)은 고정이다.
  *
  * ⚠️ instruction 은 **저장하지 않는다**. Character 의 구조화 필드에서 프롬프트 시점에
  * `conversation/conversation.prompt.ts` 의 `buildPrompt` 가 매번 조립한다
@@ -111,7 +111,7 @@ export function tagToMemory(value: string): {
  */
 export const LIMITS: CharacterLimitsType = {
   nameMax: 30,
-  userNicknameMax: 20,
+  userNameMax: 20,
 };
 
 /** `GET /characters/options` 응답 — native 폼이 렌더할 선택지 + 입력 제한 (표시용, 서버 소유). */

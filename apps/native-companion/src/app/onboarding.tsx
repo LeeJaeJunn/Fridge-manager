@@ -28,9 +28,11 @@ const STEPS = [
 ];
 
 type Form = {
+  /** 캐릭터 이름 */
   name: string;
   speechStyle: SpeechStyleType | null;
-  userNickname: string;
+  /** **사용자 본인 이름** — 서버가 `User.name` 에 저장한다(캐릭터 이름과 다르다) */
+  userName: string;
   /** 모든 그룹에서 고른 값을 한 배열로 (그룹 구분은 서버가 값으로 되찾는다) */
   tags: string[];
 };
@@ -38,7 +40,7 @@ type Form = {
 const EMPTY: Form = {
   name: '',
   speechStyle: null,
-  userNickname: '',
+  userName: '',
   tags: [],
 };
 
@@ -91,8 +93,8 @@ export default function OnboardingScreen() {
       const body: CreateCharacterRequestType = {
         name: form.name.trim(),
         speechStyle,
+        userName: form.userName.trim(),
         // 선택 항목은 비었으면 아예 빼서 보낸다 (서버가 없는 필드는 null 로 둔다)
-        ...(form.userNickname.trim() ? { userNickname: form.userNickname.trim() } : {}),
         ...(form.tags.length > 0 ? { tags: form.tags } : {}),
       };
       const created = await createCharacter(body);
@@ -126,7 +128,10 @@ export default function OnboardingScreen() {
 
   const isLast = step === STEPS.length - 1;
   // 스텝별 필수값 — 채워야 '다음'이 열린다 (마지막 스텝은 전부 선택이라 항상 열림)
-  const canProceed = [form.name.trim().length > 0 && Boolean(form.speechStyle), true][step];
+  const canProceed = [
+    form.name.trim().length > 0 && form.userName.trim().length > 0 && Boolean(form.speechStyle),
+    true,
+  ][step];
 
   return (
     <Screen edges={['top', 'bottom']} contentClassName="flex-1">
@@ -162,7 +167,8 @@ export default function OnboardingScreen() {
           {/* 1. 조언자 기본 — 이름·말투·호칭 */}
           {step === 0 && (
             <>
-              <Field label="이름">
+              {/* 라벨을 "캐릭터 이름"/"내 이름"으로 갈라 둔다 — 둘 다 "이름"이면 헷갈린다 */}
+              <Field label="캐릭터 이름">
                 <TextInput
                   className={INPUT}
                   value={form.name}
@@ -173,22 +179,22 @@ export default function OnboardingScreen() {
                   returnKeyType="done"
                 />
               </Field>
+              <Field label="내 이름">
+                <TextInput
+                  className={INPUT}
+                  value={form.userName}
+                  onChangeText={(v) => set('userName', v)}
+                  placeholder="예: 재준"
+                  placeholderTextColor={PLACEHOLDER}
+                  maxLength={limits.userNameMax}
+                  returnKeyType="done"
+                />
+              </Field>
               <Field label="말투">
                 <ChipGroup
                   options={options.speechStyles}
                   value={form.speechStyle}
                   onChange={(v) => set('speechStyle', v as SpeechStyleType)}
-                />
-              </Field>
-              <Field label="날 뭐라고 부를까? (선택)">
-                <TextInput
-                  className={INPUT}
-                  value={form.userNickname}
-                  onChangeText={(v) => set('userNickname', v)}
-                  placeholder="예: ○○님, 오빠"
-                  placeholderTextColor={PLACEHOLDER}
-                  maxLength={limits.userNicknameMax}
-                  returnKeyType="done"
                 />
               </Field>
             </>

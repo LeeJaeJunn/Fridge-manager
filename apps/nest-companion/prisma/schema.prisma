@@ -145,17 +145,21 @@ model EmailVerification {
 // 유저의 단 하나뿐인 컴패니언 (선택 목록이 아님)
 // model(LLM)은 캐릭터 데이터가 아님 — 관리자 소유로 env(LLM_MODEL)에서 온다.
 model Character {
-  id           String   @id @default(cuid())
-  userId       String   @unique // @unique 가 1:1 + 인덱스를 함께 보장
-  name         String // 사용자가 짓고 수정 가능
+  id          String   @id @default(cuid())
+  userId      String   @unique // @unique 가 1:1 + 인덱스를 함께 보장
+  name        String // 사용자가 짓고 수정 가능
   // 캐릭터는 "조언자 톤"으로 축소됐다(제품 방향: 의사결정 컴패니언, 루트 README).
-  // 남는 설정은 말투·호칭뿐이고, 이 둘이 서버가 시스템 프롬프트(instruction)를 조립하는 재료다(저장 안 함).
+  // 남는 설정은 **말투 하나**이고, 그게 서버가 시스템 프롬프트(instruction)를 조립하는 재료다(저장 안 함).
   // speechStyle 은 안정적 enum 키('casual' 등)라 DB enum 대신 String + 앱(DTO @IsIn) 검증. 값→라벨은 persona.ts 소유.
   // DB 상 nullable 이지만(마이그레이션 안전) 신규 생성은 DTO 에서 필수 필드를 강제한다.
-  speechStyle  String? // 'casual'(반말) | 'formal'(존댓말) | 'semiformal'(반존대)
-  userNickname String? // 캐릭터가 사용자를 부르는 호칭 (선택, 예: '오빠', '○○님')
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  //
+  // `userNickname`(캐릭터가 사용자를 부르는 호칭)은 걷어냈다. 이름스러운 값이 셋(캐릭터 이름 ·
+  // 내 이름 · 호칭)이라 유저가 헷갈렸고, 사용자를 부르는 말은 `User.name` 하나면 된다.
+  // 소셜 로그인이 이름을 주므로 그쪽은 자동으로 채워지고, 결제·시스템 메일에도 쓸 수 있다
+  // (호칭은 "오빠" 같은 값이라 메일에 못 쓴다).
+  speechStyle String? // 'casual'(반말) | 'formal'(존댓말) | 'semiformal'(반존대)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // 온보딩 태그(식성·알레르기·조리도구)는 여기 저장하지 않는다 — 캐릭터가 아니라 **유저 정보**라
   // 생성 시 Memory row 로 시드해 기존 recall 주입/표시 파이프라인을 그대로 탄다.

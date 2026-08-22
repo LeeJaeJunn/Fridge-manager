@@ -774,7 +774,6 @@ export class ConversationService {
           id: true,
           name: true,
           speechStyle: true,
-          userNickname: true,
           user: { select: { name: true } },
         },
       }),
@@ -789,7 +788,6 @@ export class ConversationService {
       id: row.id,
       name: row.name,
       speechStyle: row.speechStyle,
-      userNickname: row.userNickname,
       user: row.user,
     };
     return { character, memories, inventory };

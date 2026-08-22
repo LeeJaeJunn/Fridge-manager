@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import type { AuthResponseType, CurrentUserType, RefreshResponseType } from '@companion/types';
 import {
   ConflictException,
   Injectable,
@@ -8,12 +8,12 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import type { AuthResponseType, CurrentUserType, RefreshResponseType } from '@companion/types';
+import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { normalizeEmail } from './email';
-import { EmailVerificationService, PURPOSE_SIGNUP } from './email-verification.service';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
+import { normalizeEmail } from './email';
+import { EmailVerificationService, PURPOSE_SIGNUP } from './email-verification.service';
 import { LOCAL_PROVIDER } from './providers';
 
 const BCRYPT_ROUNDS = 10;
@@ -75,7 +75,7 @@ export class AuthService {
       // 유저 + 로그인 수단 + 최초 세션을 한 트랜잭션으로 — 하나라도 실패하면 전부 롤백(반쪽 가입 방지).
       user = await this.prisma.$transaction(async (tx) => {
         const created = await tx.user.create({
-          data: { email, emailVerified: verifiedAt, passwordHash, name: dto.name ?? null },
+          data: { email, emailVerified: verifiedAt, passwordHash },
           select: USER_SELECT,
         });
         // ⚠️ **`LOCAL` 신원 행을 반드시 함께 만든다.** 이게 없으면 "이 이메일은 어느 수단으로

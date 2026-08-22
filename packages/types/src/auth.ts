@@ -50,7 +50,6 @@ export type VerifyCodeResponseType = {
 export type SignupRequestType = {
   email: string;
   password: string;
-  name?: string;
   /** `verify-code` 가 준 증표. 이메일 인증을 통과했다는 증명이라 필수다. */
   verificationToken: string;
 };
