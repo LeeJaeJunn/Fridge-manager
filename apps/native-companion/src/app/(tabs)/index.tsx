@@ -175,7 +175,10 @@ export default function HomeScreen() {
     <Screen scroll contentClassName="gap-2 px-6 pb-10 pt-4">
       {/* 인사 */}
       <View className="gap-1">
-        <Text className="text-xl font-bold text-ink">안녕하세요, {user?.name}님!</Text>
+        {/* 이름이 비어도 "님!" 만 남지 않게 폴백 (profile.tsx 와 같은 방식) */}
+        <Text className="text-xl font-bold text-ink">
+          안녕하세요, {user?.name ?? user?.email?.split('@')[0] ?? '사용자'}님!
+        </Text>
         <Text className="text-bold text-ink-soft">{greeting()}</Text>
       </View>
 

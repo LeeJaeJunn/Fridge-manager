@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type PropsWithChildren,
+} from 'react';
 import {
   deleteAccount as apiDeleteAccount,
   fetchMe,
@@ -26,6 +33,15 @@ type AuthContextValue = {
   logout: () => Promise<void>;
   /** 회원탈퇴 → 서버 계정 삭제 후 로컬 세션 내림 (실패 시 throw, 로그인 유지) */
   deleteAccount: () => Promise<void>;
+  /**
+   * 서버에서 유저를 다시 읽어 전역 상태를 맞춘다.
+   *
+   * ⚠️ **`User` 를 바꾸는 경로가 `PATCH /auth/me` 만이 아니라서 필요하다.** 온보딩은
+   * `POST /characters` 로 `User.name` 을 쓰는데(같은 트랜잭션에 묶으려고), 그러면 서버만 바뀌고
+   * 여기 캐시는 가입 시점의 `name: null` 로 남아 홈이 "안녕하세요, 님!" 이 된다 — 실제로 겪었다.
+   * `User` 를 건드리는 경로를 새로 만들면 그 뒤에 이걸 부를 것.
+   */
+  refreshUser: () => Promise<void>;
   /** 내 이름 수정 → 전역 user 즉시 갱신 (홈 인사 등 반영) */
   updateName: (name: string) => Promise<void>;
 };
@@ -118,6 +134,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setUser(await updateMyName({ name }));
   };
 
+  // 안정 참조 — 온보딩이 effect/콜백에서 부를 수 있게 (참조가 흔들리면 effect 가 재등록된다).
+  const refreshUser = useCallback(async () => {
+    setUser(await fetchMe());
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -129,6 +150,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         logout,
         deleteAccount,
         updateName,
+        refreshUser,
       }}
     >
       {children}

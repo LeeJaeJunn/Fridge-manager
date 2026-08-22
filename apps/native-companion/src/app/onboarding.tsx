@@ -12,6 +12,7 @@ import {
 
 import { createCharacter, fetchCharacterOptions } from '@/api/character';
 import { Button, ChipGroup, Field, Screen } from '@/components';
+import { useAuth } from '@/context/auth';
 import { useCharacter } from '@/context/character';
 import type {
   CharacterOptionsType,
@@ -52,6 +53,7 @@ const toOptions = (xs: string[]) => xs.map((x) => ({ value: x, label: x }));
 
 export default function OnboardingScreen() {
   const { setCharacter } = useCharacter();
+  const { refreshUser } = useAuth();
   const [options, setOptions] = useState<CharacterOptionsType | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
@@ -98,6 +100,10 @@ export default function OnboardingScreen() {
         ...(form.tags.length > 0 ? { tags: form.tags } : {}),
       };
       const created = await createCharacter(body);
+      // ⚠️ 이 호출이 `User.name` 도 함께 쓴다 — 전역 user 캐시는 가입 시점의 `name: null` 이라
+      // 다시 읽지 않으면 홈이 "안녕하세요, 님!" 이 된다(실제로 겪음).
+      // 게이트가 뒤집히기 **전에** 맞춰야 홈이 처음부터 올바른 이름으로 그려진다.
+      await refreshUser();
       // 게이트 guard 가 뒤집혀 자동으로 홈(탭)으로 전환된다.
       setCharacter(created);
     } catch (e: unknown) {

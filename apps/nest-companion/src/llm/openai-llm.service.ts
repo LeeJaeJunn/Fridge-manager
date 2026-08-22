@@ -218,6 +218,7 @@ export class OpenAiLlmProvider implements LlmProvider {
         outputTokens += u.output_tokens;
         totalTokens += u.total_tokens;
       };
+      console.log(instructions);
       let res = await this.client.responses.create({
         model,
         instructions,
