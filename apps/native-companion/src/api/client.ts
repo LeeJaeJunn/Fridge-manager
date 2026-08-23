@@ -7,6 +7,15 @@ import { clearTokens, getAccessToken, getRefreshToken, setTokens } from '@/api/t
 const AUTH_NO_RETRY = new Set(['/auth/login', '/auth/signup', '/auth/refresh', '/auth/logout']);
 
 /**
+ * 소셜 로그인은 `/auth/social/kakao` 처럼 provider 가 경로에 붙어 정확히 일치하지 않으므로
+ * 접두사로 본다. 여기서 401 이 나오는 건 **세션 만료가 아니라 로그인 실패**(미인증 이메일 등)라
+ * refresh 를 태울 이유가 없다.
+ */
+function isAuthEndpoint(path: string): boolean {
+  return AUTH_NO_RETRY.has(path) || path.startsWith('/auth/social/');
+}
+
+/**
  * 공용 fetch 래퍼. 모든 백엔드 호출은 이걸 거친다.
  * - ENV.apiUrl 기준으로 path 결합, JSON 헤더 + access token(Authorization: Bearer) 자동 첨부
  * - access 만료(401)면 refresh 로 새 access 를 받아 **1회 자동 재시도** (사용자는 만료를 못 느낌)
@@ -77,7 +86,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   let res = await rawFetch(path, init, access);
 
   // access 만료 → refresh 로 재발급 후 1회 재시도. 인증 변경 엔드포인트는 재시도하지 않는다(무한루프 방지).
-  if (res.status === 401 && !AUTH_NO_RETRY.has(path)) {
+  if (res.status === 401 && !isAuthEndpoint(path)) {
     const renewed = await refreshAccessToken();
     if (renewed) res = await rawFetch(path, init, renewed);
   }

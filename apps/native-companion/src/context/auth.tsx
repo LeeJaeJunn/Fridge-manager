@@ -15,6 +15,7 @@ import {
   updateMyName,
 } from '@/api/auth';
 import { onAuthExpired } from '@/api/auth-events';
+import { getKakaoCode, kakaoLogin } from '@/api/social';
 import { ApiError } from '@/api/errors';
 import { getAccessToken, getRefreshToken } from '@/api/token';
 import type { CurrentUserType, LoginRequestType, SignupRequestType } from '@companion/types';
@@ -30,6 +31,12 @@ type AuthContextValue = {
   isLoading: boolean;
   login: (body: LoginRequestType) => Promise<void>;
   signup: (body: SignupRequestType) => Promise<void>;
+  /**
+   * 카카오 로그인 — 가입/로그인이 갈리지 않는다. **서버가 셋 중 하나로 알아서 처리**한다:
+   * 이미 카카오로 가입 → 로그인 / 같은 이메일 계정 있음 → 연결 / 처음 → 신규 가입.
+   * 앱은 어느 쪽인지 알 필요가 없어서 함수도 하나다.
+   */
+  loginWithKakao: () => Promise<void>;
   logout: () => Promise<void>;
   /** 회원탈퇴 → 서버 계정 삭제 후 로컬 세션 내림 (실패 시 throw, 로그인 유지) */
   deleteAccount: () => Promise<void>;
@@ -110,6 +117,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setStatus('authenticated');
   };
 
+  const loginWithKakao = async () => {
+    // 브라우저 왕복(=code 획득)과 서버 교환을 나눠 둔 건 의도다 — 네이티브 SDK 로 갈아탈 때
+    // 앞줄만 바뀐다(`api/social.ts` 참고).
+    const code = await getKakaoCode();
+    setUser(await kakaoLogin(code));
+    setStatus('authenticated');
+  };
+
   const logout = async () => {
     // 서버 로그아웃이 실패해도(서버 다운 등) 로컬 세션은 반드시 내린다.
     // (apiLogout 은 finally 에서 로컬 토큰을 이미 지운다)
@@ -147,6 +162,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         isLoading: status === 'loading',
         login,
         signup,
+        loginWithKakao,
         logout,
         deleteAccount,
         updateName,
