@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule, type JwtSignOptions } from '@nestjs/jwt';
+import { SocialModule } from '../social/social.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { EmailVerificationService } from './email-verification.service';
@@ -31,6 +32,7 @@ const JWT_ISSUER = 'companion';
         verifyOptions: { issuer: JWT_ISSUER },
       }),
     }),
+    SocialModule, // 소셜 로그인 벤더 계층 — 라우트는 AuthController 가 갖고 여기서 신원만 받아온다
   ],
   controllers: [AuthController],
   providers: [AuthService, EmailVerificationService, JwtAuthGuard],

@@ -8,6 +8,7 @@ export type {
   SendCodeRequestType,
   SendCodeResponseType,
   SignupRequestType,
+  SocialLoginRequestType,
   UpdateMeRequestType,
   VerifyCodeRequestType,
   VerifyCodeResponseType,

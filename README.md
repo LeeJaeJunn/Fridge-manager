@@ -84,8 +84,8 @@ refactor: 코드 리팩토링
 test: 테스트 코드 추가
 chore: 빌드 수정, 패키지 매니저 수정
 
-## Todo
+## 에뮬레이터 테스트시
 
-로그인 기능 구현.
-gmail SMTP APP PW까지 만들어놓음.
-인증 구현해야함
+~/Library/Android/sdk/platform-tools/adb reverse tcp:4000 tcp:4000
+
+## Todo

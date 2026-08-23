@@ -60,6 +60,20 @@ export type LoginRequestType = {
   password: string;
 };
 
+/**
+ * 소셜 로그인 요청 본문 (`POST /auth/social/:provider`).
+ *
+ * **앱이 보내는 건 "증거"뿐이고 "사실"은 서버가 provider 에서 직접 가져온다.** 이메일·이름을
+ * 앱이 실어 보내면 그 값만 바꿔치기해 남의 계정으로 로그인할 수 있다(앱은 사용자 손 안의 코드다).
+ *
+ * 지금은 웹 OAuth 라 `code` 다. 네이티브 SDK 를 붙이면 앱이 code 대신 provider 의 access token 을
+ * 쥐게 되므로 그때 필드가 하나 더 생긴다(서버는 둘 다 받고, 그 뒤 처리는 완전히 같다).
+ */
+export type SocialLoginRequestType = {
+  /** provider 가 준 인가 코드. 1회용·단수명이고 서버의 client secret 없이는 쓸모가 없다. */
+  code: string;
+};
+
 /** 내 정보 수정 요청 본문 (PATCH /auth/me) */
 export type UpdateMeRequestType = {
   name: string;

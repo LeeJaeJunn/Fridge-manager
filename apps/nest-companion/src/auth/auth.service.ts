@@ -10,6 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import type { SocialIdentityType } from '../social/social.types';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 import { normalizeEmail } from './email';
@@ -17,6 +18,12 @@ import { EmailVerificationService, PURPOSE_SIGNUP } from './email-verification.s
 import { LOCAL_PROVIDER } from './providers';
 
 const BCRYPT_ROUNDS = 10;
+
+/**
+ * OAuth `state` 수명. 인증 화면에서 동의를 누르기까지의 시간이라 넉넉할 이유가 없다 —
+ * 짧을수록 가로챈 state 의 재사용 창이 좁아진다.
+ */
+const OAUTH_STATE_TTL = '10m';
 
 // 토큰 발급에 필요한 User 필드 (passwordHash 제외)
 type UserRow = { id: string; email: string; name: string | null; createdAt: Date };
@@ -133,6 +140,100 @@ export class AuthService {
     });
     const accessToken = await this.signAccess(user.id);
     return { accessToken, refreshToken: refresh.raw, user: this.toCurrentUser(user) };
+  }
+
+  /**
+   * 소셜 로그인 — **로그인 / 연결 / 신규가입 셋 중 하나로 갈린다.**
+   *
+   * 인자로 받는 `identity` 는 앱이 준 게 아니라 **서버가 provider 에서 직접 받아온 것**이다
+   * (`SocialService`). 그래서 여기서는 그걸 사실로 취급해도 된다.
+   *
+   * 셋 다 한 트랜잭션이다 — 신원 행만 생기고 세션이 안 생기는 반쪽 상태를 막는다(`signup` 과 같다).
+   */
+  async socialLogin(identity: SocialIdentityType): Promise<AuthResponseType> {
+    const email = normalizeEmail(identity.email);
+    const { provider, providerUserId } = identity;
+    const refresh = this.newRefresh();
+
+    let user: UserRow;
+    try {
+      user = await this.prisma.$transaction(async (tx) => {
+        // ① 이미 이 수단으로 가입한 사람인가 → 그냥 로그인.
+        //    ⚠️ **이메일이 그새 바뀌었어도 여기로 온다.** 이메일이 아니라 회원번호를 키로 쓴 이유다.
+        //    findFirst 인 건 providerUserId 가 nullable 컬럼이라(LOCAL 때문) 복합 unique 를
+        //    findUnique 로 조회하는 게 타입상 껄끄러워서다 — @@unique 인덱스가 그대로 쓰인다.
+        const found = await tx.authIdentity.findFirst({
+          where: { provider, providerUserId },
+          select: { user: { select: USER_SELECT } },
+        });
+        if (found) return found.user;
+
+        // ② 같은 이메일의 계정이 이미 있나 → **연결**(새 계정을 만들지 않는다).
+        //    이게 없으면 이메일로 가입한 사람이 카카오로 들어왔을 때 계정이 갈라지고
+        //    냉장고 재고가 한쪽에만 쌓인다 — 이 앱에선 치명적이다.
+        //    ⚠️ 안전한 건 **오직 provider 가 이메일을 검증했기 때문**이다. 그 확인은
+        //    벤더 클라이언트가 이미 했고(`KakaoClient.fetchProfile`), 미검증이면 여기 못 온다.
+        const existing = await tx.user.findUnique({ where: { email }, select: USER_SELECT });
+        if (existing) {
+          await tx.authIdentity.create({ data: { userId: existing.id, provider, providerUserId } });
+          return existing;
+        }
+
+        // ③ 처음 보는 사람 → 신규 가입. 비밀번호가 없고(소셜 전용), 이메일은 이미 검증됐다.
+        //    닉네임을 `User.name` 초기값으로 쓴다 — 온보딩에서 사용자가 고칠 수 있다.
+        const created = await tx.user.create({
+          data: {
+            email,
+            emailVerified: new Date(),
+            name: identity.nickname,
+          },
+          select: USER_SELECT,
+        });
+        await tx.authIdentity.create({ data: { userId: created.id, provider, providerUserId } });
+        return created;
+      });
+
+      await this.prisma.refreshSession.create({
+        data: { userId: user.id, tokenHash: refresh.tokenHash, expiresAt: refresh.expiresAt },
+      });
+    } catch (err) {
+      // 같은 사람이 동시에 두 번 로그인하면 ②/③ 이 겹쳐 unique 제약에 걸린다. 드물고,
+      // 다시 누르면 ① 로 풀리므로 500 대신 재시도를 안내한다.
+      if (isUniqueViolation(err)) {
+        throw new ConflictException('로그인 처리가 겹쳤어요. 다시 시도해 주세요.');
+      }
+      throw err;
+    }
+
+    const accessToken = await this.signAccess(user.id);
+    return { accessToken, refreshToken: refresh.raw, user: this.toCurrentUser(user) };
+  }
+
+  /**
+   * OAuth `state` 발급 — **우리가 시작한 흐름만 콜백을 통과시키기 위한 끈**이다.
+   *
+   * 콜백(`/auth/social/:provider/callback`)은 공개 엔드포인트라 아무나 code 를 들고 때릴 수 있다.
+   * 서버에 세션 저장소가 없으므로(모바일이라 쿠키도 없다) **상태를 저장하는 대신 서명해서
+   * 브라우저에 맡긴다** — 우리 키로 서명했으니 위조가 안 되고, 짧은 만료로 재사용도 막힌다.
+   *
+   * ⚠️ `type` 이 'access' 가 아니라서 `JwtAuthGuard` 를 통과하지 못한다 — 이 토큰으로 API 를
+   * 부를 수 없다는 뜻이고, 그게 의도다(가드가 `type` 을 확인하는 이유).
+   */
+  signOauthState(provider: string): Promise<string> {
+    return this.jwt.signAsync({ type: 'oauth_state', provider }, { expiresIn: OAUTH_STATE_TTL });
+  }
+
+  /** `state` 검증 — 서명·만료·용도·provider 가 모두 맞아야 통과 */
+  async verifyOauthState(state: string, provider: string): Promise<void> {
+    let payload: { type?: unknown; provider?: unknown };
+    try {
+      payload = await this.jwt.verifyAsync(state);
+    } catch {
+      throw new UnauthorizedException('로그인 요청이 만료되었습니다. 다시 시도해 주세요.');
+    }
+    if (payload.type !== 'oauth_state' || payload.provider !== provider) {
+      throw new UnauthorizedException('로그인 요청이 올바르지 않습니다.');
+    }
   }
 
   /** 현재 유저 조회 (GET /auth/me) — 표시용 필드만 반환 */
