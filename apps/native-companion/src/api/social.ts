@@ -34,13 +34,12 @@ export async function getKakaoCode(): Promise<string> {
   // ⚠️ **서버 `.env` 의 `APP_REDIRECT_URL` 과 정확히 같아야 한다.** 한 글자만 달라도 서버가
   //    보낸 주소를 이 세션이 못 알아보고, 브라우저 창이 안 닫힌 채로 멈춘다.
   //
-  // ⚠️ **경로가 `login` 인 게 핵심이다** — 딥링크는 아래 리스너에만 오는 게 아니라 **expo-router
+  // ⚠️ **경로가 `login` 인 게 핵심이다** — 이 딥링크는 우리에게만 오는 게 아니라 **expo-router
   // 에도 간다.** 없는 경로(`auth/kakao` 등)를 쓰면 라우터가 "Unmatched Route" 화면을 띄운다
   // (실제로 겪었다). 지금 보고 있는 화면을 가리키면 라우터 입장에선 제자리라 아무 일도 안 난다.
   //
   // 전용 라우트를 새로 만드는 방법도 있지만 그쪽이 더 나쁘다: 로그인이 실패했을 때(미인증 이메일 등)
-  // 빠져나올 길 없는 화면에 갇히고, 그 화면이 code 를 직접 처리하게 하면 아래 리스너와 **같은
-  // 1회용 code 를 두 번 쓰려고 경쟁**한다.
+  // 빠져나올 길 없는 화면에 갇힌다.
   const returnUrl = Linking.createURL('login');
   if (__DEV__) {
     // 이 값은 Expo Go 가 Metro 에 어떻게 붙었느냐에 따라 달라져서 추측으로는 못 맞춘다.
@@ -48,50 +47,16 @@ export async function getKakaoCode(): Promise<string> {
     console.log('[kakao] 서버 .env 의 APP_REDIRECT_URL 에 넣을 값:', returnUrl);
   }
 
-  // ⚠️ **딥링크를 두 경로로 동시에 기다린다.**
-  //
-  // 카카오 세션이 살아 있으면 동의 화면 없이 **즉시** 되돌아오는데, 그러면 커스텀 탭이 다 열리기도
-  // 전에 딥링크가 도착해 `openAuthSessionAsync` 가 그걸 놓치고 promise 가 영영 안 끝난다
-  // (앱은 스피너만 돌고 멈춘다 — 실제로 겪었다. 처음 한 번은 동의 화면 때문에 느려서 됐다).
-  // 그래서 `Linking` 이벤트도 함께 듣고 **먼저 오는 쪽**을 쓴다.
-  let deliver: (url: string | null) => void = () => {};
-  const fromDeepLink = new Promise<string | null>((resolve) => {
-    deliver = resolve;
-  });
-  const sub = Linking.addEventListener('url', (e) => deliver(e.url));
-
-  let url: string | null;
-  try {
-    const fromBrowser = WebBrowser.openAuthSessionAsync(
-      `${ENV.apiUrl}/auth/social/kakao/authorize`,
-      returnUrl,
-    )
-      // 'cancel'(사용자가 닫음) / 'dismiss'(앱이 닫음) — 둘 다 실패가 아니라 취소다.
-      .then((r) => (r.type === 'success' ? r.url : null))
-      // 진 쪽의 실패로 unhandled rejection 이 나지 않게 흡수한다(이긴 쪽이 이미 답을 줬다).
-      .catch(() => null);
-
-    url = await Promise.race([fromDeepLink, fromBrowser]);
-  } finally {
-    sub.remove();
-    // 딥링크가 먼저 도착한 경우 브라우저가 뒤에 남아 있다 — 다음 로그인 때 방해되므로 닫는다.
-    //
-    // ⚠️ **실패를 통째로 삼킨다.** 타입은 `Promise<void>` 인데 안드로이드 구현은 아무것도 안
-    // 돌려줘서(`undefined`) `.catch` 를 바로 붙이면 터진다 — 실제로 겪었다. 게다가 여긴
-    // `finally` 라 여기서 던지면 **이미 받아둔 code 까지 예외로 바뀐다**(그게 실제 증상이었다).
-    // 창을 닫는 건 뒷정리일 뿐이라 성공 여부가 로그인 결과를 바꾸지 않는다.
-    try {
-      void Promise.resolve(WebBrowser.dismissBrowser()).catch(() => undefined);
-    } catch {
-      // 동기 throw 도 무시
-    }
-  }
-
-  if (!url) {
+  const result = await WebBrowser.openAuthSessionAsync(
+    `${ENV.apiUrl}/auth/social/kakao/authorize`,
+    returnUrl,
+  );
+  // 'cancel'(사용자가 닫음) / 'dismiss'(앱이 닫음) — 둘 다 실패가 아니라 취소다.
+  if (result.type !== 'success') {
     throw new SocialCancelledError();
   }
 
-  const { queryParams } = Linking.parse(url);
+  const { queryParams } = Linking.parse(result.url);
   // 동의 거부 등은 서버가 code 대신 error 를 실어 보낸다(브라우저에 우리 에러 화면을 띄우지 않으려고).
   if (typeof queryParams?.error === 'string') {
     throw new SocialCancelledError();

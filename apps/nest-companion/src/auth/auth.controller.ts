@@ -108,6 +108,9 @@ export class AuthController {
    * 히스토리·중간 로그에 남는데, 거기에 30일짜리 refresh 토큰을 흘릴 수는 없다. 대신 카카오
    * code 를 넘긴다 — 1회용·단수명이고 **우리 client secret 없이는 아무 쓸모가 없어서**,
    * 일부러 "새어도 되는 것"만 이 경로로 보내는 셈이다.
+   *
+   * ⚠️ **`APP_REDIRECT_URL` 의 경로는 서버 라우트가 아니라 앱 화면**이다. Expo Go 는 `/--/` 뒤를
+   * expo-router 에 넘기므로, 없는 경로를 넣으면 앱은 열리는데 "Unmatched Route" 가 뜬다(실측).
    */
   @Get('social/:provider/callback')
   @Redirect()
