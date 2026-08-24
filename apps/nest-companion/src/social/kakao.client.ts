@@ -92,6 +92,11 @@ export class KakaoClient {
     url.searchParams.set('redirect_uri', this.redirectUri);
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('state', state);
+    // ⚠️ **매번 다시 로그인하게 한다.** 안 붙이면 브라우저에 남은 카카오 세션으로 화면 없이
+    // 즉시 통과하는데, 그러면 **다른 계정으로 바꿔 로그인할 방법이 없다**(우리 앱에서 로그아웃해도
+    // 카카오 쪽 세션은 그대로다). 개발 중 계정을 바꿔가며 테스트할 때도 이게 없으면 막힌다.
+    // 대가는 재로그인이 한 번에 안 끝난다는 것 — 계정을 못 바꾸는 쪽이 더 나쁘다고 봤다.
+    url.searchParams.set('prompt', 'login');
     return url.toString();
   }
 

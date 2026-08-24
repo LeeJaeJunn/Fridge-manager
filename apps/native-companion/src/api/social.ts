@@ -47,6 +47,17 @@ export async function getKakaoCode(): Promise<string> {
     console.log('[kakao] 서버 .env 의 APP_REDIRECT_URL 에 넣을 값:', returnUrl);
   }
 
+  // ⚠️ **안드로이드 옵션(`createTask`)을 건드리지 말 것 — 이미 해봤고 안 된다.**
+  //
+  // 기본값(`createTask: true`)은 브라우저를 별도 태스크로 띄워서 "다른 앱으로 넘어간" 것처럼
+  // 보인다. 다른 앱들처럼 앱 위에 덮이게 하려고 `false` 로 바꿨더니, **로그인은 끝났는데
+  // (딥링크가 도착해 세션까지 발급됐는데) 브라우저가 로딩바를 멈춘 채 안 닫혔다.** 기본값이 쓰는
+  // 투명 프록시 액티비티가 복귀와 창 닫기를 맡고 있어서인데, `dismissBrowser()` 를 직접 불러도
+  // 안 닫혔다. 게다가 그 프록시는 **앱이 백그라운드로 가도 브라우저가 안 죽게** 해주는 역할도 한다
+  // (로그인 중 다른 앱을 봤다 오는 건 흔한 행동이다).
+  //
+  // 겹쳐 뜨는 모양은 **네이티브 SDK 를 쓰는 앱들** 이야기다 — 카카오가 자기 Custom Tab 을 띄우고
+  // 자기 스킴으로 돌아와 직접 닫는다. 우리가 거기 가면 애초에 브라우저가 안 뜬다(카카오톡 전환).
   const result = await WebBrowser.openAuthSessionAsync(
     `${ENV.apiUrl}/auth/social/kakao/authorize`,
     returnUrl,
