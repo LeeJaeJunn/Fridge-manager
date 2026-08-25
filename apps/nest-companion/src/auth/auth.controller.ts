@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -27,10 +28,15 @@ import { CurrentUser } from './current-user.decorator';
 import { SendCodeDto, VerifyCodeDto } from './dto/email-code.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SignupDto } from './dto/signup.dto';
 import { SocialLoginDto } from './dto/social-login.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
-import { EmailVerificationService, PURPOSE_SIGNUP } from './email-verification.service';
+import {
+  EmailVerificationService,
+  PURPOSE_RESET,
+  PURPOSE_SIGNUP,
+} from './email-verification.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
@@ -69,6 +75,54 @@ export class AuthController {
   @HttpCode(200)
   verifyCode(@Body() dto: VerifyCodeDto): Promise<VerifyCodeResponseType> {
     return this.verification.verifyCode(dto.email, PURPOSE_SIGNUP, dto.code);
+  }
+
+  /**
+   * 비밀번호 재설정용 인증 코드 발송.
+   *
+   * **가입과 조건이 정반대다** — 가입은 "이미 있으면" 막고, 여기는 **"없으면" 막는다**.
+   * 메일을 보내기 **전에** 확인하는 게 요점이다: 없는 주소로 코드를 보내봐야 아무도 못 받고,
+   * 사용자는 오지 않는 메일을 기다리게 된다.
+   *
+   * ⚠️ 소셜 전용 유저는 여기서 걸러 **어느 수단으로 가입했는지 알려준다.** 비밀번호를 새로
+   * 걸어주는 대신 안내만 하는 건 제품 결정이다 — 지금은 한 계정이 한 수단으로만 가입되므로,
+   * 여기서 비밀번호를 만들어주면 "카카오 계정인데 이메일로도 들어가지는" 어중간한 상태가 된다.
+   * 수단 통합(계정 연결)을 붙일 때 함께 다룬다.
+   *
+   * ⚠️ 두 안내 모두 **계정 열거를 연다**(가입 `send-code` 의 409 와 같은 선택). 진짜 방어는
+   * IP 단위 제한(`@nestjs/throttler`)이고, 이 라우트가 늘면서 그 필요가 더 커졌다.
+   */
+  @Post('password/send-code')
+  @HttpCode(200)
+  async sendResetCode(@Body() dto: SendCodeDto): Promise<SendCodeResponseType> {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+      select: { passwordHash: true },
+    });
+    if (!user) {
+      throw new NotFoundException('가입되지 않은 이메일이에요.');
+    }
+    if (!user.passwordHash) {
+      throw new ConflictException('카카오로 가입된 계정이에요. 카카오 로그인을 이용해 주세요.');
+    }
+    return this.verification.sendCode(dto.email, PURPOSE_RESET);
+  }
+
+  /** 재설정 코드 확인 → 재설정에 쓸 증표 발급 */
+  @Post('password/verify-code')
+  @HttpCode(200)
+  verifyResetCode(@Body() dto: VerifyCodeDto): Promise<VerifyCodeResponseType> {
+    return this.verification.verifyCode(dto.email, PURPOSE_RESET, dto.code);
+  }
+
+  /**
+   * 비밀번호 재설정 실행. 성공해도 **세션을 발급하지 않는다** — 앱이 새 비밀번호로 다시
+   * 로그인하게 해서, 방금 정한 값이 실제로 통하는지 사용자가 그 자리에서 확인하게 한다.
+   */
+  @Post('password/reset')
+  @HttpCode(204)
+  async resetPassword(@Body() dto: ResetPasswordDto): Promise<void> {
+    await this.auth.resetPassword(dto);
   }
 
   /** 회원가입 → 세션(access + refresh) 발급. **증표 토큰이 있어야 한다.** */
@@ -152,7 +206,7 @@ export class AuthController {
    *
    * ⚠️ 앱이 "나를 여기로 보내줘"라고 넘기게 하면 편하지만 그건 **오픈 리다이렉트**다 —
    * 공격자가 자기 주소를 넣어 인가 코드를 받아갈 수 있다. 서버가 갈 곳을 고정하면 그 구멍이 없다.
-   * (Expo Go 는 `exp://<LAN IP>:8081/--/auth/kakao`, 빌드된 앱은 `nativecompanion://auth/kakao`)
+   * (Expo Go 는 `exp://<host>:8081/--/login`, 빌드된 앱은 `nativecompanion://login`)
    */
   private appRedirect(params: Record<string, string>): string {
     const url = new URL(this.config.getOrThrow<string>('APP_REDIRECT_URL'));

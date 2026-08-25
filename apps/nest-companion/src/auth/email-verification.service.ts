@@ -24,8 +24,21 @@ export const VERIFICATION = {
   tokenTtlMinutes: 30,
 };
 
-/** 코드 용도. 가입용 코드로 비밀번호를 못 바꾸게 가른다. 지금은 SIGNUP 만 쓴다. */
+/**
+ * 코드 용도. **가입용 코드로 비밀번호를 못 바꾸게 가른다** — 발급·검증·증표 대조가 전부
+ * `purpose` 로 묶여 있어서, 한쪽 용도로 받은 코드는 다른 쪽에서 아예 조회되지 않는다.
+ */
 export const PURPOSE_SIGNUP = 'SIGNUP';
+export const PURPOSE_RESET = 'RESET_PASSWORD';
+
+/**
+ * 용도별 메일 제목. 받는 사람이 **무엇 때문에 온 코드인지** 알아야 한다 —
+ * 가입한 적 없는데 "비밀번호 재설정" 메일이 오면 그게 곧 도용 시도 신호다.
+ */
+const MAIL_SUBJECT: Record<string, string> = {
+  [PURPOSE_SIGNUP]: '[뉑좡궈] 이메일 인증번호',
+  [PURPOSE_RESET]: '[뉑좡궈] 비밀번호 재설정 인증번호',
+};
 
 const sha256 = (raw: string): string => createHash('sha256').update(raw).digest('hex');
 
@@ -83,7 +96,7 @@ export class EmailVerificationService {
 
     await this.mail.send(
       email,
-      '[뉑좡궈] 이메일 인증번호',
+      MAIL_SUBJECT[purpose] ?? MAIL_SUBJECT[PURPOSE_SIGNUP],
       [
         `인증번호는 ${code} 입니다.`,
         '',

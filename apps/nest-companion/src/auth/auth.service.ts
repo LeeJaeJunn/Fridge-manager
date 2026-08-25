@@ -12,9 +12,14 @@ import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import type { SocialIdentityType } from '../social/social.types';
 import { LoginDto } from './dto/login.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SignupDto } from './dto/signup.dto';
 import { normalizeEmail } from './email';
-import { EmailVerificationService, PURPOSE_SIGNUP } from './email-verification.service';
+import {
+  EmailVerificationService,
+  PURPOSE_RESET,
+  PURPOSE_SIGNUP,
+} from './email-verification.service';
 import { LOCAL_PROVIDER } from './providers';
 
 const BCRYPT_ROUNDS = 10;
@@ -234,6 +239,43 @@ export class AuthService {
     if (payload.type !== 'oauth_state' || payload.provider !== provider) {
       throw new UnauthorizedException('로그인 요청이 올바르지 않습니다.');
     }
+  }
+
+  /**
+   * 비밀번호 재설정 — 이메일 인증을 통과한 사람이 새 비밀번호를 건다.
+   *
+   * ⚠️ **기존 `RefreshSession` 을 일부러 남긴다.** 보안 교과서는 전부 폐기하라고 하지만, 이 앱에서
+   * 재설정하는 이유는 대부분 "털린 것 같다"가 아니라 **"비밀번호를 잊었다"** 다(제품 판단). 그때
+   * 다른 기기까지 로그아웃시키면 아무 이득 없이 불편만 준다.
+   * 대가: 계정이 실제로 털린 경우엔 **재설정만으로 공격자를 못 쫓아낸다.** 그 상황의 해법은
+   * 계정 화면의 "모든 기기에서 로그아웃"이고, 필요해지면 그때 따로 만든다.
+   *
+   * ⚠️ **소셜 전용 유저(`passwordHash === null`)는 여기까지 오지 못한다** — 컨트롤러가 코드 발송
+   * 단계에서 막는다. 여기서 한 번 더 보는 건 그 사이 상태가 바뀌었을 때를 위한 것이고,
+   * 두 곳 다 있어야 "발송은 됐는데 마지막에 조용히 성공" 같은 구멍이 안 생긴다.
+   */
+  async resetPassword(dto: ResetPasswordDto): Promise<void> {
+    const email = normalizeEmail(dto.email);
+    await this.verification.assertVerified(email, PURPOSE_RESET, dto.verificationToken);
+
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, passwordHash: true },
+    });
+    if (!user) {
+      throw new NotFoundException('가입되지 않은 이메일이에요.');
+    }
+    if (!user.passwordHash) {
+      throw new ConflictException('카카오로 가입된 계정이에요. 카카오 로그인을 이용해 주세요.');
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await bcrypt.hash(dto.password, BCRYPT_ROUNDS) },
+    });
+    // 소비 — 다 썼으니 대기 중인 인증이 남을 이유가 없다(가입과 같은 처리).
+    // (감사 로그는 `EmailVerificationService` 가 `purpose` 와 함께 이미 남긴다)
+    await this.verification.clear(email, PURPOSE_RESET);
   }
 
   /** 현재 유저 조회 (GET /auth/me) — 표시용 필드만 반환 */

@@ -5,6 +5,7 @@ export type {
   LogoutRequestType,
   RefreshRequestType,
   RefreshResponseType,
+  ResetPasswordRequestType,
   SendCodeRequestType,
   SendCodeResponseType,
   SignupRequestType,

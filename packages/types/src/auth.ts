@@ -54,6 +54,20 @@ export type SignupRequestType = {
   verificationToken: string;
 };
 
+/**
+ * 비밀번호 재설정 요청 본문 (`POST /auth/password/reset`).
+ *
+ * 가입과 **같은 3단계**(코드 발송 → 확인 → 실행)를 타고, 증표도 같은 방식이다.
+ * 다만 코드의 용도(`purpose`)가 갈려 있어 **가입용 코드로는 비밀번호를 못 바꾼다**.
+ */
+export type ResetPasswordRequestType = {
+  email: string;
+  /** 새 비밀번호 */
+  password: string;
+  /** `password/verify-code` 가 준 증표 */
+  verificationToken: string;
+};
+
 /** 로그인 요청 본문 (`LOCAL` 가입자만 — 소셜 유저는 비밀번호가 없다) */
 export type LoginRequestType = {
   email: string;

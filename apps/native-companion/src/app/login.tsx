@@ -11,7 +11,13 @@ import {
   View,
 } from 'react-native';
 
-import { sendSignupCode, verifySignupCode } from '@/api/auth';
+import {
+  resetPassword,
+  sendResetCode,
+  sendSignupCode,
+  verifyResetCode,
+  verifySignupCode,
+} from '@/api/auth';
 import { SocialCancelledError } from '@/api/social';
 import { Button, Screen } from '@/components';
 import { useAuth } from '@/context/auth';
@@ -36,21 +42,37 @@ const ICON_COLOR = '#6E6E78';
  * 예전엔 이메일 폼이 곧 첫 화면이었는데, 그러면 **이메일이 기본이고 카카오는 곁다리**로 보인다.
  * 둘은 대등한 선택지라 고르는 단계를 앞에 둔다. 소셜을 더 붙일 때도 여기만 늘어난다.
  */
-type Mode = 'landing' | 'login' | 'signup';
+type Mode = 'landing' | 'login' | 'signup' | 'reset';
 
 /**
- * 회원가입 3단계. **인증 후 가입**이라 코드를 맞춘 사람만 3단계에 도달한다.
- * (미인증 유저가 DB 에 안 쌓이는 대신 가입 화면이 길어지는 절충 — 서버 설계와 짝이다)
+ * 이메일 인증을 거치는 3단계. **가입과 비밀번호 재설정이 이 구조를 공유**한다 —
+ * 서버에서도 둘이 같은 `EmailVerification` 흐름(발송 → 확인 → 증표)을 타고 `purpose` 만 다르다.
+ * 화면도 같은 이유로 한 벌이고, 문구와 마지막 호출만 갈린다.
  */
 type Step = 'email' | 'code' | 'password';
 
-const STEP_TITLE: Record<Step, string> = {
-  email: '회원가입',
-  code: '인증번호 확인',
-  password: '거의 다 됐어요',
+/** 3단계를 타는 모드 = 가입·재설정. `login` 은 한 화면에 다 있다. */
+type SteppedMode = 'signup' | 'reset';
+
+const STEP_TITLE: Record<SteppedMode, Record<Step, string>> = {
+  signup: { email: '회원가입', code: '인증번호 확인', password: '거의 다 됐어요' },
+  reset: { email: '비밀번호 재설정', code: '인증번호 확인', password: '새 비밀번호' },
 };
 
-/** 로그인 / 회원가입 화면. 성공하면 _layout 게이트가 자동으로 다음 화면으로 보낸다. */
+const STEP_HINT: Record<SteppedMode, Record<Step, string>> = {
+  signup: {
+    email: '이메일로 인증번호를 보내드릴게요.',
+    code: '', // 이메일 주소를 넣어야 해서 렌더에서 만든다
+    password: '비밀번호만 정하면 끝이에요.',
+  },
+  reset: {
+    email: '가입하신 이메일로 인증번호를 보내드릴게요.',
+    code: '',
+    password: '새로 쓸 비밀번호를 정해 주세요.',
+  },
+};
+
+/** 로그인 / 회원가입 / 비밀번호 재설정. 성공하면 _layout 게이트가 자동으로 다음 화면으로 보낸다. */
 export default function LoginScreen() {
   const { login, signup, loginWithKakao } = useAuth();
   const [mode, setMode] = useState<Mode>('landing');
@@ -60,11 +82,11 @@ export default function LoginScreen() {
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   /**
-   * 가입 시 비밀번호 확인. **서버로 보내지 않는다** — 두 값이 같은지는 앱만 알면 되고,
+   * 비밀번호 확인. **서버로 보내지 않는다** — 두 값이 같은지는 앱만 알면 되고,
    * 서버가 받아봐야 검증할 의미가 없다(공격자는 같은 값 두 개를 보낸다).
    *
-   * 지금 **비밀번호 재설정 흐름이 없어서** 가입 때 오타를 내면 그 계정은 영구히 못 들어간다
-   * (이메일도 이미 선점돼 재가입 불가). 그래서 확인란이 편의가 아니라 방어선이다.
+   * 재설정 흐름이 생긴 뒤로도 남겨둔다. 오타를 내면 그 비밀번호로는 못 들어가고,
+   * 재설정을 한 번 더 돌아야 한다 — 그 왕복을 막는 게 이 칸이다.
    */
   const [passwordConfirm, setPasswordConfirm] = useState('');
   /**
@@ -75,7 +97,7 @@ export default function LoginScreen() {
    */
   const [showPassword, setShowPassword] = useState(false);
 
-  /** verify 가 준 증표 — 이게 있어야 가입이 된다 */
+  /** verify 가 준 증표 — 이게 있어야 가입·재설정이 된다 */
   const [verificationToken, setVerificationToken] = useState('');
   /**
    * 재전송까지 남은 초. **서버가 준 `retryAfterSec` 로 시작한다** — 앱이 60을 박아두면
@@ -87,8 +109,13 @@ export default function LoginScreen() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 실패가 아닌 안내 (예: 재설정 완료 → 새 비밀번호로 로그인하라는 말) */
+  const [notice, setNotice] = useState<string | null>(null);
 
   const isSignup = mode === 'signup';
+  const isReset = mode === 'reset';
+  /** 3단계를 타는 중인가 — 화면 구조 분기는 전부 이걸 본다(문구만 위 둘로 가른다) */
+  const isStepped = isSignup || isReset;
 
   // 1초마다 감소. effect 본문이 아니라 타이머 콜백에서 setState 하므로 cascading-render 규칙에 안 걸린다.
   useEffect(() => {
@@ -100,6 +127,7 @@ export default function LoginScreen() {
   /** 실패해도 화면이 멈추지 않게 공통으로 감싼다 */
   const run = async (fn: () => Promise<void>) => {
     setError(null);
+    setNotice(null);
     setSubmitting(true);
     try {
       await fn();
@@ -113,10 +141,11 @@ export default function LoginScreen() {
   };
 
   // ── 1단계: 이메일 → 인증번호 발송 ──
-  // 이미 가입된 이메일이면 서버가 409 를 주고, 그 메시지가 아래 빨간 글씨로 그대로 뜬다.
+  // 서버가 조건을 반대로 본다: 가입은 **이미 있으면** 409, 재설정은 **없으면** 404 ·
+  // 카카오 계정이면 409. 어느 쪽이든 그 메시지가 아래 빨간 글씨로 그대로 뜬다.
   const requestCode = () =>
     run(async () => {
-      const res = await sendSignupCode({ email });
+      const res = await (isReset ? sendResetCode({ email }) : sendSignupCode({ email }));
       setCodeDigits(res.codeDigits);
       setCooldown(res.retryAfterSec);
       setCode('');
@@ -124,9 +153,13 @@ export default function LoginScreen() {
     });
 
   // ── 2단계: 코드 확인 → 증표 획득 ──
+  // ⚠️ 용도가 갈린 엔드포인트를 쓴다 — 가입용 코드로 비밀번호를 바꾸지 못하게 서버가 `purpose`
+  //    로 막고 있어서, 여기서 잘못 부르면 "코드가 맞는데 안 된다"가 된다.
   const submitCode = (value: string) =>
     run(async () => {
-      const res = await verifySignupCode({ email, code: value });
+      const res = await (isReset
+        ? verifyResetCode({ email, code: value })
+        : verifySignupCode({ email, code: value }));
       setVerificationToken(res.verificationToken);
       setStep('password');
     });
@@ -138,9 +171,33 @@ export default function LoginScreen() {
     if (digits.length === codeDigits && !submitting) void submitCode(digits);
   };
 
-  // ── 3단계: 비밀번호 → 가입 ──
-  const submitSignup = () =>
+  /** 폼 초기화 + 모드 전환. 진행 중이던 인증 상태를 전부 버린다(옛 증표가 남으면 어긋난다). */
+  // 아래 뒤로가기 effect 가 부르므로 참조를 고정한다 — 안 그러면 렌더마다 리스너가 재등록된다.
+  // ⚠️ `email` 은 일부러 남긴다 — 재설정을 마치고 로그인으로 돌아올 때 다시 치게 하지 않는다.
+  const resetForm = useCallback((next: Mode) => {
+    setMode(next);
+    setStep('email');
+    setCode('');
+    setPassword('');
+    setPasswordConfirm('');
+    setShowPassword(false);
+    setVerificationToken('');
+    setCooldown(0);
+    setError(null);
+    setNotice(null);
+  }, []);
+
+  // ── 3단계: 비밀번호 → 가입 또는 재설정 ──
+  const submitFinal = () =>
     run(async () => {
+      if (isReset) {
+        await resetPassword({ email, password, verificationToken });
+        // ⚠️ **재설정은 세션을 주지 않는다**(서버가 204). 로그인 화면으로 되돌려 새 비밀번호로
+        // 직접 들어가게 하는 게 의도다 — 방금 정한 값이 실제로 통하는지 그 자리에서 확인된다.
+        resetForm('login');
+        setNotice('비밀번호를 바꿨어요. 새 비밀번호로 로그인해 주세요.');
+        return;
+      }
       await signup({ email, password, verificationToken });
     });
 
@@ -152,36 +209,9 @@ export default function LoginScreen() {
    */
   const submitKakao = () => run(async () => loginWithKakao());
 
-  /** 모드 전환 — 진행 중이던 인증 상태를 전부 버린다(옛 증표가 남으면 헷갈린다) */
-  const toggleMode = () => {
-    setMode(isSignup ? 'login' : 'signup');
-    setStep('email');
-    setCode('');
-    setPassword('');
-    setPasswordConfirm('');
-    setShowPassword(false);
-    setVerificationToken('');
-    setCooldown(0);
-    setError(null);
-  };
-
-  // 아래 뒤로가기 effect 가 부르므로 참조를 고정한다 — 안 그러면 렌더마다 리스너가 재등록된다.
   const backToEmail = useCallback(() => {
     setStep('email');
     setCode('');
-    setError(null);
-  }, []);
-
-  /** 수단 고르는 화면으로 — 이메일 폼에 남아 있던 입력·증표를 전부 버린다 */
-  const backToLanding = useCallback(() => {
-    setMode('landing');
-    setStep('email');
-    setCode('');
-    setPassword('');
-    setPasswordConfirm('');
-    setShowPassword(false);
-    setVerificationToken('');
-    setCooldown(0);
     setError(null);
   }, []);
 
@@ -200,12 +230,12 @@ export default function LoginScreen() {
     useCallback(() => {
       const sub = BackHandler.addEventListener('hardwareBackPress', () => {
         if (mode === 'landing') return false;
-        if (mode === 'signup' && step !== 'email') backToEmail();
-        else backToLanding();
+        if (mode !== 'login' && step !== 'email') backToEmail();
+        else resetForm('landing');
         return true;
       });
       return () => sub.remove();
-    }, [mode, step, backToEmail, backToLanding]),
+    }, [mode, step, backToEmail, resetForm]),
   );
 
   /** 확인란이 비었으면 아직 안 알려준다 — 치는 중에 빨간 글씨가 뜨면 거슬린다 */
@@ -213,7 +243,7 @@ export default function LoginScreen() {
 
   const canSubmit = (() => {
     if (submitting) return false;
-    if (!isSignup) return email.trim().length > 0 && password.length > 0;
+    if (!isStepped) return email.trim().length > 0 && password.length > 0;
     if (step === 'email') return email.trim().length > 0;
     if (step === 'code') return code.length === codeDigits;
     return password.length > 0 && password === passwordConfirm;
@@ -244,26 +274,26 @@ export default function LoginScreen() {
     );
   }
 
+  const steppedMode: SteppedMode = isReset ? 'reset' : 'signup';
+
   return (
     <Screen contentClassName="justify-center gap-6 px-6">
       <View className="gap-2">
         <Text className="text-2xl font-bold text-ink">
-          {isSignup ? STEP_TITLE[step] : '로그인'}
+          {isStepped ? STEP_TITLE[steppedMode][step] : '로그인'}
         </Text>
         <Text className="text-ink-soft">
-          {!isSignup
+          {!isStepped
             ? '다시 만나서 반가워요.'
-            : step === 'email'
-              ? '이메일로 인증번호를 보내드릴게요.'
-              : step === 'code'
-                ? `${email} 로 보낸 번호를 입력해 주세요.`
-                : '비밀번호만 정하면 끝이에요.'}
+            : step === 'code'
+              ? `${email} 로 보낸 번호를 입력해 주세요.`
+              : STEP_HINT[steppedMode][step]}
         </Text>
       </View>
 
       <View className="gap-3">
-        {/* 이메일 — 인증이 끝난 뒤에는 잠근다(바꾸려면 뒤로 가야 증표와 어긋나지 않는다) */}
-        {(!isSignup || step === 'email') && (
+        {/* 이메일 — 인증이 끝난 뒤에는 감춘다(바꾸려면 뒤로 가야 증표와 어긋나지 않는다) */}
+        {(!isStepped || step === 'email') && (
           <Field
             label="이메일"
             value={email}
@@ -276,7 +306,7 @@ export default function LoginScreen() {
           />
         )}
 
-        {isSignup && step === 'code' && (
+        {isStepped && step === 'code' && (
           <>
             <Field
               label="인증번호"
@@ -301,26 +331,26 @@ export default function LoginScreen() {
           </>
         )}
 
-        {(!isSignup || step === 'password') && (
+        {(!isStepped || step === 'password') && (
           <Field
-            label="비밀번호"
-            // 눈은 가입에만 붙인다 — 로그인은 이미 아는 값을 치는 거라 볼 이유가 적고,
+            label={isReset ? '새 비밀번호' : '비밀번호'}
+            // 눈은 새로 정하는 자리에만 붙인다 — 로그인은 이미 아는 값을 치는 거라 볼 이유가 적고,
             // 어깨너머로 노출될 여지만 는다.
-            onHoldReveal={isSignup ? setShowPassword : undefined}
+            onHoldReveal={isStepped ? setShowPassword : undefined}
             value={password}
             onChangeText={setPassword}
             placeholder="8자 이상"
             autoCapitalize="none"
             autoCorrect={false}
-            secureTextEntry={!isSignup || !showPassword}
-            autoFocus={isSignup}
+            secureTextEntry={!isStepped || !showPassword}
+            autoFocus={isStepped}
           />
         )}
 
-        {isSignup && step === 'password' && (
+        {isStepped && step === 'password' && (
           <>
             <Field
-              label="비밀번호 확인"
+              label={isReset ? '새 비밀번호 확인' : '비밀번호 확인'}
               // ⚠️ 어느 쪽 눈을 누르든 **두 칸이 함께** 풀린다. 이 칸의 존재 이유가 "두 값이
               // 같은가"를 확인하는 것이라, 하나만 보이면 기억에 의존해 비교해야 해서 반쪽이 된다.
               // 잠깐만 보이는 방식이라 이렇게 해도 노출 위험은 거의 안 는다.
@@ -335,44 +365,62 @@ export default function LoginScreen() {
             {mismatch && <Text className="text-sm text-red-500">비밀번호가 일치하지 않아요.</Text>}
           </>
         )}
+
+        {/* 재설정 진입은 **로그인 화면에서만** — 못 들어가는 사람이 서 있는 자리가 여기다.
+            가입 도중에 보이면 하던 걸 버리라는 뜻이 돼 헷갈린다. */}
+        {mode === 'login' && (
+          <Text
+            className="self-end text-sm text-ink-faint"
+            onPress={submitting ? undefined : () => resetForm('reset')}
+          >
+            비밀번호를 잊으셨나요?
+          </Text>
+        )}
       </View>
 
+      {notice && <Text className="text-sm text-lavender">{notice}</Text>}
       {error && <Text className="text-sm text-red-500">{error}</Text>}
 
       <View className="gap-3">
         <Button
           label={
-            !isSignup
+            !isStepped
               ? '로그인'
               : step === 'email'
                 ? '인증번호 받기'
                 : step === 'code'
                   ? '확인'
-                  : '가입하기'
+                  : isReset
+                    ? '비밀번호 변경'
+                    : '가입하기'
           }
           loading={submitting}
           disabled={!canSubmit}
           onPress={
-            !isSignup
+            !isStepped
               ? submitLogin
               : step === 'email'
                 ? requestCode
                 : step === 'code'
                   ? () => void submitCode(code)
-                  : submitSignup
+                  : submitFinal
           }
         />
-        <Button
-          variant="secondary"
-          label={isSignup ? '이미 계정이 있어요' : '계정 만들기'}
-          disabled={submitting}
-          onPress={toggleMode}
-        />
+        {/* 재설정 중에는 가입/로그인 전환을 감춘다 — 지금 하려는 일과 무관하고,
+            "다른 방법으로 로그인" 하나로 빠져나갈 수 있다. */}
+        {!isReset && (
+          <Button
+            variant="secondary"
+            label={isSignup ? '이미 계정이 있어요' : '계정 만들기'}
+            disabled={submitting}
+            onPress={() => resetForm(isSignup ? 'login' : 'signup')}
+          />
+        )}
       </View>
 
       {/* 카카오는 여기 없다 — 수단 고르는 화면에만 둔다. 이메일 가입을 진행 중인 자리에
           다른 수단이 보이면 "하던 걸 버려라"로 읽혀서 헷갈린다. */}
-      <Text className="text-center text-sm text-ink-faint" onPress={backToLanding}>
+      <Text className="text-center text-sm text-ink-faint" onPress={() => resetForm('landing')}>
         다른 방법으로 로그인
       </Text>
     </Screen>
