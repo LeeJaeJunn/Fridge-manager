@@ -91,3 +91,6 @@ chore: 빌드 수정, 패키지 매니저 수정
 ~/Library/Android/sdk/platform-tools/adb reverse tcp:4000 tcp:4000
 
 ## Todo
+
+레시피 추천 카드에 "레시피 검색", "요리했어요" 카드 넣기.
+요리했어요: llm 호출(상위 모델로 테스트)해 structured output으로.

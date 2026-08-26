@@ -40,6 +40,8 @@ export type {
   ConsumeProposalItemType,
   ConversationDetailType,
   ConversationSummaryType,
+  DishIngredientType,
+  DishProposalType,
   FunctionCallMessageType,
   FunctionCallPayloadType,
   FunctionOutputMessageType,

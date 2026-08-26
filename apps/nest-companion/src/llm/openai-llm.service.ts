@@ -218,7 +218,7 @@ export class OpenAiLlmProvider implements LlmProvider {
         outputTokens += u.output_tokens;
         totalTokens += u.total_tokens;
       };
-      console.log(instructions);
+
       let res = await this.client.responses.create({
         model,
         instructions,
@@ -227,6 +227,7 @@ export class OpenAiLlmProvider implements LlmProvider {
         parallel_tool_calls: PARALLEL_TOOL_CALLS,
       });
       accumulate(res.usage);
+      console.log(JSON.stringify(res));
 
       // 모델이 툴을 더 안 부를 때까지(또는 상한까지) 반복
       for (let round = 0; round < maxRounds; round++) {

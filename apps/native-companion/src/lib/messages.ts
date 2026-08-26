@@ -6,6 +6,7 @@
  */
 
 import type {
+  DishProposalType,
   FunctionCallMessageType,
   FunctionOutputMessageType,
   InventoryProposalType,
@@ -19,6 +20,9 @@ export const INVENTORY_TOOL = 'update_inventory';
 /** 레시피 검색 툴 이름 — 서버 `SEARCH_RECIPES_TOOL.name` 과 같아야 한다. */
 export const RECIPE_TOOL = 'search_recipes';
 
+/** 요리 제안 툴 이름 — 서버 `PROPOSE_DISH_TOOL.name` 과 같아야 한다. */
+export const DISH_TOOL = 'propose_dish';
+
 /**
  * 툴 호출 → 재고 확인 카드용 제안.
  * **앱이 모르는 툴이면 null** 을 돌려준다 — 백엔드에 툴이 추가돼도 구버전 앱은 그 아이템을
@@ -27,6 +31,21 @@ export const RECIPE_TOOL = 'search_recipes';
 export function toInventoryProposal(m: FunctionCallMessageType): InventoryProposalType | null {
   if (m.payload.name !== INVENTORY_TOOL) return null;
   return (m.payload.resolved as InventoryProposalType | undefined) ?? null;
+}
+
+/**
+ * 툴 호출 → 요리 카드용 제안.
+ *
+ * **재고와 같이 `FUNCTION_CALL` 에서 읽는다**(레시피 검색과 다르다). 서버가 재고 매칭까지 마쳐
+ * `resolved` 에 담아두므로, 결과 아이템(`{ shown: true }`)은 화면에 아무것도 만들지 않는다 —
+ * 그건 "이미 보여줬다"는 표시일 뿐이고, 재생 시 짝을 채우려고 있는 것이다.
+ */
+export function toDishProposal(m: FunctionCallMessageType): DishProposalType | null {
+  if (m.payload.name !== DISH_TOOL) return null;
+  const dish = m.payload.resolved as DishProposalType | undefined;
+  // 재료가 없으면 카드로 보여줄 게 없다 — 빈 카드 대신 조용히 건너뛴다.
+  if (!dish || !Array.isArray(dish.ingredients) || dish.ingredients.length === 0) return null;
+  return dish;
 }
 
 /**

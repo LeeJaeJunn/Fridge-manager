@@ -5,6 +5,7 @@ export { Card } from './Card';
 export { Chip } from './Chip';
 export { ChipGroup, type ChipOption } from './ChipGroup';
 export { Dialog } from './Dialog';
+export { DishCard } from './DishCard';
 export { Field } from './Field';
 export { IngredientEditDialog } from './IngredientEditDialog';
 export {

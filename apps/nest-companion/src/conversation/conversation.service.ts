@@ -6,6 +6,7 @@ import type {
   ConsumeProposalItemType,
   ConversationDetailType,
   ConversationSummaryType,
+  DishProposalType,
   FunctionCallPayloadType,
   FunctionOutputPayloadType,
   InventoryProposalType,
@@ -72,6 +73,71 @@ const SEARCH_RECIPES_TOOL: LlmTool = {
       },
     },
     required: ['dishName'],
+    additionalProperties: false,
+  },
+};
+
+/**
+ * 요리 제안 툴 — **요리가 정해진 순간을 객체로 남긴다.**
+ *
+ * 예전엔 추천이 말풍선 텍스트로만 남아서 (i) 저장할 수 없고 (ii) 나중에 "다 만들었어" 할 때
+ * 무엇을 얼마나 썼는지 모델이 대화를 되짚어 추측해야 했다. 재료와 양이 데이터로 남으면 둘 다 풀린다.
+ *
+ * `search_recipes` 와 같은 **서버 즉시 실행형**이다 — 카드로 보여주면 끝이라 결과를 함께 저장한다.
+ * ⚠️ 결과를 안 남기면 `toLlmItems` 가 "사용자 확인 대기 중" 자리표시를 붙이는데, 이 툴엔 틀린
+ * 의미다(확인을 기다리는 게 아니라 이미 보여준 것). 모델이 승인을 기다리며 같은 추천을 반복한다.
+ *
+ * ⚠️ `servings` 가 **필수인 게 제품 원칙의 강제**다. 이 앱의 차별점이 "능동적 구조화 질문
+ * (몇 인분·조리시간)" 이라(루트 README), 필수로 두면 **안 물어보고는 툴을 못 부른다.**
+ * 반대로 `cookMinutes` 는 선택이다 — 둘 다 필수면 모르는 값을 지어낸다(작은 모델에서 관측되는 실패).
+ */
+const PROPOSE_DISH_TOOL: LlmTool = {
+  name: 'propose_dish',
+  terminal: true,
+  description:
+    '해먹을 요리가 정해졌을 때 재료와 조리법을 카드로 보여준다. 사용자가 추천을 받아들이거나 직접 요리를 고른 **바로 그 시점에 한 번만** 호출한다. 여러 요리를 나열하며 고르는 중이거나, 몇 인분·조리시간을 아직 안 물어봤으면 호출하지 마라. 이 도구를 부르면 카드가 재료와 순서를 모두 보여주므로, 같은 내용을 말로 다시 설명하지 마라.',
+  parameters: {
+    type: 'object',
+    properties: {
+      dishName: { type: 'string', description: '요리 이름만 짧게 ("김치찌개")' },
+      servings: {
+        type: 'number',
+        description: '몇 인분. 대화에서 확인한 값을 쓴다. 확인하지 않았으면 이 도구를 부르지 마라',
+      },
+      cookMinutes: {
+        type: 'number',
+        description: '대략적인 조리 시간(분). 모르면 생략한다',
+      },
+      ingredients: {
+        type: 'array',
+        description: '이 요리에 드는 재료 전부 (냉장고에 없는 것도 포함)',
+        items: {
+          type: 'object',
+          properties: {
+            name: {
+              type: 'string',
+              // ⚠️ "냉장고에 있나"는 **묻지 않는다** — 서버가 판정한다(resolveDishIngredients).
+              //    모델에게 물으면 카드와 냉장고 화면이 어긋나고, 그 어긋남은 눈에 안 띈다.
+              description:
+                '재료명. 재고 목록에 있는 재료면 목록의 이름을 그대로 쓴다 ("달걀"이 목록에 "계란"으로 있으면 "계란")',
+            },
+            amount: {
+              type: 'string',
+              description:
+                '이 요리에 드는 양 ("200g", "반 모", "2큰술"). 냉장고에 얼마나 있는지가 아니라 **이번에 쓸 양**이다',
+            },
+          },
+          required: ['name', 'amount'],
+          additionalProperties: false,
+        },
+      },
+      steps: {
+        type: 'array',
+        description: '조리 순서. 한 줄에 한 단계, 번호는 붙이지 마라 (카드가 붙인다)',
+        items: { type: 'string' },
+      },
+    },
+    required: ['dishName', 'servings', 'ingredients', 'steps'],
     additionalProperties: false,
   },
 };
@@ -604,7 +670,7 @@ export class ConversationService {
     const res = await this.llm.chatWithTools(
       prompt.system,
       attachContext(items, prompt.context),
-      [UPDATE_INVENTORY_TOOL, SEARCH_RECIPES_TOOL],
+      [UPDATE_INVENTORY_TOOL, SEARCH_RECIPES_TOOL, PROPOSE_DISH_TOOL],
       executors,
       this.model,
       // 유저가 직접 보낸 메시지라 쿼터에 센다. conversationId 는 "긴 대화가 실제로 얼마나
@@ -620,6 +686,8 @@ export class ConversationService {
     }
     // 레시피는 서버가 지금 실행한다 — 호출과 결과가 **항상 짝으로** 저장된다.
     // (짝 없이 남으면 toLlmItems 가 "사용자 확인 대기"로 오해해 재생하므로 반드시 함께 쓴다)
+    // 요리 카드도 서버가 지금 끝낸다 — 호출+결과를 짝으로 저장한다(위 레시피와 같은 이유).
+    create.push(...this.buildDishProposal(res.terminalCalls, inventory));
     create.push(...(await this.runRecipeSearches(res.terminalCalls)));
     // 재고는 사람이 확인해야 하므로 호출만 저장하고 결과는 apply/dismiss 때 붙는다.
     for (const call of this.buildCallPayloads(userId, res.terminalCalls, inventory)) {
@@ -697,6 +765,50 @@ export class ConversationService {
       });
     }
     return items;
+  }
+
+  /**
+   * `propose_dish` 호출 → 저장할 아이템(호출 + 결과). 재료를 재고에 매칭해 `resolved` 를 채운다.
+   *
+   * ⚠️ **결과를 항상 함께 돌려준다.** 짝이 없으면 `toLlmItems` 가 "사용자 확인 대기 중"으로
+   * 채워 재생하는데, 이 툴은 확인을 기다리는 게 아니라 이미 보여준 것이다(`search_recipes` 와 같다).
+   *
+   * output 을 `{ shown: true }` 로 작게 두는 건 의도다 — 요리 상세는 이미 `arguments` 에 있고
+   * 그건 매 턴 그대로 재생되므로, 결과에서 반복하면 입력 토큰만 두 배로 먹는다.
+   */
+  private buildDishProposal(
+    calls: TerminalToolCall[] | undefined,
+    inventory: RecalledIngredient[],
+  ): Prisma.MessageCreateWithoutConversationInput[] {
+    const picked = pickDishCall(calls);
+    if (!picked) return [];
+
+    const { callId, ingredients, ...rest } = picked;
+    const resolved: DishProposalType = {
+      ...rest,
+      // 재고 매칭은 서버가 한다 — 모델에게 "냉장고에 있나"를 묻지 않는 이유는 그 함수 주석 참고.
+      ingredients: this.inventory.resolveDishIngredients(ingredients, inventory),
+    };
+
+    return [
+      {
+        type: 'FUNCTION_CALL',
+        payload: {
+          callId,
+          name: 'propose_dish',
+          arguments: { ...rest, ingredients },
+          resolved,
+        } as unknown as Prisma.InputJsonValue,
+      },
+      {
+        type: 'FUNCTION_CALL_OUTPUT',
+        payload: {
+          callId,
+          name: 'propose_dish',
+          output: { shown: true },
+        },
+      },
+    ];
   }
 
   /**
@@ -822,6 +934,44 @@ export function pickRecipeCalls(
     if (picked.length >= MAX_RECIPE_SEARCHES_PER_TURN) break;
   }
   return picked;
+}
+
+/**
+ * 종결 툴 호출들 중 **첫 `propose_dish` 하나만** 고른다.
+ *
+ * 한 턴에 요리가 둘 정해질 수는 없다 — 여러 번 부르면 카드가 여러 장 뜨고 "뭘 만들기로 한 거지"가
+ * 흐려진다. `pickInventoryCall` 과 같은 판단이고, 인자 모양도 똑같이 믿지 않는다(모델이 만든 JSON).
+ */
+function pickDishCall(calls: TerminalToolCall[] | undefined):
+  | {
+      callId: string;
+      dishName: string;
+      servings: number;
+      cookMinutes?: number;
+      ingredients: { name?: string; amount?: string }[];
+      steps: string[];
+    }
+  | undefined {
+  const call = calls?.find((c) => c.name === 'propose_dish');
+  if (!call) return undefined;
+
+  const a = call.arguments;
+  const dishName = typeof a.dishName === 'string' ? a.dishName.trim() : '';
+  // 요리명이나 재료가 없으면 카드로 보여줄 게 없다 — 빈 카드를 띄우느니 통째로 버린다.
+  if (dishName.length === 0 || !Array.isArray(a.ingredients) || a.ingredients.length === 0) {
+    return undefined;
+  }
+  return {
+    callId: call.callId,
+    dishName,
+    // 필수 필드지만 값이 이상하게 오는 경우까지 막는다(0인분·문자열 등) — 1 이 가장 안전한 폴백이다.
+    servings: typeof a.servings === 'number' && a.servings > 0 ? Math.round(a.servings) : 1,
+    ...(typeof a.cookMinutes === 'number' && a.cookMinutes > 0
+      ? { cookMinutes: Math.round(a.cookMinutes) }
+      : {}),
+    ingredients: a.ingredients,
+    steps: Array.isArray(a.steps) ? a.steps.filter((s): s is string => typeof s === 'string') : [],
+  };
 }
 
 /**

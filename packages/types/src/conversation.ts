@@ -69,6 +69,40 @@ export interface InventoryProposalType {
   add?: AddProposalItemType[];
 }
 
+/**
+ * 요리 제안의 재료 한 줄 (`propose_dish` 의 `resolved`).
+ *
+ * ⚠️ **"냉장고에 있나"를 모델에게 묻지 않는다** — 서버가 재고 목록에 매칭해 채운다.
+ * 모델에게 물으면 카드가 "없음"이라는데 재고 화면엔 있는 어긋남이 생긴다(`resolveConsume` 과
+ * 같은 정규화 규칙을 쓰므로 판정이 한 곳이다).
+ */
+export interface DishIngredientType {
+  /** 모델이 말한 재료명. 재고에 있으면 **재고 쪽 이름**으로 바뀐다(카드와 냉장고가 같은 말을 쓰게) */
+  name: string;
+  /** 이 요리에 드는 양 ("200g", "반 모", "2큰술") — 자유텍스트다. 레시피 단위는 정규화가 안 된다 */
+  amount: string;
+  /** 매칭된 재고 행. `null` = 냉장고에 없음(=사야 함) */
+  ingredientId: string | null;
+  /** 매칭됐을 때 현재 냉장고 수량 — 카드가 "200g (냉장고: 1kg)" 를 그리는 근거 */
+  currentQuantityNote: string | null;
+}
+
+/**
+ * `propose_dish` 호출의 `resolved` 모양 — 요리 카드가 그리는 값이다.
+ *
+ * **요리가 정해진 순간을 객체로 남기는 게 목적**이다. 예전엔 추천이 말풍선 텍스트로만 남아서
+ * (i) 저장할 수 없고 (ii) 나중에 "다 만들었어" 할 때 무엇을 얼마나 썼는지 모델이 대화를
+ * 되짚어 추측해야 했다.
+ */
+export interface DishProposalType {
+  dishName: string;
+  servings: number;
+  /** 대략적인 조리 시간(분). 모델이 모르면 없다 */
+  cookMinutes?: number;
+  ingredients: DishIngredientType[];
+  steps: string[];
+}
+
 /** 아이템 공통 필드 */
 interface MessageBaseType {
   id: string;

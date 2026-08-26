@@ -18,9 +18,21 @@ import {
   sendMessage,
   startConversation,
 } from '@/api/conversation';
-import { Bubble, Button, InventoryConfirmCard, RecipeResultCard, Screen } from '@/components';
+import {
+  Bubble,
+  Button,
+  DishCard,
+  InventoryConfirmCard,
+  RecipeResultCard,
+  Screen,
+} from '@/components';
 import { useInventory } from '@/context/inventory';
-import { outcomesByCallId, toInventoryProposal, toRecipeResult } from '@/lib/messages';
+import {
+  outcomesByCallId,
+  toDishProposal,
+  toInventoryProposal,
+  toRecipeResult,
+} from '@/lib/messages';
 import type { ApplyProposalRequestType, MessageType } from '@companion/types';
 
 export default function ConversationScreen() {
@@ -178,6 +190,11 @@ export default function ConversationScreen() {
               }
 
               if (m.type === 'FUNCTION_CALL') {
+                // 요리 카드도 **호출** 쪽이다 — 서버가 재고 매칭까지 끝내 `resolved` 에 담아두므로,
+                // 결과 아이템(`{ shown: true }`)은 "이미 보여줬다"는 표시일 뿐 화면을 안 만든다.
+                const dish = toDishProposal(m);
+                if (dish) return <DishCard key={m.id} dish={dish} />;
+
                 const proposal = toInventoryProposal(m);
                 // 앱이 모르는 툴이면 조용히 건너뛴다 (백엔드에 툴이 늘어도 안 깨지게).
                 // 레시피 호출도 여기서 걸러진다 — 카드는 위 결과 쪽에서 그리므로 중복이 안 생긴다.

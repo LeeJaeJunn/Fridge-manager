@@ -2,6 +2,7 @@ import type {
   AddIngredientInputType,
   AddProposalItemType,
   ConsumeProposalItemType,
+  DishIngredientType,
   IngredientCategoryType,
   IngredientType,
   StorageAreaType,
@@ -311,6 +312,46 @@ export class InventoryService {
    * 다시 읽지 않는다. 덤으로 **모델이 프롬프트에서 본 것과 정확히 같은 목록**에 매칭돼,
    * 카드와 모델의 판단이 어긋날 여지가 없다.
    */
+  /**
+   * 요리 제안의 재료 → 재고 매칭 (`propose_dish` 카드용). 아무것도 쓰지 않는다.
+   *
+   * ⚠️ **"냉장고에 있나"를 모델에게 묻지 않는 게 요점이다.** 서버가 재고 목록을 정확히 알고
+   * `resolveConsume` 과 **같은 정규화 규칙**을 쓰므로, 카드의 판정과 냉장고 화면이 어긋날 수 없다.
+   * 모델에게 물으면 두 판단이 갈리고, 그 어긋남은 사용자가 알아채기 어렵다.
+   *
+   * 매칭되면 **재고 쪽 이름으로 바꿔** 담는다 — 모델이 "달걀", 냉장고가 "계란"이면 카드와
+   * 냉장고가 다른 말을 하게 되고, 나중에 소비로 이어질 때 이름이 또 안 맞는다.
+   *
+   * `previewAdd`·`resolveConsume` 과 마찬가지로 **DB 를 직접 안 보고 호출자가 읽은 재고를 받는다**
+   * (이 턴의 프롬프트에 주입한 바로 그 목록 = 모델이 본 것과 같은 목록).
+   */
+  resolveDishIngredients(
+    items: { name?: string; amount?: string }[],
+    existing: { id: string; name: string; quantityNote: string | null }[],
+  ): DishIngredientType[] {
+    const byName = new Map(existing.map((r) => [normalize(r.name), r]));
+
+    const out: DishIngredientType[] = [];
+    const seen = new Set<string>();
+    for (const item of items) {
+      const name = item.name?.trim() ?? '';
+      if (name.length === 0) continue;
+      // 같은 재료가 두 줄로 오면 첫 줄만 남긴다 (resolveConsume 의 dedupe 와 같은 방향).
+      const key = normalize(name);
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const hit = byName.get(key);
+      out.push({
+        name: hit?.name ?? clip(name, LIMITS.nameMax),
+        amount: clip(item.amount ?? '', LIMITS.quantityNoteMax),
+        ingredientId: hit?.id ?? null,
+        currentQuantityNote: hit?.quantityNote ?? null,
+      });
+    }
+    return out;
+  }
+
   resolveConsume(
     items: ConsumeItem[],
     existing: { id: string; name: string; quantityNote: string | null }[],
