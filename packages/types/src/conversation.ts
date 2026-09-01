@@ -101,6 +101,19 @@ export interface DishProposalType {
   cookMinutes?: number;
   ingredients: DishIngredientType[];
   steps: string[];
+  /**
+   * 이 요리를 만들어 **재고에 반영한 시각**(ISO). 없으면 아직 안 만든 것이다.
+   *
+   * ⚠️ **툴 호출 payload 를 나중에 고치는 유일한 자리**다. 이 파일의 다른 상태는 전부
+   * "짝이 되는 `FUNCTION_CALL_OUTPUT` 이 있는가"로 파생하는데(두 기록이 어긋나지 않게),
+   * 여기선 그럴 수가 없다 — 소비는 대화에 아무 아이템도 남기지 않기 때문이다
+   * (재고 상태는 매 턴 프롬프트로 새로 주입되므로 대화에 실을 이유가 없다).
+   * 파생할 원본이 없으니 **이 필드가 유일한 기록**이고, 그래서 어긋날 짝도 없다.
+   *
+   * boolean 이 아니라 시각인 건 비용이 같은데 답하는 질문이 하나 더 많아서다
+   * (`consumedAt`·`verifiedAt` 과 같은 방식).
+   */
+  cookedAt?: string;
 }
 
 /** 아이템 공통 필드 */
@@ -165,6 +178,30 @@ export interface ApplyProposalRequestType {
    * `expiresAt` 은 **사용자가 날짜를 직접 고른 경우에만** 싣는다(그때만 서버가 `USER` 로 승격).
    */
   add: AddIngredientInputType[];
+}
+
+/**
+ * 요리 카드의 "만들었어요" 요청 — 사용자가 확인 카드에서 **편집한 최종 값**.
+ *
+ * `ApplyProposalRequestType` 과 항목 모양이 같지만 `add` 가 없다. 요리는 재료를 쓰기만 하지
+ * 만들어내지 않아서, 빈 배열을 늘 실어 보내는 대신 필드를 아예 두지 않는다.
+ */
+export interface CookDishRequestType {
+  consume: Array<{
+    ingredientId: string;
+    finished: boolean;
+    remaining: string | null;
+  }>;
+}
+
+/**
+ * "만들었어요" 응답 — `cookedAt` 이 찍힌 **요리 카드 메시지**를 돌려준다.
+ *
+ * 새 아이템을 만드는 게 아니라 **기존 메시지가 바뀌는** 경우라 `ResolveProposalResultType`
+ * (새로 생긴 것들)과 모양이 다르다. 앱은 이걸 받아 목록에서 같은 id 를 교체한다.
+ */
+export interface CookDishResultType {
+  message: FunctionCallMessageType;
 }
 
 /**

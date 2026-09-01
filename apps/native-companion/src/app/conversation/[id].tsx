@@ -13,14 +13,18 @@ import {
 
 import {
   applyProposal,
+  cookDish,
+  cookPreview,
   dismissProposal,
   fetchConversation,
+  searchDishRecipes,
   sendMessage,
   startConversation,
 } from '@/api/conversation';
 import {
   Bubble,
   Button,
+  Dialog,
   DishCard,
   InventoryConfirmCard,
   RecipeResultCard,
@@ -28,12 +32,18 @@ import {
 } from '@/components';
 import { useInventory } from '@/context/inventory';
 import {
+  lastUserIndex,
   outcomesByCallId,
+  searchedDishIds,
   toDishProposal,
   toInventoryProposal,
   toRecipeResult,
 } from '@/lib/messages';
-import type { ApplyProposalRequestType, MessageType } from '@companion/types';
+import type {
+  ApplyProposalRequestType,
+  InventoryProposalType,
+  MessageType,
+} from '@companion/types';
 
 export default function ConversationScreen() {
   const router = useRouter();
@@ -47,6 +57,15 @@ export default function ConversationScreen() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resolvingId, setResolvingId] = useState<string | null>(null); // 확인/취소 진행 중인 제안 메시지
+  /**
+   * "만들었어요" 확인 대기 중인 제안. **대화 아이템이 아니라 화면 상태다** —
+   * 소비는 대화에 아무것도 남기지 않기로 했으므로(토큰 때문) 확인 UI 도 메시지가 아니라
+   * 모달로 뜬다. 취소하면 흔적 없이 사라진다.
+   */
+  const [cookTarget, setCookTarget] = useState<{
+    messageId: string;
+    proposal: InventoryProposalType;
+  } | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   // 채팅으로 재료가 추가·차감됐을 수 있다(서버 tool-use). 화면을 나갈 때 한 번만 전역 재고를 새로고침한다
@@ -138,6 +157,51 @@ export default function ConversationScreen() {
     }
   }
 
+  // 요리 카드의 "자세한 레시피" — 서버가 검색해 결과 카드를 덧붙인다(LLM 없음).
+  // 재고가 안 바뀌므로 apply 와 달리 `refresh()` 를 부르지 않는다.
+  async function handleSearchRecipes(messageId: string) {
+    if (!conversationId || resolvingId) return;
+    setResolvingId(messageId);
+    try {
+      const res = await searchDishRecipes(conversationId, messageId);
+      setMessages((prev) => [...prev, ...res.messages]);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '레시피를 찾지 못했어요');
+    } finally {
+      setResolvingId(null);
+    }
+  }
+
+  // "만들었어요" 1단계 — 제안만 받아 모달을 연다. 서버는 아직 아무것도 안 쓴다.
+  async function handleCookPreview(messageId: string) {
+    if (!conversationId || resolvingId) return;
+    setResolvingId(messageId);
+    try {
+      const proposal = await cookPreview(conversationId, messageId);
+      setCookTarget({ messageId, proposal });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '재고를 계산하지 못했어요');
+    } finally {
+      setResolvingId(null);
+    }
+  }
+
+  // 2단계 — 확인한 값으로 반영. 새 아이템이 아니라 **요리 카드 자체가 바뀌므로** 교체한다.
+  async function handleCook(messageId: string, req: ApplyProposalRequestType) {
+    if (!conversationId) return;
+    setResolvingId(messageId);
+    try {
+      const res = await cookDish(conversationId, messageId, { consume: req.consume });
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? res.message : m)));
+      setCookTarget(null);
+      void refresh(); // 냉장고·홈에 즉시 반영
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '반영에 실패했어요');
+    } finally {
+      setResolvingId(null);
+    }
+  }
+
   function handleSend() {
     const content = input.trim();
     if (!content || sending) return;
@@ -147,6 +211,10 @@ export default function ConversationScreen() {
 
   // 어떤 제안이 이미 처리됐는지 — 짝이 되는 툴 결과 아이템으로 판정한다(서버와 같은 규칙).
   const outcomes = outcomesByCallId(messages);
+  // 요리 카드의 "레시피 찾기"를 아직 열어둘지. 상태를 따로 안 들고 **대화에서 파생**한다
+  // (앱을 껐다 켜도 같은 답이 나온다 — 로컬 state 로 잠그면 그게 안 된다).
+  const searchedDishes = searchedDishIds(messages);
+  const lastUserIdx = lastUserIndex(messages);
 
   return (
     <Screen edges={['top', 'bottom']}>
@@ -178,7 +246,7 @@ export default function ConversationScreen() {
                 메시지를 보내 대화를 시작하세요
               </Text>
             )}
-            {messages.map((m) => {
+            {messages.map((m, i) => {
               // 툴 결과를 어디에 그리는지는 툴마다 다르다:
               //  - 재고: 호출이 "확인 대기 중인 제안"이라 FUNCTION_CALL 에 카드를 그리고,
               //          결과는 그 카드의 상태(반영/취소)로만 드러난다 → 여기선 아무것도 안 그림
@@ -193,7 +261,20 @@ export default function ConversationScreen() {
                 // 요리 카드도 **호출** 쪽이다 — 서버가 재고 매칭까지 끝내 `resolved` 에 담아두므로,
                 // 결과 아이템(`{ shown: true }`)은 "이미 보여줬다"는 표시일 뿐 화면을 안 만든다.
                 const dish = toDishProposal(m);
-                if (dish) return <DishCard key={m.id} dish={dish} />;
+                if (dish)
+                  return (
+                    <DishCard
+                      key={m.id}
+                      dish={dish}
+                      // 한 번 검색했거나 대화가 이미 넘어갔으면 버튼을 감춘다 —
+                      // 같은 카드를 계속 눌러 네이버 쿼터를 태우는 걸 막는다.
+                      canSearch={i > lastUserIdx && !searchedDishes.has(m.id)}
+                      searching={resolvingId === m.id && cookTarget === null}
+                      cooking={resolvingId === m.id && cookTarget === null}
+                      onSearchRecipes={() => void handleSearchRecipes(m.id)}
+                      onCook={() => void handleCookPreview(m.id)}
+                    />
+                  );
 
                 const proposal = toInventoryProposal(m);
                 // 앱이 모르는 툴이면 조용히 건너뛴다 (백엔드에 툴이 늘어도 안 깨지게).
@@ -241,6 +322,23 @@ export default function ConversationScreen() {
           />
         </View>
       </KeyboardAvoidingView>
+
+      {/* "만들었어요" 확인 — **모달인 게 의도다.** 소비는 대화에 아이템을 안 남기므로
+          (재고는 매 턴 프롬프트로 새로 주입되니 실을 이유가 없다) 확인 UI 도 메시지가 아니다.
+          카드 자체는 `InventoryConfirmCard` 를 그대로 쓴다 — 채팅 경로와 **같은 화면에서**
+          고치게 해야 "말로 했을 때랑 버튼으로 했을 때가 다르다"가 안 생긴다. */}
+      <Dialog visible={cookTarget !== null} onClose={() => setCookTarget(null)}>
+        {cookTarget && (
+          <InventoryConfirmCard
+            proposal={cookTarget.proposal}
+            options={options}
+            busy={resolvingId === cookTarget.messageId}
+            onApply={(req) => void handleCook(cookTarget.messageId, req)}
+            // 취소는 서버에 알리지 않는다 — 아직 아무것도 저장한 게 없다.
+            onDismiss={() => setCookTarget(null)}
+          />
+        )}
+      </Dialog>
     </Screen>
   );
 }

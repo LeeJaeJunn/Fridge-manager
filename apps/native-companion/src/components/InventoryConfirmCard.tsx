@@ -41,11 +41,16 @@ function ConsumeRow({
     <View className="gap-1.5">
       <View className="flex-row items-center justify-between">
         <Text className="text-[15px] font-medium text-ink">{item.name}</Text>
+        {/* "현재"가 아니라 "기존" — 입력칸이 **차감 후** 값이라, 위쪽을 "현재"라고 부르면
+            둘 중 어느 게 지금 냉장고에 있는 양인지 읽는 사람이 헷갈린다. */}
         {item.currentQuantityNote ? (
-          <Text className="text-xs text-ink-faint">현재 {item.currentQuantityNote}</Text>
+          <Text className="text-xs text-ink-faint">기존 {item.currentQuantityNote}</Text>
         ) : null}
       </View>
       <View className="flex-row items-center gap-2">
+        {/* 입력칸만 덜렁 있으면 **쓴 양인지 남은 양인지** 알 수가 없다 — 라벨이 그걸 가른다.
+            placeholder 로는 부족하다: 값이 채워지는 순간 사라져서, 정작 확인해야 할 때 없다. */}
+        <Text className="text-xs text-ink-soft">남은 양</Text>
         <TextInput
           className={`flex-1 rounded-xl px-3 py-2 text-sm ${
             usedUp ? 'bg-line text-ink-faint' : 'bg-sand text-ink'
@@ -54,7 +59,7 @@ function ConsumeRow({
           value={value}
           onChangeText={(v) => onChange({ finished, remaining: v })}
           // 비워두면 "수량을 그대로 둔다"는 뜻이다 — 제거는 오른쪽 토글로만 일어난다.
-          placeholder="남은 양 (모르면 비워둬요)"
+          placeholder="모르면 비워둬요"
           placeholderTextColor={PLACEHOLDER}
         />
         <Pressable

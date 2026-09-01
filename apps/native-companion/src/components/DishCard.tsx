@@ -1,6 +1,7 @@
 import { Text, View } from 'react-native';
 
 import type { DishIngredientType, DishProposalType } from '@companion/types';
+import { Button } from './Button';
 import { Card } from './Card';
 
 /**
@@ -27,6 +28,12 @@ function IngredientRow({ item }: { item: DishIngredientType }) {
   );
 }
 
+/** "8/29" — 카드 한 줄짜리 표시라 연도까지 쓸 이유가 없다. */
+function formatCooked(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
 /**
  * 요리 제안 카드 — `propose_dish` 호출을 그린다.
  *
@@ -36,7 +43,27 @@ function IngredientRow({ item }: { item: DishIngredientType }) {
  * 요리가 정해진 순간을 카드로 굳히는 게 목적이다 — 예전엔 추천이 말풍선 텍스트로만 남아서
  * 저장할 수도, 나중에 "다 만들었어" 할 때 무엇을 썼는지 알 수도 없었다.
  */
-export function DishCard({ dish }: { dish: DishProposalType }) {
+export function DishCard({
+  dish,
+  onSearchRecipes,
+  onCook,
+  canSearch,
+  searching,
+  cooking,
+}: {
+  dish: DishProposalType;
+  onSearchRecipes: () => void;
+  onCook: () => void;
+  /** 소비 제안을 불러오는 중 (전용 LLM 호출이 끼어 1초쯤 걸린다) */
+  cooking?: boolean;
+  /**
+   * 버튼을 아직 열어둘지. **화면이 정하지 않고 대화 상태에서 파생돼 내려온다** —
+   * 이미 검색했거나 대화가 그 뒤로 넘어갔으면 false 다(`[id].tsx` 참고).
+   */
+  canSearch: boolean;
+  /** 검색 중 — 버튼을 잠가 중복 호출(=네이버 쿼터 낭비)을 막는다 */
+  searching?: boolean;
+}) {
   const missing = dish.ingredients.filter((i) => i.ingredientId === null).length;
 
   return (
@@ -72,6 +99,41 @@ export function DishCard({ dish }: { dish: DishProposalType }) {
             </View>
           ))}
         </View>
+      )}
+
+      {/* 두 버튼의 **수명이 다르다**:
+          - 레시피 검색 = "지금 궁금한 것" → 검색했거나 대화가 넘어가면 감춘다
+          - 만들었어요   = "나중에 할 일"   → 실제로 만들 때까지 남는다
+          쓸 수 없게 되면 비활성 버튼이 아니라 **감춘다** — 지난 카드에 회색 버튼이 줄줄이 남으면
+          "왜 못 누르지"만 남고 스크롤할 때 시선만 잡아먹는다. */}
+      {(canSearch || !dish.cookedAt) && (
+        <View className="flex-row gap-2">
+          {canSearch && (
+            <View className="flex-1">
+              <Button
+                label="자세한 레시피"
+                variant="secondary"
+                size="sm"
+                loading={searching}
+                onPress={onSearchRecipes}
+              />
+            </View>
+          )}
+          {/* primary 인 건 이 카드의 목적지가 "요리를 하는 것"이라서다. 검색은 곁길이다. */}
+          {!dish.cookedAt && (
+            <View className="flex-1">
+              <Button label="만들었어요" size="sm" loading={cooking} onPress={onCook} />
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* 이미 반영했으면 그 사실을 남긴다 — 버튼만 사라지면 "내가 눌렀던가?"가 된다.
+          소비는 대화에 아무 아이템도 안 남기므로(토큰 때문), 여기가 유일한 흔적이다. */}
+      {dish.cookedAt && (
+        <Text className="text-xs text-ink-faint">
+          ✓ {formatCooked(dish.cookedAt)} 재고에 반영했어요
+        </Text>
       )}
     </Card>
   );

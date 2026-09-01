@@ -153,6 +153,7 @@ export class OpenAiLlmProvider implements LlmProvider {
         input: toStructuredInput(input, images),
         text: { format: zodTextFormat(schema, schemaName) },
       });
+
       if (!res.output_parsed) {
         // 모델 거절·미완성 등으로 파싱 결과가 없는 경우
         throw new Error('구조화 출력이 비어 있습니다.');

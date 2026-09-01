@@ -3,6 +3,9 @@ import type {
   ApplyProposalRequestType,
   ConversationDetailType,
   ConversationSummaryType,
+  CookDishRequestType,
+  CookDishResultType,
+  InventoryProposalType,
   ResolveProposalResultType,
   SendMessageRequestType,
 } from '@companion/types';
@@ -59,6 +62,53 @@ export function applyProposal(
 ): Promise<ResolveProposalResultType> {
   return apiFetch<ResolveProposalResultType>(
     `/conversations/${conversationId}/messages/${messageId}/apply`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}
+
+/**
+ * 요리 카드의 "자세한 레시피" 버튼 — 그 요리로 네이버 검색을 돌린다.
+ *
+ * ⚠️ **LLM 을 안 거친다.** 무엇을 검색할지가 이미 카드에 데이터로 있어서, 모델에게 다시 물을
+ * 이유가 없다. 응답은 다른 제안 API 와 같은 `{ messages }` 라 화면은 **뒤에 이어붙이기만** 한다.
+ */
+export function searchDishRecipes(
+  conversationId: string,
+  messageId: string,
+): Promise<ResolveProposalResultType> {
+  return apiFetch<ResolveProposalResultType>(
+    `/conversations/${conversationId}/messages/${messageId}/recipes`,
+    { method: 'POST' },
+  );
+}
+
+/**
+ * "만들었어요" 1단계 — 무엇을 얼마나 뺄지 제안만 받아온다. **서버는 아무것도 저장하지 않는다.**
+ * 전용 LLM 호출이 끼어 1초쯤 걸린다.
+ */
+export function cookPreview(
+  conversationId: string,
+  messageId: string,
+): Promise<InventoryProposalType> {
+  return apiFetch<InventoryProposalType>(
+    `/conversations/${conversationId}/messages/${messageId}/cook-preview`,
+    { method: 'POST' },
+  );
+}
+
+/**
+ * "만들었어요" 2단계 — 확인한 값으로 재고를 반영한다.
+ *
+ * ⚠️ **응답이 다른 제안 API 와 모양이 다르다.** 새 아이템이 생기는 게 아니라 **요리 카드가
+ * 바뀌므로**(`cookedAt` 이 찍힌다) 그 메시지 하나를 돌려받아 목록에서 교체한다.
+ */
+export function cookDish(
+  conversationId: string,
+  messageId: string,
+  body: CookDishRequestType,
+): Promise<CookDishResultType> {
+  return apiFetch<CookDishResultType>(
+    `/conversations/${conversationId}/messages/${messageId}/cook`,
     { method: 'POST', body: JSON.stringify(body) },
   );
 }

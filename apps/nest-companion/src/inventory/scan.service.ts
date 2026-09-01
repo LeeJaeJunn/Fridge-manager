@@ -10,21 +10,11 @@ import { ConfigService } from '@nestjs/config';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { LlmService } from '../llm/llm.service';
+// 모델이 "없음"을 문자열로 흘리는 걸 막는 경계 방어 — 소비 계산도 같은 걸 겪어서 공용으로 뺐다.
+import { cleanLlmText as clean } from '../llm/sentinels';
 import { OcrService } from '../ocr/ocr.service';
 import { InventoryService, normalize } from './inventory.service';
 import { buildScanInstruction, RECEIPT_SCHEMA_NAME, ScanSchema } from './scan.prompt';
-
-/**
- * 모델이 "값 없음"을 문자열로 흘리는 걸 막는다 — Structured Outputs 는 **타입만** 강제해서
- * `"null"`·`"없음"` 같은 값도 유효한 string 으로 통과한다. 그대로 두면 냉장고에 `없음` 이라고 저장된다.
- * 산수를 대신하는 게 아니라 쓰레기 값을 걸러내는 경계 방어다(parseArgs 가 깨진 JSON 을 막는 것과 같다).
- */
-const EMPTY_SENTINELS = ['null', 'none', 'n/a', 'na', '없음', '-', '없다'];
-const clean = (v: string | null | undefined): string | undefined => {
-  const t = v?.trim();
-  if (!t) return undefined;
-  return EMPTY_SENTINELS.includes(t.toLowerCase()) ? undefined : t;
-};
 
 /** 스캔에 넘길 이미지 — 컨트롤러가 업로드에서 뽑아 넘긴다. */
 export type ScanImage = { buffer: Buffer; mimeType: string };

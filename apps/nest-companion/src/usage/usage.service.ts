@@ -6,7 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
  * 어느 기능이 태운 토큰인지 — 원가를 기능별로 가르는 축.
  * DB 는 String 이라 값을 강제하지 못하므로, 늘릴 땐 `LlmUsage.feature` 주석도 함께 고친다.
  */
-export type UsageFeatureType = 'chat' | 'memory_extract' | 'scan';
+export type UsageFeatureType = 'chat' | 'memory_extract' | 'scan' | 'consume_calc';
 
 /**
  * LLM 호출 1건이 "누구를 위한 것인지" — `LlmService` 의 세 메서드가 전부 **필수로** 받는다.

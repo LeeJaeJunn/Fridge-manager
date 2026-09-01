@@ -3,6 +3,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ConversationService } from './conversation.service';
 import { ApplyProposalDto } from './dto/apply-proposal.dto';
+import { CookDishDto } from './dto/cook-dish.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 
 /** 전부 현재 유저 기준. 입력 검증은 전역 ValidationPipe가 처리. */
@@ -62,6 +63,49 @@ export class ConversationController {
     @Body() body: ApplyProposalDto,
   ) {
     return this.conversations.applyProposal(userId, id, messageId, body);
+  }
+
+  /**
+   * POST /conversations/:id/messages/:messageId/recipes — 요리 카드의 "자세한 레시피" 버튼.
+   * 그 요리로 네이버 검색을 돌려 결과 카드를 대화에 덧붙인다 (LLM 을 거치지 않는다).
+   */
+  @Post(':id/messages/:messageId/recipes')
+  @HttpCode(200)
+  searchDishRecipes(
+    @CurrentUser() userId: string,
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+  ) {
+    return this.conversations.searchDishRecipes(userId, id, messageId);
+  }
+
+  /**
+   * POST /conversations/:id/messages/:messageId/cook-preview — "만들었어요" 1단계.
+   * 무엇을 얼마나 뺄지 제안만 만든다 (**아무것도 저장하지 않는다**).
+   */
+  @Post(':id/messages/:messageId/cook-preview')
+  @HttpCode(200)
+  cookPreview(
+    @CurrentUser() userId: string,
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+  ) {
+    return this.conversations.cookPreview(userId, id, messageId);
+  }
+
+  /**
+   * POST /conversations/:id/messages/:messageId/cook — "만들었어요" 2단계.
+   * 확인한 값으로 재고를 반영하고 요리 카드에 `cookedAt` 을 찍는다 (대화 아이템은 안 남긴다).
+   */
+  @Post(':id/messages/:messageId/cook')
+  @HttpCode(200)
+  cookDish(
+    @CurrentUser() userId: string,
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+    @Body() body: CookDishDto,
+  ) {
+    return this.conversations.cookDish(userId, id, messageId, body);
   }
 
   /** POST /conversations/:id/messages/:messageId/dismiss — 소비 제안 취소 */

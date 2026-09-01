@@ -75,6 +75,38 @@ export function toRecipeResult(m: FunctionOutputMessageType): RecipeResultType |
   };
 }
 
+/**
+ * 이미 레시피 검색이 돌아간 요리 카드의 **메시지 id** 집합.
+ *
+ * 서버가 버튼에서 시작된 검색의 `callId` 를 `dish-<messageId>` 로 만든다(`searchDishRecipes`).
+ * 그래서 **어느 카드에서 눌렀는지가 정확히 복원된다** — 별도 상태 필드 없이, 재고 제안의
+ * 처리 여부를 `FUNCTION_CALL_OUTPUT` 존재로 판정하는 것과 같은 방식이다.
+ */
+export function searchedDishIds(messages: MessageType[]): Set<string> {
+  const ids = new Set<string>();
+  for (const m of messages) {
+    if (m.type !== 'FUNCTION_CALL' || m.payload.name !== RECIPE_TOOL) continue;
+    const [prefix, ...rest] = m.payload.callId.split('-');
+    // 모델이 부른 검색은 벤더 callId 라 이 접두사가 없다 — 버튼에서 온 것만 잡힌다.
+    if (prefix === 'dish' && rest.length > 0) ids.add(rest.join('-'));
+  }
+  return ids;
+}
+
+/**
+ * 마지막 **사용자 말풍선**의 인덱스. 그보다 뒤에 있는 카드만 "아직 현재 화제"다.
+ *
+ * ⚠️ "마지막 메시지인가"로 판정하면 안 된다 — 요리 카드는 만들어질 때부터 뒤에 자기 결과
+ * 아이템(`{ shown: true }`)이 붙어서 **절대 마지막이 될 수 없다.**
+ */
+export function lastUserIndex(messages: MessageType[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.type === 'TEXT' && m.role === 'user') return i;
+  }
+  return -1;
+}
+
 export type ProposalOutcomeType = 'applied' | 'dismissed';
 
 /**

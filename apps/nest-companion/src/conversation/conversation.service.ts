@@ -6,7 +6,10 @@ import type {
   ConsumeProposalItemType,
   ConversationDetailType,
   ConversationSummaryType,
+  CookDishRequestType,
+  CookDishResultType,
   DishProposalType,
+  FunctionCallMessageType,
   FunctionCallPayloadType,
   FunctionOutputPayloadType,
   InventoryProposalType,
@@ -16,6 +19,7 @@ import type {
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '../generated/prisma/client';
+import { ConsumeCalcService } from '../inventory/consume-calc.service';
 import {
   InventoryService,
   type ConsumeItem,
@@ -374,6 +378,7 @@ export class ConversationService {
     private readonly llm: LlmService,
     private readonly memory: MemoryService,
     private readonly inventory: InventoryService,
+    private readonly consumeCalc: ConsumeCalcService,
     private readonly recipes: RecipeService,
     config: ConfigService,
   ) {
@@ -619,6 +624,170 @@ export class ConversationService {
       dismissed: true,
       note: '사용자가 이 변경을 취소했다. 재고는 그대로다.',
     });
+  }
+
+  /**
+   * 요리 카드의 **"자세한 레시피"** 버튼 — 그 요리로 네이버 검색을 돌려 결과 카드를 덧붙인다.
+   *
+   * ⚠️ **LLM 을 거치지 않는다.** 무엇을 검색할지가 이미 `propose_dish` 에 데이터로 있어서
+   * (`dishName`), 모델에게 다시 물을 이유가 없다. 채팅으로 "레시피 찾아줘" 하는 경로는 그대로
+   * 살아 있고(그건 의도를 읽어야 하니 모델이 필요하다), 이 버튼은 그 확실한 지름길이다.
+   *
+   * 모델이 부른 것처럼 `search_recipes` 호출+결과를 **합성해서** 저장한다. 그래야
+   *  (i) 앱이 기존 `RecipeResultCard` 를 그대로 그리고,
+   *  (ii) 다음 턴에 모델이 "이 요리로 검색이 돌았고 결과가 이거였다" 를 알게 된다.
+   */
+  async searchDishRecipes(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+  ): Promise<ResolveProposalResultType> {
+    const { dish } = await this.loadDishCall(userId, conversationId, messageId);
+    // 검색 실행과 아이템 조립은 채팅 경로와 **같은 함수**를 쓴다 — 실패 처리(reason)도 함께 따라온다.
+    const items = await this.runRecipeSearches([
+      {
+        callId: `dish-${messageId}`,
+        name: 'search_recipes',
+        arguments: { dishName: dish.dishName },
+      },
+    ]);
+    return this.appendItems(conversationId, items);
+  }
+
+  /**
+   * 요리 카드의 **"만들었어요" 1단계** — 무엇을 얼마나 뺄지 제안만 만든다. **아무것도 저장하지 않는다.**
+   *
+   * ⚠️ **카드에 박힌 재고 수량을 믿지 않고 다시 읽는다.** 그 값은 요리를 제안하던 시점의 것이라,
+   * 그 사이 장을 봤거나 다른 요리를 했을 수 있다. 이름으로 다시 매칭하므로 **그때 없던 재료를
+   * 그새 샀으면 이번엔 잡힌다.**
+   */
+  async cookPreview(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+  ): Promise<InventoryProposalType> {
+    const { dish } = await this.loadDishCall(userId, conversationId, messageId);
+    const inventory = await this.inventory.recall(userId);
+    const matched = this.inventory
+      .resolveDishIngredients(dish.ingredients, inventory)
+      // 냉장고에 없는 재료는 뺄 게 없다 (사야 하는 것들).
+      .filter((i) => i.ingredientId !== null);
+
+    if (matched.length === 0) {
+      throw new BadRequestException('이 요리에 쓸 재료가 냉장고에 없어요.');
+    }
+
+    const calc = await this.consumeCalc.calculate(
+      matched.map((i) => ({
+        name: i.name,
+        current: i.currentQuantityNote,
+        used: i.amount,
+      })),
+      userId,
+    );
+    const byName = new Map(calc.map((c) => [c.name, c]));
+
+    const consume: ConsumeProposalItemType[] = matched.map((i) => {
+      const c = byName.get(i.name);
+      const finished = c?.finished === true;
+      return {
+        // 위에서 null 을 걸렀지만 타입은 여전히 nullable 이라 좁혀 준다.
+        ingredientId: i.ingredientId ?? '',
+        name: i.name,
+        currentQuantityNote: i.currentQuantityNote,
+        finished,
+        // ⚠️ **계산이 안 된 항목은 기존 수량을 그대로 채운다**(빈칸으로 두지 않는다).
+        // 값은 같지만 화면이 달라진다 — 빈 입력칸은 "내가 뭘 채워야 하지?"로 읽히고, 기존 양이
+        // 들어 있으면 "이건 안 줄었다"가 바로 읽히면서 고치기도 쉽다.
+        // 모델이 `null` 을 내는 것 자체는 그대로 둔다 — "계산 못 했다"는 신호라, 나중에
+        // 거절 규칙이 실제로 먹히는지 재려면 그 구분이 남아 있어야 한다(폴백은 여기서만 한다).
+        remaining: finished ? null : (c?.remaining ?? i.currentQuantityNote),
+      };
+    });
+    console.log(JSON.stringify(consume));
+    return { consume };
+  }
+
+  /**
+   * **"만들었어요" 2단계** — 사용자가 확인한 값으로 재고를 반영하고 카드에 `cookedAt` 을 찍는다.
+   *
+   * ⚠️ **대화에 아이템을 남기지 않는다.** 재고 상태는 매 턴 프롬프트로 새로 주입되므로
+   * (`formatInventory`) 모델이 이 사실을 알기 위해 대화에 실을 이유가 없고, 실으면 그 호출이
+   * **이후 모든 턴에 재생돼** 입력 토큰만 영구히 는다. 대신 요리 카드 payload 에 시각을 찍어
+   * "이미 만들었다"를 남긴다 — 이게 유일한 기록이라 어긋날 짝이 없다.
+   */
+  async cookDish(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+    body: CookDishRequestType,
+  ): Promise<CookDishResultType> {
+    const { call, dish } = await this.loadDishCall(userId, conversationId, messageId);
+    // 이미 반영했으면 두 번 빼지 않는다 — 앱도 버튼을 감추지만 서버가 최종 방어선이다.
+    if (dish.cookedAt) throw new BadRequestException('이미 재고에 반영한 요리예요.');
+
+    await this.inventory.applyConsume(userId, body.consume);
+
+    const updated = await this.prisma.message.update({
+      where: { id: messageId },
+      data: {
+        // ⚠️ **`resolved` 만 갈아끼운다.** `callId`·`name`·`arguments` 를 새로 만들면 짝이 되는
+        // `{ shown: true }` 결과와 연결이 끊겨, 재생 때 "확인 대기 중" 자리표시가 붙고 옛 결과는
+        // 주인 없는 아이템이 된다.
+        payload: {
+          ...call,
+          resolved: { ...dish, cookedAt: new Date().toISOString() },
+        } as unknown as Prisma.InputJsonValue,
+      },
+      select: MESSAGE_SELECT,
+    });
+    return { message: toMessage(updated) as FunctionCallMessageType };
+  }
+
+  /** 요리 제안 호출을 읽어 **소유권 + 그 툴이 맞는지** 확인한다. 아니면 예외. */
+  private async loadDishCall(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+  ): Promise<{ call: FunctionCallPayloadType; dish: DishProposalType }> {
+    const msg = await this.prisma.message.findFirst({
+      where: { id: messageId, conversationId, conversation: { userId }, type: 'FUNCTION_CALL' },
+      select: { payload: true },
+    });
+    const call = (msg?.payload as unknown as FunctionCallPayloadType | null) ?? null;
+    if (!call || call.name !== 'propose_dish') {
+      throw new NotFoundException('요리 카드를 찾을 수 없어요.');
+    }
+    const dish = call.resolved as DishProposalType | undefined;
+    if (!dish?.dishName) throw new BadRequestException('요리 정보가 없어요.');
+    return { call, dish };
+  }
+
+  /**
+   * 만들어진 아이템들을 대화에 덧붙이고 새로 생긴 것만 돌려준다.
+   *
+   * `createdAt` 을 1ms 씩 미는 이유는 `exchangeWithTools` 와 같다 — `@default(now())` 는 배치
+   * 전체가 같은 값을 받아 정렬이 비결정적이 되고, 그러면 결과가 짝보다 앞서 재생돼 벤더가 400 을 낸다.
+   */
+  private async appendItems(
+    conversationId: string,
+    items: Prisma.MessageCreateWithoutConversationInput[],
+  ): Promise<ResolveProposalResultType> {
+    if (items.length === 0) return { messages: [] };
+    const base = Date.now();
+    items.forEach((m, i) => {
+      m.createdAt = new Date(base + i);
+    });
+
+    const updated = await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { updatedAt: new Date(), messages: { create: items } },
+      select: {
+        messages: { orderBy: { createdAt: 'desc' }, take: items.length, select: MESSAGE_SELECT },
+      },
+    });
+    console.log(JSON.stringify(updated.messages.map(toMessage).reverse()));
+    return { messages: updated.messages.map(toMessage).reverse() };
   }
 
   /**
