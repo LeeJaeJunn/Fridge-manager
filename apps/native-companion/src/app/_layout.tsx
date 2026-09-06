@@ -28,6 +28,16 @@ function SplashScreenController() {
   return null;
 }
 
+/**
+ * 네비게이터 배경 — `tailwind.config.js` 의 `cream` 과 **같은 값이어야 한다**.
+ *
+ * ⚠️ 화면들이 `Screen`(`bg-cream`)으로 덮지만, 전환 애니메이션 중이나 SafeArea 바깥처럼
+ * **네비게이터 배경이 그대로 드러나는 순간**이 있다. 그때 기본값(다크 모드면 검정)이 보이면
+ * 상태바 아이콘이 검정에 묻혀 사라진다(실제로 겪었다).
+ * 네비게이터 옵션은 className 을 못 받아서 여기만 raw 색을 쓴다(`THEMED_HEADER` 와 같은 사정).
+ */
+const SCREEN_BG = '#F7F8FC';
+
 /** auth → 캐릭터 순서로 보여줄 화면 그룹을 가드 (expo-router 권장 패턴) */
 function RootNavigator() {
   const { status } = useAuth();
@@ -35,7 +45,7 @@ function RootNavigator() {
   const isAuthed = status === 'authenticated';
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: SCREEN_BG } }}>
       <Stack.Protected guard={status === 'unauthenticated'}>
         <Stack.Screen name="login" />
       </Stack.Protected>

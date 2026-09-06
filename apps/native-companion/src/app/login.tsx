@@ -1,15 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import {
-  BackHandler,
-  Image,
-  Pressable,
-  Text,
-  TextInput,
-  type TextInputProps,
-  View,
-} from 'react-native';
+import { Fragment, useCallback, useEffect, useState } from 'react';
+import { BackHandler, Pressable, Text, TextInput, type TextInputProps, View } from 'react-native';
 
 import {
   resetPassword,
@@ -23,15 +15,21 @@ import { Button, Screen } from '@/components';
 import { useAuth } from '@/context/auth';
 
 /**
- * 카카오가 배포한 로그인 버튼 이미지. **직접 그리지 않는다** — 색·문구·비율·여백이 전부
- * 카카오 디자인 가이드로 묶여 있어서, 우리 디자인 토큰으로 만들면 가이드 위반이 된다.
+ * 카카오 심볼(말풍선). 원본이 652×600 이라 작게 그려도 안 뭉갠다.
  *
- * `@2x` 파일이 옆에 있어서 Metro 가 기기 해상도에 맞는 걸 알아서 고른다(원본 파일명의
- * `medium`/`large` 는 사실 1x/2x 였다).
+ * **버튼 자체는 공용 `Button` 이 그린다**(`variant="kakao"`). 예전엔 카카오가 배포한 버튼
+ * 이미지를 통째로 썼는데, 가로를 늘리면 **흐릿하게 깨졌고** 옆의 "이메일로 시작하기" 버튼과
+ * 높이·글자 크기가 안 맞았다. 가이드가 요구하는 건 컨테이너 색·라벨 색·심볼·문구지 이미지
+ * 파일 자체가 아니라, 직접 그리면 둘 다 풀린다.
+ * https://developers.kakao.com/docs/ko/kakaologin/design-guide
  */
-const KAKAO_BUTTON = require('../../assets/images/kakao_login/kakao_login_wide.png') as number;
-/** 원본 300×45 — 가로를 화면에 맞추되 이 비율로 늘여서 이미지가 찌그러지지 않게 한다. */
-const KAKAO_BUTTON_RATIO = 300 / 45;
+const KAKAO_SYMBOL = require('../../assets/images/kakao_login/kakao_symbol.png') as number;
+
+/**
+ * 랜딩의 두 버튼 높이. `size="sm"`(`py-2`)보다 크고 `md`(`py-4`)보다 작은 자리라 여기서 덮어쓴다.
+ * **두 버튼이 반드시 같아야 해서 상수로 둔다** — 한쪽만 고치면 나란히 선 둘이 어긋난다.
+ */
+const LANDING_BUTTON = 'py-3.5';
 
 /** 눈 아이콘 색 — `tailwind.config.js` 의 `ink.soft`. 아이콘은 className 으로 색을 못 받는다. */
 const ICON_COLOR = '#6E6E78';
@@ -216,30 +214,54 @@ export default function LoginScreen() {
   }, []);
 
   /**
+   * 한 칸 뒤로. **좌상단 버튼과 안드로이드 하드웨어 버튼이 이 함수 하나를 공유한다** —
+   * 예전엔 둘이 따로 있어서 "눈에 보이는 길과 하드웨어 버튼이 같아야 한다"가 지켜지길
+   * 바라는 수밖에 없었는데, 이제 구조적으로 같다.
+   *
+   * 인증번호·비밀번호 단계에서는 랜딩까지 나가지 않고 **이메일 단계로만** 물러난다 —
+   * 실수로 눌렀다고 방금 받은 인증까지 날리면 처음부터 다시 해야 한다.
+   */
+  const goBack = useCallback(() => {
+    if (mode !== 'login' && step !== 'email') backToEmail();
+    else resetForm('landing');
+  }, [mode, step, backToEmail, resetForm]);
+
+  /**
    * 안드로이드 하드웨어 뒤로가기.
    *
    * ⚠️ **이 화면은 라우트가 하나뿐이라 기본 동작이 "앱 종료"다.** 단계 이동을 라우터가 아니라
    * 화면 안 상태(`mode`/`step`)로 하고 있어서, 뒤로가기도 우리가 직접 되돌려 줘야 한다
    * (실제로 "이메일로 시작하기" 후 뒤로가기를 누르면 앱이 꺼졌다).
-   *
-   * 되돌리는 순서는 **화면에 보이는 뒤로 가기 링크와 똑같이** 맞춘다 — 눈에 보이는 길과
-   * 하드웨어 버튼이 다른 데로 가면 그게 더 헷갈린다.
    * landing 에서는 `false` 를 돌려줘 기본 동작(앱 종료)에 맡긴다.
    */
   useFocusEffect(
     useCallback(() => {
       const sub = BackHandler.addEventListener('hardwareBackPress', () => {
         if (mode === 'landing') return false;
-        if (mode !== 'login' && step !== 'email') backToEmail();
-        else resetForm('landing');
+        goBack();
         return true;
       });
       return () => sub.remove();
-    }, [mode, step, backToEmail, resetForm]),
+    }, [mode, goBack]),
   );
 
   /** 확인란이 비었으면 아직 안 알려준다 — 치는 중에 빨간 글씨가 뜨면 거슬린다 */
   const mismatch = passwordConfirm.length > 0 && password !== passwordConfirm;
+
+  /**
+   * 주 버튼 위에 놓이는 **보조 이동 링크**들.
+   *
+   * ⚠️ 로그인이 아닌 모드에도 "로그인" 하나는 반드시 남긴다 — 예전엔 "이미 계정이 있어요"
+   * 버튼이 그 길이었는데, 그걸 없애면서 링크가 대신 받는다. 없으면 가입 도중에 마음이 바뀌었을 때
+   * 좌상단 뒤로가기로 랜딩까지 나갔다 다시 들어와야 한다.
+   */
+  const links =
+    mode === 'login'
+      ? [
+          { label: '회원가입', onPress: () => resetForm('signup') },
+          { label: '비밀번호 재설정', onPress: () => resetForm('reset') },
+        ]
+      : [{ label: '로그인', onPress: () => resetForm('login') }];
 
   const canSubmit = (() => {
     if (submitting) return false;
@@ -260,14 +282,25 @@ export default function LoginScreen() {
           <Text className="text-center text-ink-soft">냉장고에 뭐가 있는지 기억해 드릴게요.</Text>
         </View>
 
-        {/* 두 버튼 모두 폭을 꽉 채운다 — 대등한 선택지라 크기가 달라지면 한쪽이 기본처럼 보인다 */}
         <View className="gap-3">
           <Button
             label="이메일로 시작하기"
+            radius="soft"
+            size="sm"
+            className={LANDING_BUTTON}
             disabled={submitting}
             onPress={() => setMode('login')}
           />
-          <KakaoButton onPress={submitKakao} disabled={submitting} />
+          <Button
+            label="카카오로 시작하기"
+            variant="kakao"
+            icon={KAKAO_SYMBOL}
+            radius="soft"
+            size="sm"
+            className={LANDING_BUTTON}
+            disabled={submitting}
+            onPress={submitKakao}
+          />
           {error && <Text className="text-center text-sm text-red-500">{error}</Text>}
         </View>
       </Screen>
@@ -277,11 +310,30 @@ export default function LoginScreen() {
   const steppedMode: SteppedMode = isReset ? 'reset' : 'signup';
 
   return (
-    <Screen contentClassName="justify-center gap-6 px-6">
-      <View className="gap-2">
-        <Text className="text-2xl font-bold text-ink">
+    <Screen>
+      {/* 헤더 — 채팅 화면(`conversation/[id]`)과 같은 자리·같은 높이지만 **제목이 가운데**다.
+          제목이 여기 올라오면서 본문은 위에서부터 흐른다(예전엔 세로 중앙 정렬이었다). */}
+
+      <View className="flex-row items-center px-4 pb-2 pt-6">
+        <Pressable
+          onPress={goBack}
+          // 아이콘만 있는 버튼은 손가락보다 작다 — 여백을 눌러도 눌리게 hitSlop 을 준다.
+          hitSlop={12}
+          className="w-10 py-1"
+          accessibilityRole="button"
+          accessibilityLabel="뒤로"
+        >
+          <Ionicons name="chevron-back" size={24} color={ICON_COLOR} />
+        </Pressable>
+        <Text className="flex-1 text-center text-lg font-semibold text-ink">
           {isStepped ? STEP_TITLE[steppedMode][step] : '로그인'}
         </Text>
+        {/* 오른쪽 균형추 — 뒤로가기와 **같은 폭**이라야 제목이 진짜 화면 가운데에 온다.
+            없으면 제목이 뒤로가기 폭만큼 오른쪽으로 밀린다. */}
+        <View className="w-10" />
+      </View>
+
+      <View className="gap-6 px-6 pt-2">
         <Text className="text-ink-soft">
           {!isStepped
             ? '다시 만나서 반가워요.'
@@ -289,99 +341,106 @@ export default function LoginScreen() {
               ? `${email} 로 보낸 번호를 입력해 주세요.`
               : STEP_HINT[steppedMode][step]}
         </Text>
-      </View>
 
-      <View className="gap-3">
-        {/* 이메일 — 인증이 끝난 뒤에는 감춘다(바꾸려면 뒤로 가야 증표와 어긋나지 않는다) */}
-        {(!isStepped || step === 'email') && (
-          <Field
-            label="이메일"
-            value={email}
-            onChangeText={setEmail}
-            placeholder="you@example.com"
-            keyboardType="email-address"
-            textContentType="emailAddress"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        )}
-
-        {isStepped && step === 'code' && (
-          <>
+        <View className="gap-3">
+          {/* 이메일 — 인증이 끝난 뒤에는 감춘다(바꾸려면 뒤로 가야 증표와 어긋나지 않는다) */}
+          {(!isStepped || step === 'email') && (
             <Field
-              label="인증번호"
-              value={code}
-              onChangeText={onCodeChange}
-              placeholder={'0'.repeat(codeDigits)}
-              keyboardType="number-pad"
-              maxLength={codeDigits}
-              autoFocus
-            />
-            <View className="flex-row justify-between">
-              <Text className="text-sm text-ink-faint" onPress={backToEmail}>
-                이메일 다시 입력
-              </Text>
-              <Text
-                className={cooldown > 0 ? 'text-sm text-ink-faint' : 'text-sm text-lavender'}
-                onPress={cooldown > 0 || submitting ? undefined : requestCode}
-              >
-                {cooldown > 0 ? `${cooldown}초 후 재전송` : '인증번호 재전송'}
-              </Text>
-            </View>
-          </>
-        )}
-
-        {(!isStepped || step === 'password') && (
-          <Field
-            label={isReset ? '새 비밀번호' : '비밀번호'}
-            // 눈은 새로 정하는 자리에만 붙인다 — 로그인은 이미 아는 값을 치는 거라 볼 이유가 적고,
-            // 어깨너머로 노출될 여지만 는다.
-            onHoldReveal={isStepped ? setShowPassword : undefined}
-            value={password}
-            onChangeText={setPassword}
-            placeholder="8자 이상"
-            autoCapitalize="none"
-            autoCorrect={false}
-            secureTextEntry={!isStepped || !showPassword}
-            autoFocus={isStepped}
-          />
-        )}
-
-        {isStepped && step === 'password' && (
-          <>
-            <Field
-              label={isReset ? '새 비밀번호 확인' : '비밀번호 확인'}
-              // ⚠️ 어느 쪽 눈을 누르든 **두 칸이 함께** 풀린다. 이 칸의 존재 이유가 "두 값이
-              // 같은가"를 확인하는 것이라, 하나만 보이면 기억에 의존해 비교해야 해서 반쪽이 된다.
-              // 잠깐만 보이는 방식이라 이렇게 해도 노출 위험은 거의 안 는다.
-              onHoldReveal={setShowPassword}
-              value={passwordConfirm}
-              onChangeText={setPasswordConfirm}
-              placeholder="한 번 더 입력해 주세요"
+              label="이메일"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="you@example.com"
+              keyboardType="email-address"
+              textContentType="emailAddress"
               autoCapitalize="none"
               autoCorrect={false}
-              secureTextEntry={!showPassword}
             />
-            {mismatch && <Text className="text-sm text-red-500">비밀번호가 일치하지 않아요.</Text>}
-          </>
-        )}
+          )}
 
-        {/* 재설정 진입은 **로그인 화면에서만** — 못 들어가는 사람이 서 있는 자리가 여기다.
-            가입 도중에 보이면 하던 걸 버리라는 뜻이 돼 헷갈린다. */}
-        {mode === 'login' && (
-          <Text
-            className="self-end text-sm text-ink-faint"
-            onPress={submitting ? undefined : () => resetForm('reset')}
-          >
-            비밀번호를 잊으셨나요?
-          </Text>
-        )}
-      </View>
+          {isStepped && step === 'code' && (
+            <>
+              <Field
+                label="인증번호"
+                value={code}
+                onChangeText={onCodeChange}
+                placeholder={'0'.repeat(codeDigits)}
+                keyboardType="number-pad"
+                maxLength={codeDigits}
+                autoFocus
+              />
+              <View className="flex-row justify-between">
+                <Text className="text-sm text-ink-faint" onPress={backToEmail}>
+                  이메일 다시 입력
+                </Text>
+                <Text
+                  className={cooldown > 0 ? 'text-sm text-ink-faint' : 'text-sm text-lavender'}
+                  onPress={cooldown > 0 || submitting ? undefined : requestCode}
+                >
+                  {cooldown > 0 ? `${cooldown}초 후 재전송` : '인증번호 재전송'}
+                </Text>
+              </View>
+            </>
+          )}
 
-      {notice && <Text className="text-sm text-lavender">{notice}</Text>}
-      {error && <Text className="text-sm text-red-500">{error}</Text>}
+          {(!isStepped || step === 'password') && (
+            <Field
+              label={isReset ? '새 비밀번호' : '비밀번호'}
+              // 눈은 새로 정하는 자리에만 붙인다 — 로그인은 이미 아는 값을 치는 거라 볼 이유가 적고,
+              // 어깨너머로 노출될 여지만 는다.
+              onHoldReveal={isStepped ? setShowPassword : undefined}
+              value={password}
+              onChangeText={setPassword}
+              placeholder="8자 이상"
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry={!isStepped || !showPassword}
+              autoFocus={isStepped}
+            />
+          )}
 
-      <View className="gap-3">
+          {isStepped && step === 'password' && (
+            <>
+              <Field
+                label={isReset ? '새 비밀번호 확인' : '비밀번호 확인'}
+                // ⚠️ 어느 쪽 눈을 누르든 **두 칸이 함께** 풀린다. 이 칸의 존재 이유가 "두 값이
+                // 같은가"를 확인하는 것이라, 하나만 보이면 기억에 의존해 비교해야 해서 반쪽이 된다.
+                // 잠깐만 보이는 방식이라 이렇게 해도 노출 위험은 거의 안 는다.
+                onHoldReveal={setShowPassword}
+                value={passwordConfirm}
+                onChangeText={setPasswordConfirm}
+                placeholder="한 번 더 입력해 주세요"
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry={!showPassword}
+              />
+              {mismatch && (
+                <Text className="text-sm text-red-500">비밀번호가 일치하지 않아요.</Text>
+              )}
+            </>
+          )}
+
+          {/* 모드 전환은 **버튼이 아니라 링크**다. 예전엔 "계정 만들기"가 secondary 버튼이라
+            "로그인"과 나란히 서서 둘이 대등해 보였는데, 지금 하려는 일은 로그인 하나뿐이고
+            나머지는 곁길이다. 링크로 낮추면 주 버튼이 혼자 남는다. */}
+          <View className="flex-row items-center justify-end gap-3">
+            {links.map((l, i) => (
+              <Fragment key={l.label}>
+                {/* 세로 구분선 — 두 링크가 한 덩어리로 읽히지 않게 가른다 */}
+                {i > 0 && <View className="h-3 w-px bg-line" />}
+                <Text
+                  className="text-sm text-ink-faint"
+                  onPress={submitting ? undefined : l.onPress}
+                >
+                  {l.label}
+                </Text>
+              </Fragment>
+            ))}
+          </View>
+        </View>
+
+        {notice && <Text className="text-sm text-lavender">{notice}</Text>}
+        {error && <Text className="text-sm text-red-500">{error}</Text>}
+
         <Button
           label={
             !isStepped
@@ -406,50 +465,12 @@ export default function LoginScreen() {
                   : submitFinal
           }
         />
-        {/* 재설정 중에는 가입/로그인 전환을 감춘다 — 지금 하려는 일과 무관하고,
-            "다른 방법으로 로그인" 하나로 빠져나갈 수 있다. */}
-        {!isReset && (
-          <Button
-            variant="secondary"
-            label={isSignup ? '이미 계정이 있어요' : '계정 만들기'}
-            disabled={submitting}
-            onPress={() => resetForm(isSignup ? 'login' : 'signup')}
-          />
-        )}
       </View>
 
       {/* 카카오는 여기 없다 — 수단 고르는 화면에만 둔다. 이메일 가입을 진행 중인 자리에
-          다른 수단이 보이면 "하던 걸 버려라"로 읽혀서 헷갈린다. */}
-      <Text className="text-center text-sm text-ink-faint" onPress={() => resetForm('landing')}>
-        다른 방법으로 로그인
-      </Text>
+          다른 수단이 보이면 "하던 걸 버려라"로 읽혀서 헷갈린다.
+          랜딩으로 돌아가는 길은 좌상단 뒤로가기가 맡는다. */}
     </Screen>
-  );
-}
-
-/**
- * 카카오 로그인 버튼 — 이미지 한 장이 곧 버튼이다.
- *
- * 폭을 꽉 채우되 **원본 비율(`aspectRatio`)을 유지**한다. 가로만 늘이면 로고가 찌그러지는데,
- * 그건 카카오 디자인 가이드가 금지하는 것이라 심사에서 걸릴 수 있다.
- * 우리 `Button`(`rounded-full`)과 모서리가 다르지만, 카카오 버튼은 그쪽 자산이라 손대지 않는다.
- */
-function KakaoButton({ onPress, disabled }: { onPress: () => void; disabled?: boolean }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      className={`w-full ${disabled ? 'opacity-50' : ''}`}
-      accessibilityRole="button"
-      // 이미지뿐이라 스크린리더가 읽을 텍스트가 없다 — 라벨을 직접 준다.
-      accessibilityLabel="카카오 로그인"
-    >
-      <Image
-        source={KAKAO_BUTTON}
-        resizeMode="contain"
-        style={{ width: '100%', aspectRatio: KAKAO_BUTTON_RATIO }}
-      />
-    </Pressable>
   );
 }
 
