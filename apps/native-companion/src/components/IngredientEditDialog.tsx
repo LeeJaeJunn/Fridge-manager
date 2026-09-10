@@ -26,7 +26,11 @@ export function IngredientEditDialog({
   onSubmit,
 }: {
   visible: boolean;
-  /** 모달 제목 — 무엇을 고치는 중인지 (예: "두부 수정") */
+  /**
+   * 모달 제목 — **무엇을 하는 중인지**(예: "재료 수정")이지 무엇을 고치는 중인지가 아니다.
+   * 재료 이름은 `IngredientForm` 이 상단에 크게 들고 있으므로, 여기에 이름을 또 넣으면
+   * 같은 이름이 두 줄로 겹친다.
+   */
   title: string;
   options: InventoryOptionsType;
   initial?: FormInitialType;

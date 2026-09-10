@@ -334,7 +334,7 @@ export default function FridgeScreen() {
       {options && editing ? (
         <IngredientEditDialog
           visible
-          title={`${editing.name} 수정`}
+          title="재료 수정"
           options={options}
           initial={{
             name: editing.name,

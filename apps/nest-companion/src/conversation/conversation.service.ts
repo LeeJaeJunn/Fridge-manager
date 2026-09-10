@@ -704,7 +704,7 @@ export class ConversationService {
         remaining: finished ? null : (c?.remaining ?? i.currentQuantityNote),
       };
     });
-    console.log(JSON.stringify(consume));
+
     return { consume };
   }
 
@@ -786,7 +786,7 @@ export class ConversationService {
         messages: { orderBy: { createdAt: 'desc' }, take: items.length, select: MESSAGE_SELECT },
       },
     });
-    console.log(JSON.stringify(updated.messages.map(toMessage).reverse()));
+
     return { messages: updated.messages.map(toMessage).reverse() };
   }
 

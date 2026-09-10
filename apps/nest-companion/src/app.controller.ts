@@ -100,7 +100,7 @@ export class AppController {
         input: '내 이름이 뭐라고?',
         previous_response_id: 'resp_07fca13bb5238cc7006a6f7643c1fc819ab8098f64e430e2ef',
       });
-      console.log(JSON.stringify(res));
+
       return { query, text: res.output_text, output: res.output };
     } catch (e: unknown) {
       return {

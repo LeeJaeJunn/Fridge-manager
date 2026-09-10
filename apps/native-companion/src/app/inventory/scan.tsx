@@ -61,10 +61,11 @@ function ProposalRow({
   const [editing, setEditing] = useState(false);
   const merge = mergeLabel(item);
 
+  // 제목을 따로 두지 않는다 — `IngredientForm` 이 재료 이름을 상단에 크게 들고 있어서,
+  // 여기서 "○○ 수정"을 또 적으면 같은 이름이 두 줄로 겹친다.
   if (editing) {
     return (
       <View className="gap-3 border-b border-line px-3 py-4">
-        <Text className="text-sm font-semibold text-ink">{item.name} 수정</Text>
         <IngredientForm
           options={options}
           initial={{
