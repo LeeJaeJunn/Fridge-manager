@@ -47,34 +47,40 @@ const ROW = 'flex-row items-center justify-between gap-3 py-3';
 const ROW_LABEL = 'text-[15px] text-ink-soft';
 const ROW_VALUE = 'text-[15px] font-medium text-ink';
 
-/** 폼이 돌려주는 값 — 추가·수정이 같은 모양을 쓴다. */
+/**
+ * 폼이 돌려주는 값 — 추가·수정이 같은 모양을 쓴다.
+ *
+ * 만료일은 **두 필드가 한 짝**이다: `expiresAt` 이 null 이면 미설정이고, 값이 있으면
+ * `expirySource` 가 그 날짜를 직접 골랐는지(`USER`) 기본값에 맡겼는지(`ESTIMATED`)를 말한다.
+ */
 export type FormValues = {
   name: string;
   category: string;
   storage: string;
   quantityNote: string;
-  /** 사용자가 "기본값"을 끄고 직접 고른 만료일(ISO). 기본값이면 undefined → 서버가 추정한다. */
-  expiresAt?: string;
+  /** ISO 날짜, 또는 **null = 미설정**(기본 상태) */
+  expiresAt: string | null;
+  expirySource: ExpirySourceType;
 };
 
 /**
- * 폼 초기값 — 값(FormValues)에 더해 **만료일 UI 를 어떻게 시작할지** 정하는 두 필드를 받는다.
+ * 폼 초기값 — 값(FormValues)에 더해 **만료일 UI 를 어떻게 시작할지** 정하는 필드를 받는다.
  * 수정 경로에서만 의미가 있고, 추가 경로는 통째로 비운다.
  */
 export type FormInitialType = Partial<FormValues> & {
-  /** 현재 만료일의 출처. `USER` 면 "기본값" 체크를 꺼둔 채 그 날짜로 시작한다 */
-  expirySource?: ExpirySourceType;
   /**
-   * 추정 기준일(ISO) — 비우면 오늘.
-   * 서버는 수정 시 **등록일(addedAt) 기준**으로 재추정하므로(`inventory.service.update`),
-   * 여기서도 같은 기준을 써야 화면의 "기본값" 날짜와 실제 저장값이 어긋나지 않는다.
+   * "기본값" 계산의 기준일(ISO) — 비우면 오늘(= 새로 추가하는 경우).
+   * 소비기한은 **구입 시점부터** 세는 것이므로 이미 있는 재료를 고칠 때는 등록일을 넘겨야 한다.
+   * 오늘 기준으로 재면 두 달 둔 재료가 방금 산 것처럼 계산돼 유통기한이 뒤로 밀린다.
    */
   addedAt?: string;
 };
 
 /**
  * FormValues → `PATCH /inventory/:id` 본문.
- * 사용자가 날짜를 직접 골랐을 때만 `expiresAt` 을 싣는다 — 서버가 그때 `USER` 로 승격한다.
+ *
+ * ⚠️ **`expiresAt` 을 항상 싣는다 — `null` 도 포함해서.** 서버는 생략을 "미변경"으로 읽으므로,
+ * null 을 빼면 **정해둔 날짜를 미설정으로 되돌리는 조작이 아예 불가능해진다.**
  */
 export const toPatch = (v: FormValues): UpdateIngredientRequestType => ({
   name: v.name,
@@ -82,7 +88,8 @@ export const toPatch = (v: FormValues): UpdateIngredientRequestType => ({
   storage: v.storage as IngredientType['storage'],
   // 빈 문자열이면 서버가 미변경으로 처리 — v1 은 수량 비우기를 지원하지 않는다.
   quantityNote: v.quantityNote,
-  ...(v.expiresAt ? { expiresAt: v.expiresAt } : {}),
+  expiresAt: v.expiresAt,
+  ...(v.expiresAt ? { expirySource: v.expirySource } : {}),
 });
 
 /**
@@ -95,8 +102,18 @@ export const toAddInput = (v: FormValues): AddIngredientInputType => ({
   category: v.category as IngredientType['category'],
   storage: v.storage as IngredientType['storage'],
   ...(v.quantityNote ? { quantityNote: v.quantityNote } : {}),
-  ...(v.expiresAt ? { expiresAt: v.expiresAt } : {}),
+  ...(v.expiresAt ? { expiresAt: v.expiresAt, expirySource: v.expirySource } : {}),
 });
+
+/** 유통기한을 정하는 세 갈래 (컴포넌트 안 `expiryMode` 주석 참고). */
+type ExpiryMode = 'none' | 'default' | 'custom';
+
+/** 선택지 라벨 — 서버 vocab 이 아니라 이 폼의 UI 상태라서 여기가 소유한다. */
+const EXPIRY_MODE_OPTIONS: { value: ExpiryMode; label: string }[] = [
+  { value: 'none', label: '미설정' },
+  { value: 'default', label: '기본값' },
+  { value: 'custom', label: '직접 고르기' },
+];
 
 /** "YYYY년 M월 D일" — 펼친 상태에서 쓰는 전체 표기. */
 function formatKoreanDate(d: Date): string {
@@ -195,13 +212,21 @@ export function IngredientForm({
   const toggleSection = (s: 'category' | 'expiry') =>
     setOpenSection((prev) => (prev === s ? null : s));
 
-  // 유통기한 — 기본값(자동 추정) 켜짐이 기본. 끄면 사용자가 날짜를 직접 고른다.
-  // 단 이미 사용자가 확정한 값(USER)을 고치는 중이면, 그 날짜를 그대로 이어받아 체크를 꺼둔 채 시작한다
-  // (켜둔 채 시작하면 화면이 "추정으로 되돌리겠다"는 뜻이 돼 저장 시 사용자가 정한 날짜가 사라진다).
-  const pickedExpiry = initial?.expirySource === 'USER' ? initial.expiresAt : undefined;
-  const [useDefaultExpiry, setUseDefaultExpiry] = useState(!pickedExpiry);
+  // 유통기한은 **세 갈래**다. `미설정` 이 기본이고, 나머지 둘은 사용자가 넣기로 했을 때만 나온다.
+  //   none    — 안 정함 (서버에 null 로 간다)
+  //   default — "기본값": 카테고리×보관 추정일을 **앱이 계산해서** 실어 보낸다(출처 ESTIMATED)
+  //   custom  — 휠로 직접 고름 (출처 USER)
+  //
+  // ⚠️ 예전엔 "기본값 체크가 켜진 상태"가 기본이라 **아무것도 안 해도 추정 날짜가 붙었다.**
+  // 이제 기본이 `none` 이고, 추정은 사용자가 그걸 고를 때만 일어난다.
+  const initialMode: ExpiryMode = !initial?.expiresAt
+    ? 'none'
+    : initial.expirySource === 'ESTIMATED'
+      ? 'default'
+      : 'custom';
+  const [expiryMode, setExpiryMode] = useState<ExpiryMode>(initialMode);
   const [customDate, setCustomDate] = useState<Date | null>(
-    pickedExpiry ? new Date(pickedExpiry) : null,
+    initialMode === 'custom' && initial?.expiresAt ? new Date(initial.expiresAt) : null,
   );
   const [showPicker, setShowPicker] = useState(false); // Android 다이얼로그 토글
 
@@ -213,30 +238,46 @@ export function IngredientForm({
     const today = new Date();
     const min = shiftYears(today, -WHEEL_PAST_YEARS);
     const max = shiftYears(today, WHEEL_FUTURE_YEARS);
-    const current = pickedExpiry ? new Date(pickedExpiry) : null;
+    const current =
+      initialMode === 'custom' && initial?.expiresAt ? new Date(initial.expiresAt) : null;
     return {
       min: current && current < min ? current : min,
       max: current && current > max ? current : max,
     };
   });
 
-  // 서버 추정과 같은 표로 기본 소비기한 일수 → 만료일 미리 계산 (분류·보관이 바뀌면 갱신).
+  // 서버가 내려준 표(`options.shelfLife`)로 "기본값" 만료일을 계산한다 (분류·보관이 바뀌면 갱신).
+  // ⚠️ 이 값이 화면에만 쓰이는 게 아니라 **그대로 서버로 간다** — 서버는 추정하지 않는다.
   const estimateDays = options.shelfLife.days[storage]?.[category] ?? options.shelfLife.defaultDays;
   const estimateBase = initial?.addedAt;
   const estimatedDate = useMemo(() => {
-    // 등록일 기준(수정) 또는 오늘(추가) — 서버가 재추정할 때 쓰는 기준과 같아야 한다.
+    // 등록일 기준(수정) 또는 오늘(추가) — 위 `addedAt` 주석 참고.
     const base = estimateBase ? new Date(estimateBase) : new Date();
     base.setHours(12, 0, 0, 0); // 정오 고정으로 UTC 변환 시 날짜 밀림 방지
     return new Date(base.getTime() + estimateDays * MS_PER_DAY);
   }, [estimateDays, estimateBase]);
   const effectiveDate = customDate ?? estimatedDate;
 
-  // 접힌 행에 보여줄 현재 값. 분류는 서버가 내려준 라벨을, 유통기한은 추정("쯤")과 확정("까지")을 가른다
-  // — 냉장고 화면·확인 카드가 쓰는 것과 같은 낱말이라 사용자가 같은 뜻으로 읽는다.
+  // "기본값"의 날짜 — ⚠️ **처음부터 기본값이던 재료는, 분류·보관이 그대로면 저장된 날짜를 쓴다.**
+  // 매번 표로 다시 계산하면 **열기만 해도 날짜가 바뀐다**: 재입고로 `addedAt` 이 옮겨졌거나(날짜는
+  // 유지됨) 표 값이 바뀐 뒤라면, 수량만 고치고 저장해도 유통기한이 조용히 밀린다.
+  // 예전엔 서버의 `reEstimate` 가 "분류·보관이 바뀌었을 때만 재계산"으로 이걸 막았는데, 계산이 앱으로
+  // 오면서 그 규칙도 여기로 와야 한다. 분류·보관을 바꾸면 그때는 새 기준으로 다시 계산한다.
+  const shelfUnchanged = category === initial?.category && storage === initial?.storage;
+  const defaultDate =
+    initialMode === 'default' && shelfUnchanged && initial?.expiresAt
+      ? new Date(initial.expiresAt)
+      : estimatedDate;
+
+  // 세 갈래를 **날짜 하나로 접는다** — 저장·표시가 모두 이 값을 쓰므로 분기가 한 곳에만 있다.
+  const resolvedExpiry =
+    expiryMode === 'none' ? null : expiryMode === 'default' ? defaultDate : effectiveDate;
+
+  // 접힌 행에 보여줄 현재 값. 분류는 서버가 내려준 라벨을 쓴다.
+  // ⚠️ 유통기한에 "쯤"/"까지"를 붙이지 않는다 — 여기 있는 날짜는 전부 사용자가 넣기로 한 값이라
+  //    흐릴 이유가 없다(예전엔 서버가 추정해 채운 값이라 구분이 필요했다).
   const categoryLabel = options.categories.find((o) => o.value === category)?.label ?? category;
-  const expiryLabel = useDefaultExpiry
-    ? `${formatShortDate(estimatedDate)}쯤`
-    : `${formatShortDate(effectiveDate)}까지`;
+  const expiryLabel = resolvedExpiry ? formatShortDate(resolvedExpiry) : '미설정';
 
   function onChangeDate(event: DateTimePickerEvent, date?: Date) {
     if (Platform.OS !== 'ios') setShowPicker(false);
@@ -257,7 +298,9 @@ export function IngredientForm({
         category,
         storage,
         quantityNote: quantityNote.trim(),
-        expiresAt: useDefaultExpiry ? undefined : toDateOnlyIso(effectiveDate),
+        expiresAt: resolvedExpiry ? toDateOnlyIso(resolvedExpiry) : null,
+        expirySource:
+          expiryMode === 'none' ? 'NONE' : expiryMode === 'default' ? 'ESTIMATED' : 'USER',
       });
     } finally {
       setSaving(false);
@@ -357,7 +400,7 @@ export function IngredientForm({
           />
         </View>
 
-        {/* 유통기한 — 체크박스 + 날짜 피커가 통째로 자리를 먹어서 접는다.
+        {/* 유통기한 — 선택지 + 날짜 피커가 통째로 자리를 먹어서 접는다.
             분류와 달리 고른 뒤 자동으로 닫지 않는다 — iOS 인라인 피커는 스크롤하며 여러 번
             건드리는 물건이라, 한 번 굴릴 때마다 닫히면 못 쓴다. */}
         <View>
@@ -369,25 +412,23 @@ export function IngredientForm({
           />
           {openSection === 'expiry' ? (
             <View className="gap-2 pb-3">
-              <Pressable
-                onPress={() => setUseDefaultExpiry((v) => !v)}
-                hitSlop={6}
-                className="flex-row items-center gap-2 py-1"
-              >
-                <View
-                  className={`h-5 w-5 items-center justify-center rounded-md border ${
-                    useDefaultExpiry ? 'border-lavender bg-lavender' : 'border-line bg-white'
-                  }`}
-                >
-                  {useDefaultExpiry ? (
-                    <Text className="text-xs font-bold leading-none text-white">✓</Text>
-                  ) : null}
-                </View>
-                <Text className="text-sm text-ink">기본값 ({estimateDays}일)</Text>
-              </Pressable>
+              {/* 세 갈래를 칩으로 — 예전엔 "기본값" 체크박스 하나라 **켜진 게 기본**이었고,
+                  아무것도 안 해도 추정 날짜가 붙었다. 이제 `미설정` 이 어엿한 선택지다. */}
+              <ChipGroup
+                size="sm"
+                options={EXPIRY_MODE_OPTIONS}
+                value={expiryMode}
+                onChange={(v) => setExpiryMode(v as ExpiryMode)}
+              />
 
-              {useDefaultExpiry ? (
-                <Text className="text-sm text-ink-faint">{formatKoreanDate(estimatedDate)}</Text>
+              {expiryMode === 'none' ? (
+                <Text className="text-sm text-ink-faint">
+                  유통기한을 정하지 않아요. 나중에 언제든 넣을 수 있어요.
+                </Text>
+              ) : expiryMode === 'default' ? (
+                <Text className="text-sm text-ink-faint">
+                  {formatKoreanDate(defaultDate)} · 보통 {estimateDays}일쯤 가는 재료예요
+                </Text>
               ) : Platform.OS === 'ios' ? (
                 /* 휠(스피너) — 년/월/일 3열을 굴려 가운데 띠에 맞추는 그 모양이다.
                    ⚠️ `display` 를 안 주면 iOS 14+ 기본값이 **달력 그리드**라 폼 안에서 너무 크고

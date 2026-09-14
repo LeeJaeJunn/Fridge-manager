@@ -22,11 +22,16 @@ function greeting(): string {
 // 홈에서 바로 대화를 시작할 수 있는 가벼운 시작 문구들 (요리 중심)
 const PROMPTS = ['오늘 뭐 해먹지?', '장 보고 왔어', '냉장고 털어줘'];
 
-// 현황 카드 3분할 타일 — key 는 summarize() 결과 필드와 맞춘다. 색은 급함 정도(peach→amber→mint).
+// 현황 카드 타일 — key 는 summarize() 결과 필드와 맞춘다. 색은 급함 정도(peach→amber→mint→중립).
+//
+// `미설정` 은 **유통기한을 안 넣은 재료**다. 미설정이 기본값이라 보통 이 숫자가 제일 크다.
+// `여유` 에 합치지 않는 이유는 `summarize` 주석 참고 — "모른다"를 "여유 있다"로 말하지 않는다.
+// 색을 안 주는 것도 의도다: 급함의 정도가 아니라 정보가 없다는 뜻이라 같은 축에 놓으면 안 된다.
 const STATUS_TILES = [
   { key: 'today', label: '오늘까지', color: 'text-peach' },
   { key: 'week', label: '이번주', color: 'text-amber-deep' },
   { key: 'rest', label: '여유', color: 'text-mint-deep' },
+  { key: 'unset', label: '미설정', color: 'text-ink-soft' },
 ] as const;
 
 /** "냉장고 현황" — 전체 재고를 한눈에. 인사 바로 아래에서 앱을 연 순간 상태를 잡아준다. */
@@ -128,7 +133,9 @@ function NudgeSection({ items }: { items: IngredientType[] }) {
       <Text className="text-base font-bold text-ink">🍅 먼저 먹어요</Text>
       <View className="gap-2">
         {items.slice(0, 5).map((item) => {
-          const tint = FRESHNESS_STYLE[freshness(item.expiresAt)];
+          // 이 목록은 `shouldNudge` 가 미설정을 이미 걸러내지만, 타입은 그걸 모른다.
+          const level = freshness(item.expiresAt);
+          const tint = level ? FRESHNESS_STYLE[level] : null;
           return (
             <View key={item.id} className="flex-row items-center justify-between">
               <Text className="text-[15px] text-ink">
@@ -137,9 +144,11 @@ function NudgeSection({ items }: { items: IngredientType[] }) {
                   <Text className="text-ink-faint"> {item.quantityNote}</Text>
                 ) : null}
               </Text>
-              <View className={`rounded-full px-2.5 py-0.5 ${tint.bg}`}>
-                <Text className={`text-xs font-medium ${tint.text}`}>{expiryLabel(item)}</Text>
-              </View>
+              {tint ? (
+                <View className={`rounded-full px-2.5 py-0.5 ${tint.bg}`}>
+                  <Text className={`text-xs font-medium ${tint.text}`}>{expiryLabel(item)}</Text>
+                </View>
+              ) : null}
             </View>
           );
         })}

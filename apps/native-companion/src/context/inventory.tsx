@@ -46,8 +46,21 @@ type InventoryContextValue = {
 
 const InventoryContext = createContext<InventoryContextValue | null>(null);
 
+/**
+ * 임박순 — **날짜가 있는 것이 먼저, 미설정은 맨 뒤**(그 안에서는 이름순).
+ *
+ * 서버 목록도 `ORDER BY expiresAt ASC` 가 Postgres 기본값(NULLS LAST)으로 같은 순서를 준다.
+ * 여기서 다시 정렬하는 건 낙관적 갱신(수정·추가) 뒤에도 순서를 유지하기 위해서다.
+ *
+ * ⚠️ 예전엔 `a.expiresAt.localeCompare(...)` 였는데, 미설정이 생기면서 **null 에서 터진다.**
+ */
 const sortByExpiry = (list: IngredientType[]): IngredientType[] =>
-  [...list].sort((a, b) => a.expiresAt.localeCompare(b.expiresAt));
+  [...list].sort((a, b) => {
+    if (a.expiresAt && b.expiresAt) return a.expiresAt.localeCompare(b.expiresAt);
+    if (a.expiresAt) return -1;
+    if (b.expiresAt) return 1;
+    return a.name.localeCompare(b.name);
+  });
 
 /**
  * 현재 유저의 냉장고 재고를 앱 전역으로 보관한다.

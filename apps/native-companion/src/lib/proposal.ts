@@ -16,9 +16,9 @@ import type { FormValues } from '@/components';
  * ⚠️ **수량을 고치면 `merge`(기존 2개 · 추가 후 4개)를 함께 지운다.** 그 표시는 "왜 이 숫자인지"를
  * 설명하는 건데, 사용자가 숫자를 직접 바꾸면 더 이상 그 숫자를 설명하지 못해 거짓말이 된다.
  *
- * 날짜를 직접 골랐으면 `USER` 로 올린다 — 저장 때 그 값만 서버로 넘어간다(`toAddInput` 참고).
- * "기본값"으로 두면 `ESTIMATED` 라 서버가 저장 시 다시 추정한다(그래서 분류·보관만 바꾼 경우
- * 화면의 날짜는 저장 전까지 옛 추정치다 — 추정 계산을 앱에 한 번 더 구현하지 않으려는 선택이다).
+ * 만료일은 **폼이 이미 세 상태(미설정/기본값/직접)를 날짜+출처 한 짝으로 정리해서** 준다.
+ * "기본값"일 때의 날짜도 폼이 계산해 넣어주므로, 여기서도 저장할 때도 다시 해석하지 않는다
+ * (예전엔 앱이 날짜를 안 보내고 서버가 추정했는데, 그러면 화면에 본 날짜와 저장값이 갈라졌다).
  */
 export function applyEdit(item: AddProposalItemType, v: FormValues): AddProposalItemType {
   return {
@@ -27,9 +27,9 @@ export function applyEdit(item: AddProposalItemType, v: FormValues): AddProposal
     category: v.category as AddProposalItemType['category'],
     storage: v.storage as AddProposalItemType['storage'],
     quantityNote: v.quantityNote,
-    ...(v.expiresAt
-      ? { estimatedExpiry: v.expiresAt, expirySource: 'USER' as const }
-      : { expirySource: 'ESTIMATED' as const }),
+    // 폼이 세 상태(미설정/기본값/직접)를 이미 정리해서 준다 — 여기서 다시 해석하지 않는다.
+    expiresAt: v.expiresAt,
+    expirySource: v.expirySource,
     merge: undefined,
   };
 }
@@ -37,8 +37,8 @@ export function applyEdit(item: AddProposalItemType, v: FormValues): AddProposal
 /**
  * 제안 항목 → 서버가 받는 추가 입력(`POST /inventory` · 확인 카드 apply 공통).
  *
- * **`expiresAt` 은 사용자가 준 표기일(`USER`)일 때만 싣는다.** 추정치를 그대로 돌려보내면 서버가
- * 그걸 "사용자가 확정한 날짜"로 승격해 버려서, 이후 분류·보관을 바꿔도 다시 추정하지 않는다.
+ * 만료일은 **있을 때만** 싣는다 — 생략하면 서버가 미설정으로 저장한다(추정하지 않는다).
+ * `expirySource` 를 함께 보내야 "직접 고름"과 "기본값"이 구분돼 기록된다. 빼면 전부 `USER` 가 된다.
  */
 export function toAddInput(item: AddProposalItemType): AddIngredientInputType {
   return {
@@ -46,6 +46,6 @@ export function toAddInput(item: AddProposalItemType): AddIngredientInputType {
     category: item.category,
     storage: item.storage,
     ...(item.quantityNote ? { quantityNote: item.quantityNote } : {}),
-    ...(item.expirySource === 'USER' ? { expiresAt: item.estimatedExpiry } : {}),
+    ...(item.expiresAt ? { expiresAt: item.expiresAt, expirySource: item.expirySource } : {}),
   };
 }

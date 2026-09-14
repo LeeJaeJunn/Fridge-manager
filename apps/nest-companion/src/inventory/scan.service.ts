@@ -160,7 +160,7 @@ export class ScanService {
       `스캔(${kind}) 추출 ${items.length}건 (model=${this.model}, tokens=${usage?.totalTokens ?? '?'})`,
     );
 
-    // 기본값·만료일 추정·이름 중복 제거·기존 수량(`merge.existing`)은 previewAdd 가 흡수한다
+    // 기본 분류·보관·이름 중복 제거·기존 수량(`merge.existing`)은 previewAdd 가 흡수한다
     // (채팅 제안과 같은 경로). 여기서 얹는 건 스캔에만 있는 값 — **이번에 산 양**이다.
     return this.inventory.previewAdd(items, existing).map((item) => {
       const key = normalize(item.name);

@@ -19,7 +19,15 @@ export function daysLeft(expiresAt: string, now = new Date()): number {
 /** 신선도 단계 — 색·정렬·홈 노출 판단의 기준. */
 export type Freshness = 'past' | 'urgent' | 'soon' | 'fresh';
 
-export function freshness(expiresAt: string, now = new Date()): Freshness {
+/**
+ * ⚠️ **미설정이면 `null`** — 신선도를 말할 근거가 없다. 유통기한은 사용자가 넣기로 한 재료에만
+ * 있으므로(미설정이 기본) 이 경로가 오히려 흔하다.
+ *
+ * `'unset'` 같은 단계를 만들지 않는 이유: 그러면 회색 배지가 **모든 재료에** 붙어서, 정작
+ * 봐야 할 "오늘까지" 배지가 그 사이에 묻힌다. 모르는 건 비워두는 게 정보량이 더 크다.
+ */
+export function freshness(expiresAt: string | null, now = new Date()): Freshness | null {
+  if (!expiresAt) return null;
   const d = daysLeft(expiresAt, now);
   if (d < 0) return 'past'; // 지남
   if (d === 0) return 'urgent'; // 오늘
@@ -27,16 +35,16 @@ export function freshness(expiresAt: string, now = new Date()): Freshness {
   return 'fresh';
 }
 
-/** 남은 기간 라벨. 추정치는 "쯤"을 붙여 단정하지 않는다(서버 표기와 일치). */
-export function expiryLabel(item: Pick<IngredientType, 'expiresAt' | 'expirySource'>): string {
+/**
+ * 남은 기간 라벨. **미설정이면 `null`**(배지를 안 그린다) — `freshness` 와 짝이라 같이 판단한다.
+ *
+ * ⚠️ 예전엔 추정치에 "쯤"을 붙였다. 이제 서버가 추정하지 않으므로 흐릴 것도 없다 —
+ * 여기 있는 날짜는 전부 사용자가 넣기로 한 값이다.
+ */
+export function expiryLabel(item: Pick<IngredientType, 'expiresAt'>): string | null {
+  if (!item.expiresAt) return null;
   const d = daysLeft(item.expiresAt);
-  // 추정치에 "쯤"을 붙이는 표기는 잠시 꺼둠 — 되살리려면 아래 두 줄 주석을 푼다.
-  // const approx = item.expirySource === 'ESTIMATED';
-  // const suffix = approx ? '쯤' : '';
   if (d < 0) return `${-d}일 지남`;
-  // if (d === 0) return `오늘까지${suffix}`;
-  // if (d === 1) return `내일까지${suffix}`;
-  // return `${d}일 남음${suffix}`;
   if (d === 0) return `오늘까지`;
   if (d === 1) return `내일까지`;
   return `${d}일 남음`;
@@ -50,16 +58,30 @@ export const FRESHNESS_STYLE: Record<Freshness, { bg: string; text: string }> = 
   fresh: { bg: 'bg-sand', text: 'text-ink-soft' },
 };
 
-/** 홈 "먼저 먹어요" 섹션에 올릴지 — 오늘 이내이거나 이미 지난 것. */
+/**
+ * 홈 "먼저 먹어요" 섹션에 올릴지 — 오늘 이내이거나 이미 지난 것.
+ * **미설정은 올리지 않는다** — 급한지 아닌지 모르는 걸 급하다고 말할 수 없다.
+ * (서버의 `expiringSoon` 이 `expiresAt <= :until` 로 NULL 을 빼는 것과 같은 판단이다.)
+ */
 export const shouldNudge = (item: Pick<IngredientType, 'expiresAt'>): boolean =>
-  daysLeft(item.expiresAt) <= 0;
+  item.expiresAt !== null && daysLeft(item.expiresAt) <= 0;
 
 /**
  * 홈 "냉장고 현황" 카드용 재고 요약.
- * 버킷은 서로 겹치지 않아 today+week+rest = total 이다.
+ * 버킷은 서로 겹치지 않아 **today + week + rest + unset = total** 이다.
  * `today` 는 오늘까지(지남 포함) — `shouldNudge` 와 같은 기준이라 "먼저 먹어요" 목록 개수와 일치한다.
+ *
+ * ⚠️ **`unset` 을 `rest`("여유") 에 합치지 않는다.** 미설정은 "여유 있다"가 아니라 "모른다"이고,
+ * 미설정이 기본값이라 합치면 그 숫자가 거의 전부를 삼켜 "여유"가 아무 뜻도 없는 값이 된다.
+ * 따로 세면 그 숫자 자체가 "유통기한을 넣어두면 쓸모가 있다"는 안내가 되기도 한다.
  */
-export type InventorySummary = { total: number; today: number; week: number; rest: number };
+export type InventorySummary = {
+  total: number;
+  today: number;
+  week: number;
+  rest: number;
+  unset: number;
+};
 
 export function summarize(
   items: Pick<IngredientType, 'expiresAt'>[],
@@ -68,11 +90,16 @@ export function summarize(
   let today = 0;
   let week = 0;
   let rest = 0;
+  let unset = 0;
   for (const item of items) {
+    if (!item.expiresAt) {
+      unset += 1;
+      continue;
+    }
     const d = daysLeft(item.expiresAt, now);
     if (d <= 0) today += 1;
     else if (d <= 7) week += 1;
     else rest += 1;
   }
-  return { total: items.length, today, week, rest };
+  return { total: items.length, today, week, rest, unset };
 }

@@ -199,7 +199,7 @@ const UPDATE_INVENTORY_TOOL: LlmTool = {
               enum: STORAGE_VALUES,
               // ⚠️ **생략을 권하는 게 방어책이다.** 서버는 값이 없을 때만 기존 재고의 보관 위치를
               // 유지하고(`previewAdd`/`add` 의 폴백), 값이 오면 그대로 덮어쓴다. 그래서 모델이
-              // 친절하게 FRIDGE 를 채우면 냉동실 재료가 냉장으로 바뀌고 만료일까지 짧게 재추정된다.
+              // 친절하게 FRIDGE 를 채우면 냉동실 재료가 냉장으로 뒤집힌다(`pickStorage` 주석 참고).
               description:
                 '보관 위치. 사용자가 냉동·실온에 둔다고 말했을 때만 채우고 기본은 생략(냉장). 이미 재고 목록에 있는 재료는 보관 위치를 옮긴다고 말하지 않는 한 반드시 생략한다 — 생략하면 기존 위치가 유지되고, 채우면 덮어쓴다.',
             },
@@ -208,7 +208,7 @@ const UPDATE_INVENTORY_TOOL: LlmTool = {
               // ⚠️ 프롬프트는 일부러 **날짜 대신 남은 일수**를 준다(모델이 오늘 날짜를 모르거나 틀리게
               // 안다). 그래서 상대적 표현을 ISO 로 변환시키면 틀린 날짜가 USER 로 확정 저장된다.
               description:
-                '사용자가 유통기한·소비기한을 직접 말한 경우에만 ISO 날짜로. 모르면 반드시 생략해라(서버가 추정한다). 지어내지 마라. "내일", "다음 주" 같은 상대적 표현은 오늘 날짜를 알 수 없으므로 ISO 로 바꾸지 말고 생략한다.',
+                '사용자가 유통기한·소비기한을 직접 말한 경우에만 ISO 날짜로. 모르면 반드시 생략해라 — 비워두는 게 정상이고, 서버가 대신 추정하지 않는다. 지어내지 마라. "내일", "다음 주" 같은 상대적 표현은 오늘 날짜를 알 수 없으므로 ISO 로 바꾸지 말고 생략한다.',
             },
           },
           required: ['name', 'category'],
@@ -985,7 +985,7 @@ export class ConversationService {
    *
    * payload 는 **모델이 한 말(`arguments`) + 서버가 화면용으로 가공한 값(`resolved`)** 을 함께 담는다.
    * 원본 인자엔 `ingredientId` 가 없어서 확인 카드가 apply 를 할 수 없기 때문이다.
-   * consume 은 resolveConsume(이름→행+현재수량), add 는 previewAdd(정규화+만료일 추정).
+   * consume 은 resolveConsume(이름→행+현재수량), add 는 previewAdd(정규화+기본 분류·보관).
    */
   private buildCallPayloads(
     userId: string,

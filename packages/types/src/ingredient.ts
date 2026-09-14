@@ -13,11 +13,17 @@
 export type StorageAreaType = 'FRIDGE' | 'FREEZER' | 'PANTRY';
 
 /**
- * expiresAt 의 출처.
- * 'USER' = 사용자가 알려준 실제 표기일(신뢰), 'ESTIMATED' = 카테고리×보관위치 기반 추정(참고).
- * UI 는 이 값으로 "8/12까지" vs "8/12쯤" 을 가른다.
+ * `expiresAt` 이 **어떻게 정해졌는지**.
+ * - `USER` — 사용자가 날짜를 직접 골랐다
+ * - `ESTIMATED` — 사용자가 "기본값"을 선택해서 카테고리×보관위치 추정치가 들어갔다
+ * - `NONE` — 아무것도 안 정했다 (`expiresAt` 은 null)
+ *
+ * ⚠️ **화면은 이 값을 읽지 않는다.** 예전엔 "8/12까지" vs "8/12쯤" 을 가르는 데 썼지만,
+ * 이제 날짜는 사용자가 넣기로 한 것만 있으므로 표기를 흐릴 이유가 없다.
+ * 남겨두는 건 **"사람들이 유통기한을 실제로 넣는가"를 나중에 재기 위한 기록**이다
+ * (넣는다면 직접 고르는지 기본값에 맡기는지도 함께). 그러니 안 읽힌다고 지우지 말 것.
  */
-export type ExpirySourceType = 'USER' | 'ESTIMATED';
+export type ExpirySourceType = 'USER' | 'ESTIMATED' | 'NONE';
 
 /** 재료 분류 — 소비기한 추정 기준 + 화면 그룹핑 */
 export type IngredientCategoryType =
@@ -42,7 +48,15 @@ export interface IngredientType {
   quantityNote?: string;
   storage: StorageAreaType;
   addedAt: string; // ISO — 등록(구입) 시점. 추정의 기준점
-  expiresAt: string; // ISO — 항상 채워진다 (USER 값 또는 추정치)
+  /**
+   * ISO 날짜, 또는 **null = 미설정**.
+   *
+   * 서버가 추정해서 자동으로 채우지 않는다 — 사용자가 직접 고르거나 "기본값"을 선택했을 때만
+   * 값이 생긴다. 추정은 대체로 틀리는데 화면에서는 확정값과 구분이 안 돼서, 차라리 비워둔다.
+   * 다른 뜻은 없다: **null 아니면 날짜**이고, 그 날짜가 사용자 입력인지 기본값인지는
+   * `expirySource` 가 따로 기록한다(화면은 안 읽는다).
+   */
+  expiresAt: string | null;
   expirySource: ExpirySourceType;
   /** 소비 완료 시각 (ISO). 있으면 냉장고에서 빠진 상태 — soft delete 라 복구 가능 */
   consumedAt?: string;
@@ -54,8 +68,16 @@ export interface AddIngredientInputType {
   category?: IngredientCategoryType;
   quantityNote?: string;
   storage?: StorageAreaType;
-  /** 사용자가 실제 표기일을 알려준 경우만 (ISO). 없으면 서버가 추정해 채운다. */
+  /**
+   * 사용자가 날짜를 정한 경우만 (ISO). **생략하면 미설정(null)으로 들어간다** — 서버는 추정하지 않는다.
+   * "기본값"을 고른 경우엔 앱이 추정일을 계산해 실어 보내고, 그때 `expirySource=ESTIMATED` 가 된다.
+   */
   expiresAt?: string;
+  /**
+   * 위 날짜가 사용자가 직접 고른 것(`USER`)인지 "기본값"(`ESTIMATED`)인지.
+   * 날짜가 없으면 무시된다(서버가 `NONE` 으로 쓴다). 생략하면 `USER` 로 본다.
+   */
+  expirySource?: ExpirySourceType;
 }
 
 /** POST /inventory — 여러 건을 한 번에 넣는다 ("계란이랑 우유 사왔어") */
@@ -65,7 +87,7 @@ export interface AddIngredientsRequestType {
 
 /**
  * 넣기 **제안** 한 항목 — 아직 저장되지 않았고 사용자 확인을 기다리는 상태.
- * 서버가 파싱·정규화하고 만료일을 추정해 담는다(`previewAdd`). 저장은 사용자가 확인한 뒤에 일어난다.
+ * 서버가 파싱·정규화해 담는다(`previewAdd`). 저장은 사용자가 확인한 뒤에 일어난다.
  *
  * 만들어지는 경로가 둘이고 화면(확인 카드)은 하나다:
  *  - 채팅 툴(`update_inventory`)의 add
@@ -77,16 +99,21 @@ export interface AddProposalItemType {
   storage: StorageAreaType;
   /** **저장될 최종 수량** — 이미 있는 재료면 합산된 값이다 */
   quantityNote?: string;
-  /** 추정 만료일 (ISO). 사용자가 표기일을 줬으면 그 값 */
-  estimatedExpiry: string;
+  /**
+   * 만료일 (ISO) 또는 **null = 미설정**. 서버는 추정해 채우지 않는다 — 채팅·스캔에서 사용자가
+   * 날짜를 말한 경우, 또는 이미 있는 재고의 날짜를 이어받은 경우에만 값이 있다.
+   * (예전 이름은 `estimatedExpiry` 였는데, 더 이상 추정치가 아니라서 바꿨다.)
+   */
+  expiresAt: string | null;
   expirySource: ExpirySourceType;
   /**
    * 같은 이름의 재고가 이미 있을 때만 채워지는 **합산 근거**(표시 전용).
    * 저장은 `quantityNote` 하나로 이뤄지고, 이건 "왜 그 숫자인지"를 화면에서 설명하기 위한 것이다.
    *
-   * ⚠️ 알려진 한계: 병합은 만료일을 **새로 산 값으로 덮어쓴다**. 유통기한이 다른 두 묶음
-   * (8/4까지 남은 것 + 오늘 산 8/11까지)은 한 행으로 표현되지 않아, 먼저 상하는 몫이 임박 경고에서
-   * 빠진다. "기존에 합치기 / 따로 추가" 선택을 넣을 때 함께 해결한다.
+   * ⚠️ 알려진 한계: 유통기한이 다른 두 묶음(8/4까지 남은 것 + 오늘 산 8/11까지)은 **한 행으로
+   * 표현되지 않는다.** 이번에 날짜가 오면 그 값이 이기고(기존 몫이 언제까지였는지는 사라진다),
+   * 안 오면 기존 날짜가 유지된다(새로 산 몫이 더 오래가도 옛 날짜로 보인다). 어느 쪽이든 두 묶음 중
+   * 하나의 사실만 남는다. "기존에 합치기 / 따로 추가" 선택을 넣을 때 함께 해결한다.
    */
   merge?: {
     /** 지금 냉장고에 있는 수량 메모 */
@@ -114,7 +141,13 @@ export interface UpdateIngredientRequestType {
   category?: IngredientCategoryType;
   quantityNote?: string;
   storage?: StorageAreaType;
-  expiresAt?: string;
+  /**
+   * ⚠️ **세 가지가 다른 뜻이다** — 생략 = 미변경 / 날짜 = 그 날로 / **`null` = 미설정으로 되돌리기**.
+   * 미설정이 정상 상태가 되면서 "정해둔 날짜를 지우는" 조작이 필요해졌고, 생략과 구분돼야 한다.
+   */
+  expiresAt?: string | null;
+  /** 위 날짜의 출처. 날짜를 보낼 때만 의미가 있다(생략하면 `USER`). */
+  expirySource?: ExpirySourceType;
 }
 
 /** 값→라벨 한 쌍 (화면 표시용) */
@@ -136,8 +169,9 @@ export interface InventoryOptionsType {
     itemsMax: number;
   };
   /**
-   * 카테고리×보관위치 → 소비기한 일수. 추가 폼에서 "기본값(자동 추정)" 만료일을
-   * 미리 보여주기 위한 것 — 서버 추정과 같은 표(shelf-life)를 내려준다.
+   * 카테고리×보관위치 → 소비기한 일수. **앱이 "기본값" 만료일을 계산하는 재료**다 —
+   * 사용자가 그 선택지를 고르면 앱이 이 표로 날짜를 만들어 서버에 실어 보낸다(서버는 추정하지 않는다).
+   * 표를 서버가 소유하는 건 앱 배포 없이 값을 고치기 위해서다(`shelf-life.ts` 가 단일 출처).
    * storage → category → days. 없는 조합은 defaultDays 로 폴백한다.
    */
   shelfLife: {

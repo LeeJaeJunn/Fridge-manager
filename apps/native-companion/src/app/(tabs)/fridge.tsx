@@ -38,7 +38,10 @@ function IngredientCard({
   // 카드 안의 UI 상태는 카드가 소유한다(메뉴 열림 / 삭제 확인 중).
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const tint = FRESHNESS_STYLE[freshness(item.expiresAt)];
+  // 미설정이면 배지를 아예 안 그린다 — 회색 배지가 전 재료에 붙으면 "오늘까지"가 그 사이에 묻힌다.
+  const level = freshness(item.expiresAt);
+  const tint = level ? FRESHNESS_STYLE[level] : null;
+  const label = expiryLabel(item);
 
   return (
     <Card radius="3xl" className="gap-3 px-5 py-4">
@@ -54,9 +57,11 @@ function IngredientCard({
               <Text className="text-sm text-ink-faint">{item.quantityNote}</Text>
             ) : null}
           </View>
-          <View className={`self-start rounded-full px-2.5 py-0.5 ${tint.bg}`}>
-            <Text className={`text-xs font-medium ${tint.text}`}>{expiryLabel(item)}</Text>
-          </View>
+          {tint && label ? (
+            <View className={`self-start rounded-full px-2.5 py-0.5 ${tint.bg}`}>
+              <Text className={`text-xs font-medium ${tint.text}`}>{label}</Text>
+            </View>
+          ) : null}
         </View>
 
         <Pressable
@@ -328,9 +333,10 @@ export default function FridgeScreen() {
 
       {error ? <Text className="text-sm text-red-500">{error}</Text> : null}
 
-      {/* 재료 수정 모달 — 목록 위로 떠서 스크롤 위치를 흔들지 않는다. 나중에 채팅 확인 카드도 이걸 연다.
-          유통기한은 현재 값으로 시작한다: 사용자가 정한 날(USER)이면 그 날짜를 이어받고,
-          추정치면 "기본값" 상태로 두되 재추정 기준일(addedAt)을 넘겨 서버 계산과 같은 날짜를 보여준다. */}
+      {/* 재료 수정 모달 — 목록 위로 떠서 스크롤 위치를 흔들지 않는다. 채팅 확인 카드도 같은 모달을 연다.
+          유통기한은 현재 값으로 시작한다(미설정/기본값/직접 중 지금 상태). `addedAt` 을 함께 넘기는 건
+          "기본값"의 기준일이 **구입 시점**이어야 하기 때문이다 — 오늘 기준으로 재면 오래 둔 재료가
+          방금 산 것처럼 계산된다. */}
       {options && editing ? (
         <IngredientEditDialog
           visible

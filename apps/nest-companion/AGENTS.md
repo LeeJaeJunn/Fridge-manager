@@ -124,7 +124,7 @@
   - 본문은 제안과 같은 축(`{ consume, add }`)이고 **둘 다 서버가 저장해둔 제안 대신 이 값을 쓴다.** 소비·추가 모두 사용자가 카드에서 고칠 수 있어야 하기 때문이다(추가는 예전엔 확인-only 라 모델이 잘못 뽑으면 "그대로 확인 / 전체 취소" 두 갈래뿐이었다).
     - `consume` 은 **제안에 실제로 있던 `ingredientId` 만** 반영한다(임의 id 주입 차단). 이름이 아니라 id 인 이유는 제안과 확인 사이에 재고가 바뀌어도 사용자가 카드에서 본 그 행을 가리키기 위해서다.
     - `add` 는 대조하지 않는다 — **이름·수량을 고치는 게 목적이라 대조할 키가 없다.** 신뢰 경계 문제도 아니다(사용자는 어차피 `POST /inventory` 로 아무 재료나 넣을 수 있다). 방어는 DTO(`AddIngredientItemDto` **재사용** — 수동 추가와 같은 검증·같은 `LIMITS`)와 `inventory.add` 의 clip 이 한다.
-    - 병합·만료일 폴백은 여전히 서버가 정한다. 클라는 _무엇을_ 보내고 서버는 _어디에 어떻게_ 넣을지를 정한다. `expiresAt` 은 사용자가 날짜를 직접 고른 경우에만 실려 오고, 아니면 서버가 재추정한다.
+    - 병합은 여전히 서버가 정한다. 클라는 _무엇을_ 보내고 서버는 _어디에 어떻게_ 넣을지를 정한다. `expiresAt` 은 사용자가 날짜를 정한 경우에만 실려 오고, 없으면 미설정으로 저장된다(서버는 추정하지 않는다).
   - 응답은 `{ messages: [...] }` — 이번 처리로 새로 생긴 아이템들. 나중에 확인 후 LLM 완료 답변을 붙여도 **계약을 안 바꾸고** 배열에 한 줄 더 얹으면 된다(아직 미구현이라 확인 직후엔 컴패니언이 말하지 않는다).
 - **레시피 카드는 `FUNCTION_CALL_OUTPUT.payload.output`** 에 그대로 들어간다(`{ dishName, recipes[], reason? }`) — 컬럼 추가 없이 `Message.payload` 구조를 그대로 쓴다. 앱은 아직 이 툴을 모르지만 **모르는 툴은 조용히 건너뛰므로** 안 깨진다(`toInventoryProposal` 이 `null` 반환). 카드 UI 는 그다음 단계.
 
@@ -159,10 +159,15 @@
 
 - v1 핵심 기능. `src/inventory/`(`InventoryModule`). **메모리와 달리 별도 테이블(`Ingredient`)** 이다 — 상태가 계속 변하고 "유통기한 임박" 같은 날짜 쿼리가 필요해서 자유텍스트로는 둘 다 안 된다.
 - **쿼리가 필요한 것만 구조화**한다: `name`(정규화, 레시피 매칭·중복 판정), `category`(소비기한 추정·그룹핑), `expiresAt`, `consumedAt`. 수량은 `quantityNote` **자유텍스트**다 — 앱은 실제 소비를 관찰 못 해서(김치찌개 하나에 대파가 몇 단 줄었는지 모른다) 숫자를 들고 있어도 금방 허구가 되고, 틀린 숫자는 신뢰를 깎는다.
-- **`expiresAt` 은 쓸 때 폴백해서 항상 채운다**(nullable 아님): 유저가 표기일을 주면 그 값(`expirySource=USER`), 모르면 `shelf-life.ts` 의 카테고리×보관위치 추정(`ESTIMATED`). 읽을 때 분기하면 "곧 상하는 것" 조회·정렬 경로가 전부 분기를 떠안으므로 쓸 때 한 번 채운다. UI 는 `expirySource` 로 "8/12까지" vs "8/12쯤"을 가른다.
+- **`expiresAt` 은 nullable 이고 `null`(미설정)이 기본이다.** 서버는 **추정해서 채우지 않는다** — 값이 생기는 건 사용자가 날짜를 직접 고르거나 앱에서 "기본값"을 선택했을 때뿐이다.
+  - 예전엔 쓸 때 폴백해 항상 채웠다(모르면 카테고리×보관 추정치). 읽는 경로가 null 분기를 안 떠안게 하려는 거였는데, 대가로 **우리가 지어낸 날짜가 화면에서 확정값과 구분되지 않았다.** 추정은 대체로 틀리고, 사용자는 사실 더 잘 알면서 입력이 귀찮아 안 넣을 뿐이다.
+  - 걱정했던 **조회·정렬 비용은 실제로 거의 없었다.** Postgres 는 `ORDER BY expiresAt ASC` 에서 NULL 을 맨 뒤로 보내고(임박순에서 미설정이 아래), `expiresAt <= :until` 은 NULL 을 자동으로 제외한다("먼저 먹어요"에서 빠진다). 비용은 **계산·표시하는 쪽**에 있었고 그건 타입이 `string | null` 이 되면서 컴파일러가 전부 잡아줬다.
+  - ⚠️ **병합(재입고) 때 날짜를 안 주면 기존 값을 유지한다.** 생략을 "지워라"로 읽으면 채팅 툴이 날짜를 거의 안 실어 보내므로 **"계란 더 샀어" 한 마디에 넣어둔 유통기한이 날아간다.** 조용한 손실이라 스펙으로 고정해 뒀다.
+- **`expirySource`(`USER`/`ESTIMATED`/`NONE`)는 화면이 읽지 않는다.** 예전엔 "8/12까지" vs "8/12쯤"을 가르는 데 썼지만, 이제 날짜는 사용자가 넣기로 한 것만 있어서 표기를 흐릴 이유가 없다. 남겨둔 건 **"사람들이 유통기한을 실제로 넣는가"(넣는다면 직접 고르는지 기본값에 맡기는지)를 나중에 재기 위한 기록**이다 — 안 읽힌다고 죽은 컬럼으로 보고 지우지 말 것. `expiresAt` 과 **짝**이라 날짜를 쓰는 곳에서 반드시 함께 쓴다.
+  - ⚠️ 클라가 보낼 수 있는 값은 `USER`/`ESTIMATED` 뿐이다(`EXPIRY_SOURCE_INPUT_VALUES`). `NONE` 은 "날짜가 없다"에서 서버가 파생한다 — 받아주면 날짜는 있는데 출처는 `NONE` 인 어긋난 행이 생긴다.
 - **soft delete**: `consume` 은 삭제가 아니라 `consumedAt` 을 찍는다. 모든 조회에 `consumedAt: null` 이 붙어(list/recall/expiringSoon/중복검사) 먹은 재료가 목록·프롬프트에서 빠진다 — `recall` 이 유령 재료를 흘리지 않는지 테스트로 고정. 되돌리기(`restore`)가 UPDATE 한 번이고, 소비 이력은 나중에 "자주 사는 재료" 근거가 된다. 잘못 등록한 건 `DELETE :id/hard` 로 진짜 지운다("다 먹음"과 "잘못 등록"은 의미가 달라 이력에 남길지가 갈린다).
 - **병합**: 같은 이름을 다시 넣으면 새 row 가 아니라 기존 미소비 재고에 병합한다. 만료일·보관·분류는 **새로 넣은 값으로 갱신**한다(재입고 = 방금 산 게 주). 수량을 개별 추적하지 않으므로 옛 재고 기준으로 잡을 근거가 없다. 수량 메모는 이번에 안 적었으면 기존 표시를 유지.
-- `shelf-life.ts` = 소비기한 추정 + 카테고리·보관위치 vocab·라벨·`LIMITS` 의 **단일 진실원천**(persona.ts 와 같은 패턴, `GET /inventory/options` 로 내려줌). 순수 로직이라 DB·LLM 없이 테스트된다.
+- `shelf-life.ts` = 소비기한 추정표 + 카테고리·보관위치·`expirySource` vocab·라벨·`LIMITS` 의 **단일 진실원천**. ⚠️ 추정표는 이제 **저장 경로가 아니라 앱의 "기본값" 선택지**가 쓴다(`GET /inventory/options` 로 내려가 앱이 날짜를 계산해 올린다). ⚠️ **`estimateExpiry` 는 런타임 경로에서 아무도 안 부른다** — 그래도 지우지 말 것. 앱 계산의 **참조 구현**이자, **자정 경계 계산을 검증하는 유일한 스펙**(`shelf-life.spec.ts`)의 대상이다. 앱엔 아직 테스트 러너가 없어서 지우면 그 검증이 레포에서 통째로 사라진다(persona.ts 와 같은 패턴, `GET /inventory/options` 로 내려줌). 순수 로직이라 DB·LLM 없이 테스트된다.
 - 채팅 경로는 `InventoryService` 를 **직접** 호출한다(HTTP 안 탐). 아래 컨트롤러는 냉장고 화면의 **수동 교정 경로**다.
 - **제안(비-mutating)과 반영(mutating)이 나뉘어 있다** — 채팅 툴이 종결 툴이라 확인 전엔 아무것도 쓰면 안 되기 때문이다.
   - `previewAdd`(기본 분류·보관 + 만료일 추정 + 기존 수량 `merge.existing`. 같은 이름이 여러 번 오면 **첫 번째가 이긴다**) / `resolveConsume`(이름→행 + 현재 수량, 같은 행 중복 제안 제거) → 확인 카드용
@@ -174,7 +179,7 @@
     - ⚠️ **`remaining=null` 하나가 "다 씀"을 겸하게 되돌리지 말 것.** 예전엔 그랬는데, **수량 메모가 없는 재고**를 일부만 쓴 경우("고추장 좀 썼어") 모델이 남은 양을 적을 방법이 없어 **재료가 통째로 사라졌다.** 실측으로 확인한 케이스다.
     - 제거는 `finished === true` **일 때만** 일어난다 — 값이 빠지면 유지 쪽으로 떨어진다. 잘못 지운 재고는 사용자가 알아채기 어렵기 때문에 위험한 쪽이 명시적 신호를 요구하게 뒀다.
     - 앱 카드의 "다 먹음" 토글이 곧 `finished` 이고, 입력칸을 비워두면 "수량 그대로"다(예전엔 비우면 삭제였다).
-- API(`InventoryModule`, 전부 현재 유저 기준): `GET /inventory`(임박순), `GET /inventory/expiring?days=N`(홈 "먼저 먹어요"), `GET /inventory/options`, `POST /inventory`(여러 건), `PATCH /inventory/:id`(교정 — 만료일 직접 고치면 `USER` 승격, 표기일 없이 분류·보관만 바꾸면 만료일 재추정. 유통기한 직접 편집이 없는 앱에선 보관 변경이 유일한 간접 조정 수단), `DELETE /inventory/:id`(=consume, soft), `POST /inventory/:id/restore`, `DELETE /inventory/:id/hard`. `:id` 라우트는 반드시 리터럴 경로(`options`/`expiring`) **아래**에 둔다(Nest 는 선언순 매칭).
+- API(`InventoryModule`, 전부 현재 유저 기준): `GET /inventory`(임박순), `GET /inventory/expiring?days=N`(홈 "먼저 먹어요"), `GET /inventory/options`, `POST /inventory`(여러 건), `PATCH /inventory/:id`(교정 — `expiresAt` 이 **세 갈래**다: 생략=미변경 / 날짜=그 날로 / **`null`=미설정으로 되돌리기**. ⚠️ **여기서도 서버는 추정하지 않는다** — 예전엔 "기본값"에 맡겨둔 재료의 분류·보관이 바뀌면 재추정했는데(`reEstimate`), 그건 앱이 날짜를 안 보내던 시절의 보완 장치였다. 지금은 폼이 분류·보관을 바꿀 때마다 추정일을 다시 계산해 **화면에 보여주고 그 값을 그대로 보내므로** 서버가 한 번 더 계산할 자리가 없다. 되살리지 말 것 — 계산이 양쪽에 있으면 화면에 본 날짜와 저장된 날짜가 조용히 갈라진다), `DELETE /inventory/:id`(=consume, soft), `POST /inventory/:id/restore`, `DELETE /inventory/:id/hard`. `:id` 라우트는 반드시 리터럴 경로(`options`/`expiring`) **아래**에 둔다(Nest 는 선언순 매칭).
 
 ### 영수증·사진 스캔 (`POST /inventory/scan`)
 
@@ -184,7 +189,7 @@
 이미지 → (OCR) → LLM(구조화 출력) → previewAdd → 제안 목록 → [사용자 확인·수정] → POST /inventory
 ```
 
-- **뒷단을 그대로 재사용한다**: `previewAdd` 가 기본값·만료일 추정·이름 중복 제거를 흡수하고, 결과 타입도 채팅 확인 카드와 같은 `AddProposalItemType` 이다. 그래서 LLM 은 `{name, category, purchased, total, storage, expiresAt}` 만 내면 된다.
+- **뒷단을 그대로 재사용한다**: `previewAdd` 가 기본 분류·보관과 이름 중복 제거를 흡수하고(만료일은 추정하지 않고 온 값 또는 기존 재고 값을 이어받는다), 결과 타입도 채팅 확인 카드와 같은 `AddProposalItemType` 이다. 그래서 LLM 은 `{name, category, purchased, total, storage, expiresAt}` 만 내면 된다.
 - **`ScanService.scan()`(이미지 단독) / `scanWithOcr()`(OCR+이미지)** 두 경로를 유지한다. 요청의 `ocr=true` 로 고르며, **모델을 바꿔가며 비교**하기 위한 스위치다(OpenRouter·NVIDIA 등). 앱은 현재 `ocr=true` 를 보낸다.
 - 업로드는 **multipart**(`FileInterceptor('image')`, 10MB 상한). base64 는 33% 부풀고 Nest 기본 body limit 에 걸린다. base64 변환은 OpenAI 로 보낼 때 서버에서 한 번만 한다.
 - 개발용으로 `SCAN_DEBUG_DIR` 을 주면 **받은 이미지를 그대로 파일로 떨군다**. "모델이 못 읽은 건지, 애초에 이미지가 뭉개진 건지"를 가르는 데 이게 제일 빠르다. 비어 있으면 아무것도 안 한다(프로덕션에서 사용자 사진이 디스크에 안 남게).

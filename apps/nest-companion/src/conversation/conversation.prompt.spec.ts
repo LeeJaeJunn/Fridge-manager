@@ -17,7 +17,8 @@ const banned = (name: string): RecalledMemory => ({ category: 'ALLERGY', content
 
 const ing = (
   name: string,
-  expiresAt: Date,
+  /** null = 미설정 (서버가 추정하지 않으므로 이게 기본 상태다) */
+  expiresAt: Date | null,
   extra: Partial<RecalledIngredient> = {},
 ): RecalledIngredient => ({
   id: `ing-${name}`,
@@ -26,7 +27,7 @@ const ing = (
   storage: 'FRIDGE',
   quantityNote: null,
   expiresAt,
-  expirySource: 'ESTIMATED',
+  expirySource: expiresAt ? 'USER' : 'NONE',
   ...extra,
 });
 
@@ -123,11 +124,18 @@ describe('프롬프트 조립', () => {
       expect(text).toContain('2일 지남');
     });
 
-    it('추정 만료일은 "(추정)"으로 밝혀 단정하지 않게 한다', () => {
-      const estimated = formatInventory([ing('계란', atNoon(30))], NOW);
-      const stated = formatInventory([ing('계란', atNoon(30), { expirySource: 'USER' })], NOW);
-      expect(estimated).toContain('8일 남음 (추정)');
-      expect(stated).not.toContain('(추정)');
+    it('만료일이 미설정이면 날짜 자리를 아예 비운다', () => {
+      // 미설정이 기본이라 대부분의 재료가 이 경로를 탄다. "미상" 같은 말을 채워 넣으면
+      // 모델이 그걸 상태로 읽고 언급하기 시작한다 — 모르는 건 말하지 않는 게 맞다.
+      const text = formatInventory([ing('계란', null, { quantityNote: '한 판' })], NOW);
+      expect(text).toContain('- 계란 (한 판)');
+      expect(text).not.toContain('·');
+    });
+
+    it('날짜가 있는 재료와 없는 재료가 섞여도 각자 제 모양으로 나온다', () => {
+      const text = formatInventory([ing('대파', atNoon(23)), ing('계란', null)], NOW);
+      expect(text).toContain('- 대파 · 내일까지');
+      expect(text).toContain('- 계란');
     });
 
     it('수량 메모가 있으면 함께, 없으면 생략한다', () => {

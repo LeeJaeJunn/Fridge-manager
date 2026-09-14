@@ -175,7 +175,8 @@ export interface ApplyProposalRequestType {
    * 넣을 수 있으므로 권한 상승이 아니고, 길이·개수 방어는 서버(DTO + `inventory.add`)가 한다.
    *
    * 항목 모양이 `POST /inventory` 와 같아서 서버 검증(`AddIngredientItemDto`)을 그대로 재사용한다.
-   * `expiresAt` 은 **사용자가 날짜를 직접 고른 경우에만** 싣는다(그때만 서버가 `USER` 로 승격).
+   * `expiresAt` 은 **값이 있을 때만** `expirySource` 와 짝지어 싣는다 — 없으면 미설정으로 저장된다
+   * (서버는 추정하지 않는다). 출처를 빼면 "기본값"으로 고른 것까지 전부 `USER` 로 기록된다.
    */
   add: AddIngredientInputType[];
 }

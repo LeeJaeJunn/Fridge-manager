@@ -1,14 +1,17 @@
 import type {
+  ExpirySourceType,
   IngredientCategoryType,
   StorageAreaType,
   UpdateIngredientRequestType,
 } from '@companion/types';
 import { IsIn, IsISO8601, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
-import { CATEGORY_VALUES, LIMITS, STORAGE_VALUES } from '../shelf-life';
+import { CATEGORY_VALUES, EXPIRY_SOURCE_INPUT_VALUES, LIMITS, STORAGE_VALUES } from '../shelf-life';
 
 /**
  * PATCH /inventory/:id — 교정용 부분 수정.
- * expiresAt 을 고치면 서버가 expirySource 를 USER 로 승격한다(추정치 → 확정값).
+ *
+ * ⚠️ `expiresAt` 은 **세 가지 뜻**이다 — 생략(미변경) / 날짜(그 날로) / `null`(미설정으로 되돌리기).
+ * `@IsOptional()` 이 `null` 과 `undefined` 를 둘 다 통과시키고, 서비스가 `=== null` 로 가른다.
  */
 export class UpdateIngredientDto implements UpdateIngredientRequestType {
   @IsOptional()
@@ -32,5 +35,10 @@ export class UpdateIngredientDto implements UpdateIngredientRequestType {
 
   @IsOptional()
   @IsISO8601()
-  expiresAt?: string;
+  expiresAt?: string | null;
+
+  /** 위 날짜의 출처. 날짜를 보낼 때만 의미가 있다(생략하면 `USER`). */
+  @IsOptional()
+  @IsIn(EXPIRY_SOURCE_INPUT_VALUES)
+  expirySource?: ExpirySourceType;
 }

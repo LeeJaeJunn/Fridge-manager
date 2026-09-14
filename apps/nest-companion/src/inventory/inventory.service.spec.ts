@@ -87,13 +87,32 @@ describe('InventoryService', () => {
   });
 
   describe('add', () => {
-    it('만료일을 안 줘도 카테고리 기준으로 추정해 항상 채운다', async () => {
+    it('만료일을 안 주면 추정하지 않는다 (컬럼 기본값 null·NONE 에 맡긴다)', async () => {
       await service.add('u1', [{ name: '삼겹살', category: 'MEAT', storage: 'FRIDGE' }]);
 
+      // 두 필드를 **아예 안 쓴다** — 그래야 병합 경로에서 같은 코드가 "기존 값 유지"가 된다.
+      // 신규 행은 스키마 기본값(`expiresAt` null · `expirySource` NONE)을 그대로 받는다.
       const { data } = writeArg(prisma.ingredient.create);
+      expect(data.expiresAt).toBeUndefined();
+      expect(data.expirySource).toBeUndefined();
+    });
+
+    it('앱이 "기본값"으로 계산해 보낸 날짜는 ESTIMATED 로 기록한다', async () => {
+      // 추정은 서버가 아니라 **사용자가 기본값을 골랐을 때 앱이** 계산해 실어 보낸다.
+      // 날짜는 USER 와 똑같이 저장되고, 출처만 갈린다(나중에 "직접 넣는가"를 재기 위한 기록).
+      const estimated = new Date(Date.now() + shelfLifeDays('MEAT', 'FRIDGE') * MS_PER_DAY);
+      await service.add('u1', [
+        {
+          name: '삼겹살',
+          category: 'MEAT',
+          expiresAt: estimated.toISOString(),
+          expirySource: 'ESTIMATED',
+        },
+      ]);
+
+      const { data } = writeArg(prisma.ingredient.create);
+      expect(data.expiresAt.toISOString()).toBe(estimated.toISOString());
       expect(data.expirySource).toBe('ESTIMATED');
-      const days = Math.round((data.expiresAt.getTime() - data.addedAt.getTime()) / MS_PER_DAY);
-      expect(days).toBe(shelfLifeDays('MEAT', 'FRIDGE'));
     });
 
     it('사용자가 표기일을 주면 그 값을 쓰고 USER 로 표시한다', async () => {
@@ -143,8 +162,10 @@ describe('InventoryService', () => {
       expect(writeArg(prisma.ingredient.update).where).toEqual({ id: 'existing' });
     });
 
-    it('병합 시 만료일을 새로 산 것 기준으로 갱신한다 (재입고 = 새 물건이 주)', async () => {
-      const oldExpiry = new Date(Date.now() + 1 * MS_PER_DAY);
+    it('병합 시 만료일을 안 주면 기존 날짜를 유지한다 (조용한 데이터 손실 방지)', async () => {
+      // 채팅 툴은 날짜를 거의 안 실어 보낸다. 생략을 "지워라"로 읽으면 **"계란 더 샀어" 한 마디에
+      // 애써 넣어둔 유통기한이 날아간다** — 사용자가 알아채기 어려운 손실이라 스펙으로 고정한다.
+      const kept = new Date(Date.now() + 5 * MS_PER_DAY);
       prisma.ingredient.findMany.mockResolvedValue([
         {
           id: 'existing',
@@ -153,19 +174,41 @@ describe('InventoryService', () => {
           quantityNote: null,
           storage: 'FRIDGE',
           addedAt: new Date(),
-          expiresAt: oldExpiry,
-          expirySource: 'ESTIMATED',
+          expiresAt: kept,
+          expirySource: 'USER',
           consumedAt: null,
         },
       ]);
 
-      // EGG/FRIDGE 추정은 3주 → 옛 만료일(1일)이 아니라 새로 추정한 값으로 갱신돼야 한다
       await service.add('u1', [{ name: '계란', category: 'EGG' }]);
 
+      // 만료일 필드를 **UPDATE 에 싣지 않는 것**이 곧 "기존 값 유지"다.
+      // (null 을 실으면 기존 날짜가 지워진다 — 그게 이 테스트가 막는 회귀다)
       const { data } = writeArg(prisma.ingredient.update);
-      const days = Math.round((data.expiresAt.getTime() - Date.now()) / MS_PER_DAY);
-      expect(days).toBe(shelfLifeDays('EGG', 'FRIDGE'));
-      expect(data.expiresAt).not.toEqual(oldExpiry);
+      expect(data.expiresAt).toBeUndefined();
+      expect(data.expirySource).toBeUndefined();
+    });
+
+    it('병합 시 새 날짜가 오면 그 값으로 갱신한다 (재입고 = 새 물건이 주)', async () => {
+      prisma.ingredient.findMany.mockResolvedValue([
+        {
+          id: 'existing',
+          name: '계란',
+          category: 'EGG',
+          quantityNote: null,
+          storage: 'FRIDGE',
+          addedAt: new Date(),
+          expiresAt: new Date(Date.now() + 1 * MS_PER_DAY),
+          expirySource: 'USER',
+          consumedAt: null,
+        },
+      ]);
+
+      const fresh = new Date(Date.now() + 21 * MS_PER_DAY);
+      await service.add('u1', [{ name: '계란', category: 'EGG', expiresAt: fresh.toISOString() }]);
+
+      const { data } = writeArg(prisma.ingredient.update);
+      expect(data.expiresAt.toISOString()).toBe(fresh.toISOString());
     });
 
     it('병합에서도 사용자가 준 표기일이면 USER 로 표시한다', async () => {
@@ -314,14 +357,9 @@ describe('InventoryService', () => {
   });
 
   describe('update', () => {
-    // findFirst 는 재추정 판단에 쓸 현재 상태를 돌려준다(id 만이 아니다).
-    const ownedRow = (over: Record<string, unknown> = {}) => ({
-      category: 'PROCESSED',
-      storage: 'FRIDGE',
-      addedAt: new Date(),
-      expirySource: 'ESTIMATED',
-      ...over,
-    });
+    // 소유권 확인만 하므로 findFirst 는 id 만 돌려주면 된다
+    // (서버가 만료일을 계산하지 않게 되면서 기존 분류·보관·등록일이 필요 없어졌다).
+    const ownedRow = () => ({ id: 'i1' });
 
     it('남의 재료를 고치려 하면 NotFoundException', async () => {
       prisma.ingredient.findFirst.mockResolvedValue(null);
@@ -330,41 +368,57 @@ describe('InventoryService', () => {
       );
     });
 
-    it('만료일을 직접 고치면 추정치가 USER 로 승격된다', async () => {
+    // 만료일은 **세 갈래**다 — 생략 / 날짜 / null. 아래 셋이 그 셋을 하나씩 고정한다.
+    it('생략하면 만료일·expirySource 를 건드리지 않는다', async () => {
+      prisma.ingredient.findFirst.mockResolvedValue(ownedRow());
+      await service.update('u1', 'i1', { quantityNote: '반 팩' });
+      const { data } = writeArg(prisma.ingredient.update);
+      expect(data.expiresAt).toBeUndefined();
+      expect(data.expirySource).toBeUndefined();
+    });
+
+    it('날짜를 주면 그 값 + USER 로 기록한다', async () => {
       prisma.ingredient.findFirst.mockResolvedValue(ownedRow());
       const stated = new Date(Date.now() + 5 * MS_PER_DAY);
 
       await service.update('u1', 'i1', { expiresAt: stated.toISOString() });
 
       const { data } = writeArg(prisma.ingredient.update);
-      expect(data.expirySource).toBe('USER');
       expect(data.expiresAt.toISOString()).toBe(stated.toISOString());
+      expect(data.expirySource).toBe('USER');
     });
 
-    it('분류·보관을 안 바꾸면 만료일·expirySource 를 건드리지 않는다', async () => {
+    it('null 을 주면 미설정으로 되돌린다 (생략과 다른 뜻이다)', async () => {
+      // 미설정이 정상 상태가 되면서 생긴 조작이다. `@IsOptional()` 이 null 을 통과시키고
+      // 서비스가 `=== null` 로 가르는데, 한쪽만 어긋나면 **날짜를 지울 방법이 사라진다.**
       prisma.ingredient.findFirst.mockResolvedValue(ownedRow());
-      await service.update('u1', 'i1', { quantityNote: '반 팩' });
+      await service.update('u1', 'i1', { expiresAt: null });
       const { data } = writeArg(prisma.ingredient.update);
-      expect(data.expirySource).toBeUndefined();
+      expect(data.expiresAt).toBeNull();
+      expect(data.expirySource).toBe('NONE');
+    });
+
+    it('앱이 "기본값"으로 보낸 날짜는 ESTIMATED 로 기록한다', async () => {
+      prisma.ingredient.findFirst.mockResolvedValue(ownedRow());
+      const estimated = new Date(Date.now() + 30 * MS_PER_DAY);
+
+      await service.update('u1', 'i1', {
+        expiresAt: estimated.toISOString(),
+        expirySource: 'ESTIMATED',
+      });
+
+      expect(writeArg(prisma.ingredient.update).data.expirySource).toBe('ESTIMATED');
+    });
+
+    it('보관을 바꿔도 만료일을 건드리지 않는다 (서버는 추정하지 않는다)', async () => {
+      // 예전엔 여기서 재추정했다(`reEstimate`). 그건 **앱이 날짜를 안 보내던 시절의 보완 장치**라,
+      // 지금은 폼이 분류·보관을 바꿀 때마다 추정일을 다시 계산해 그 값을 실어 보낸다.
+      // 서버가 한 번 더 계산하면 화면에 본 날짜와 저장된 날짜가 갈라질 수 있다.
+      prisma.ingredient.findFirst.mockResolvedValue(ownedRow());
+      await service.update('u1', 'i1', { storage: 'FREEZER', category: 'MEAT' });
+      const { data } = writeArg(prisma.ingredient.update);
       expect(data.expiresAt).toBeUndefined();
-    });
-
-    it('보관을 바꾸면 만료일을 재추정한다 (냉장→냉동은 더 오래간다)', async () => {
-      const addedAt = new Date();
-      prisma.ingredient.findFirst.mockResolvedValue(ownedRow({ category: 'MEAT', addedAt }));
-
-      await service.update('u1', 'i1', { storage: 'FREEZER' });
-
-      const { data } = writeArg(prisma.ingredient.update);
-      const days = Math.round((data.expiresAt.getTime() - addedAt.getTime()) / MS_PER_DAY);
-      expect(days).toBe(shelfLifeDays('MEAT', 'FREEZER'));
-      expect(days).toBeGreaterThan(shelfLifeDays('MEAT', 'FRIDGE'));
-    });
-
-    it('유저가 확정한 만료일(USER)은 보관을 바꿔도 재추정하지 않는다', async () => {
-      prisma.ingredient.findFirst.mockResolvedValue(ownedRow({ expirySource: 'USER' }));
-      await service.update('u1', 'i1', { storage: 'FREEZER' });
-      expect(writeArg(prisma.ingredient.update).data.expiresAt).toBeUndefined();
+      expect(data.expirySource).toBeUndefined();
     });
   });
 });

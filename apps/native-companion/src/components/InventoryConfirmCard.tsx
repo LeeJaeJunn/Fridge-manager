@@ -80,7 +80,7 @@ function ConsumeRow({
 }
 
 /**
- * 추가 항목 한 줄 — 확인-only(읽기전용). 이름·수량 + 추정 만료일.
+ * 추가 항목 한 줄 — 확인-only(읽기전용). 이름·수량 + 만료일(있을 때만).
  *
  * 이미 있던 재료면 **합산 근거를 한 줄 더** 보여준다(`기존 2개 → 추가 후 4개`). 최종 수량만 뜨면
  * 사용자는 그 숫자가 맞는지 판단할 근거가 없다 — 합산을 하는 건 서버가 아니라 모델이라
@@ -100,6 +100,7 @@ function AddRow({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const existing = item.merge?.existing;
+  const expiry = formatExpiry(item);
 
   return (
     <View className="gap-2">
@@ -118,7 +119,8 @@ function AddRow({
             </Text>
           ) : null}
         </View>
-        <Text className="text-xs text-ink-faint">{formatExpiry(item)}</Text>
+        {/* 미설정이면 자리를 비운다 — 모델은 사용자가 날짜를 말했을 때만 실어 보낸다. */}
+        {expiry ? <Text className="text-xs text-ink-faint">{expiry}</Text> : null}
         {editable ? (
           <Pressable
             onPress={() => setMenuOpen((v) => !v)}
@@ -151,11 +153,14 @@ function AddRow({
   );
 }
 
-/** 추정 만료일 표기 — 추정치는 "쯤", 사용자가 준 날은 "까지". */
-function formatExpiry(item: AddProposalItemType): string {
-  const d = new Date(item.estimatedExpiry);
-  const label = `${d.getMonth() + 1}월 ${d.getDate()}일`;
-  return item.expirySource === 'ESTIMATED' ? `${label}쯤` : `${label}까지`;
+/**
+ * 만료일 표기 — **미설정이면 `null`**(그 자리를 비운다). 채팅 툴은 사용자가 날짜를 말했을 때만
+ * 실어 보내므로 대부분 이 경로다. "쯤"/"까지"로 흐리지 않는다: 값이 있으면 사용자가 정한 날짜다.
+ */
+function formatExpiry(item: AddProposalItemType): string | null {
+  if (!item.expiresAt) return null;
+  const d = new Date(item.expiresAt);
+  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
 }
 
 /** 카드가 들고 있는 소비 편집값 — 토글과 입력칸이 각각 하나씩. */
@@ -300,7 +305,7 @@ export function InventoryConfirmCard({
             category: editing.category,
             storage: editing.storage,
             quantityNote: editing.quantityNote ?? '',
-            expiresAt: editing.estimatedExpiry,
+            expiresAt: editing.expiresAt,
             expirySource: editing.expirySource,
           }}
           submitLabel="확인"

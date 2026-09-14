@@ -22,11 +22,14 @@ const COPY: Record<ScanKindType, { title: string; hint: string; capture: string 
   },
 };
 
-/** 만료일 표시 — 추정치는 "쯤"으로 흐린다(서버 expirySource 를 그대로 따른다). */
-function expiryLabel(item: AddProposalItemType): string {
-  const d = new Date(item.estimatedExpiry);
-  const label = `${d.getMonth() + 1}월 ${d.getDate()}일`;
-  return item.expirySource === 'ESTIMATED' ? `${label}쯤` : `${label}까지`;
+/**
+ * 만료일 표시 — **미설정이면 `null`**(그 줄을 아예 안 그린다). 영수증엔 유통기한이 거의 안 찍혀서
+ * 이 경로가 대부분이다. "쯤"/"까지"로 흐리지 않는다: 값이 있으면 사용자가 넣기로 한 날짜다.
+ */
+function expiryLabel(item: AddProposalItemType): string | null {
+  if (!item.expiresAt) return null;
+  const d = new Date(item.expiresAt);
+  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
 }
 
 /**
@@ -60,6 +63,7 @@ function ProposalRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const merge = mergeLabel(item);
+  const expiry = expiryLabel(item);
 
   // 제목을 따로 두지 않는다 — `IngredientForm` 이 재료 이름을 상단에 크게 들고 있어서,
   // 여기서 "○○ 수정"을 또 적으면 같은 이름이 두 줄로 겹친다.
@@ -73,7 +77,7 @@ function ProposalRow({
             category: item.category,
             storage: item.storage,
             quantityNote: item.quantityNote ?? '',
-            expiresAt: item.estimatedExpiry,
+            expiresAt: item.expiresAt,
             expirySource: item.expirySource,
           }}
           submitLabel="확인"
@@ -99,7 +103,8 @@ function ProposalRow({
             ) : null}
           </Text>
           {merge ? <Text className="text-xs text-lavender">{merge}</Text> : null}
-          <Text className="text-xs text-ink-faint">{expiryLabel(item)}</Text>
+          {/* 미설정이면 줄 자체를 안 그린다 — 영수증엔 유통기한이 거의 없어서 이게 대부분이다. */}
+          {expiry ? <Text className="text-xs text-ink-faint">{expiry}</Text> : null}
         </View>
 
         <Pressable
@@ -171,7 +176,7 @@ export default function ScanScreen() {
 
   /**
    * 수정 — 사용자가 고친 값이 곧 저장될 값이다.
-   * 반영 규칙(합산 근거 제거·만료일 출처 승격)은 채팅 확인 카드와 공유한다(`lib/proposal.ts`).
+   * 반영 규칙(합산 근거 제거·만료일 날짜+출처 반영)은 채팅 확인 카드와 공유한다(`lib/proposal.ts`).
    */
   function editAt(index: number, v: FormValues) {
     setItems((prev) => (prev ?? []).map((it, i) => (i === index ? applyEdit(it, v) : it)));
@@ -183,7 +188,7 @@ export default function ScanScreen() {
     if (saving || list.length === 0) return;
     setSaving(true);
     try {
-      // 서버로 보내는 변환도 채팅 확인 카드와 공유한다 (USER 표기일만 싣고 추정치는 서버가 재추정).
+      // 서버로 보내는 변환도 채팅 확인 카드와 공유한다 (날짜가 있을 때만 출처와 함께 싣는다).
       await add(list.map(toAddInput));
       router.back();
     } catch (e: unknown) {

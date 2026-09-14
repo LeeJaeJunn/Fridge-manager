@@ -3,6 +3,7 @@ import type {
   AddProposalItemType,
   ConsumeProposalItemType,
   DishIngredientType,
+  ExpirySourceType,
   IngredientCategoryType,
   IngredientType,
   StorageAreaType,
@@ -10,7 +11,7 @@ import type {
 } from '@companion/types';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { estimateExpiry, LIMITS } from './shelf-life';
+import { LIMITS } from './shelf-life';
 
 /**
  * 채팅 툴이 넘기는 소비 항목.
@@ -38,7 +39,8 @@ export type RecalledIngredient = {
   category: IngredientCategoryType;
   storage: StorageAreaType;
   quantityNote: string | null;
-  expiresAt: Date;
+  /** null = 미설정. 서버가 추정해 채우지 않으므로 대부분의 재료가 null 이다. */
+  expiresAt: Date | null;
   expirySource: string;
 };
 
@@ -49,9 +51,30 @@ type IngredientRow = {
   quantityNote: string | null;
   storage: StorageAreaType;
   addedAt: Date;
-  expiresAt: Date;
+  expiresAt: Date | null;
   expirySource: string;
   consumedAt: Date | null;
+};
+
+/** DB 값(문자열) → 계약 타입. 모르는 값은 미설정으로 떨어뜨린다. */
+const toSource = (v: string): ExpirySourceType =>
+  v === 'USER' ? 'USER' : v === 'ESTIMATED' ? 'ESTIMATED' : 'NONE';
+
+/**
+ * 날짜와 **함께 올 때만** 쓰는 출처 — 클라가 "기본값"이라고 밝혔을 때만 `ESTIMATED`, 나머지는 `USER`.
+ * (`NONE` 은 날짜가 없다는 뜻이라 여기서 나올 수 없다 — 그 경우 호출자가 아예 안 쓴다.)
+ */
+const sourceOf = (v: ExpirySourceType | undefined): ExpirySourceType =>
+  v === 'ESTIMATED' ? 'ESTIMATED' : 'USER';
+
+/**
+ * 요청에 실려온 만료일 파싱 — 값이 없거나 날짜로 안 읽히면 null(미설정).
+ * 예전엔 여기서 추정치로 폴백했지만, 이제 **비어 있는 게 정상**이다.
+ */
+const parseExpiry = (raw: string | null | undefined): Date | null => {
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
 };
 
 const SELECT = {
@@ -73,8 +96,8 @@ const toDto = (i: IngredientRow): IngredientType => ({
   quantityNote: i.quantityNote ?? undefined,
   storage: i.storage,
   addedAt: i.addedAt.toISOString(),
-  expiresAt: i.expiresAt.toISOString(),
-  expirySource: i.expirySource === 'USER' ? 'USER' : 'ESTIMATED',
+  expiresAt: i.expiresAt?.toISOString() ?? null,
+  expirySource: toSource(i.expirySource),
   consumedAt: i.consumedAt?.toISOString(),
 });
 
@@ -94,8 +117,9 @@ const DEFAULT_STORAGE: StorageAreaType = 'FRIDGE';
  * 제안에 쓸 보관 위치를 고른다 — **모델이 보낸 `FRIDGE` 는 의도가 아니라 기본값 채우기로 본다.**
  *
  * 툴 설명이 "이미 재고 목록에 있는 재료는 생략하라"고 못박아도 실측에서 모델은 매번 `FRIDGE` 를
- * 채워 보냈다. 그대로 쓰면 **냉동실 재료가 냉장으로 바뀌고** 만료일까지 짧게 재추정된다
- * (냉동 육류 180일 → 냉장 3일). 반면 `FREEZER`/`PANTRY` 는 기본값이 아니라 사용자가 말했을 때만
+ * 채워 보냈다. 그대로 쓰면 **냉동실 재료가 냉장으로 뒤집힌다** — 화면에 틀린 보관 위치가 뜨고,
+ * 나중에 그 재료로 "기본값" 유통기한을 고르면 엉뚱한 표(냉동 180일 → 냉장 3일)로 계산된다.
+ * 반면 `FREEZER`/`PANTRY` 는 기본값이 아니라 사용자가 말했을 때만
  * 나오므로 그대로 존중한다("사서 냉동실에 넣었어").
  *
  * ⚠️ **제안 단계에서만 보정한다.** 사용자가 정말 냉장으로 옮기려면 확인 카드에서 직접 고르면 되고,
@@ -118,10 +142,8 @@ export class InventoryService {
   /**
    * 재고 추가 (여러 건). 채팅 툴과 수동 UI 가 같은 경로를 탄다.
    *
-   * 두 가지를 여기서 흡수한다:
-   *  1. `expiresAt` 폴백 — 유저가 표기일을 알려주지 않으면 카테고리×보관위치로 추정해 **항상** 채운다.
-   *     (읽을 때 분기하면 임박 조회·정렬 경로가 전부 분기를 떠안는다)
-   *  2. 같은 이름의 미소비 재고와 병합 — "계란" 이 두 줄로 쌓이는 걸 막는다.
+   * ⚠️ **만료일을 추정해 채우지 않는다.** 안 주면 미설정(null)이 그대로 저장된다.
+   * 대신 같은 이름의 미소비 재고와 **병합**한다 — "계란" 이 두 줄로 쌓이는 걸 막는다.
    */
   async add(userId: string, items: AddIngredientInputType[]): Promise<IngredientType[]> {
     const clean = items
@@ -142,23 +164,26 @@ export class InventoryService {
       const prev = byName.get(normalize(item.name));
       // ⚠️ 폴백이 **기존 재고 → 기본값** 순인 게 중요하다. 재입고에선 호출자가 분류·보관을 자주
       // 생략한다(채팅 툴 설명이 "냉동/실온이라고 말했을 때만 채우라"고 시킨다). 그때 곧장 기본값을
-      // 쓰면 **말한 적 없는 값이 기존 재고를 덮어써서** 냉동실 삼겹살이 냉장으로 둔갑하고,
-      // 만료일까지 냉장 기준으로 재추정돼 갑자기 "먼저 먹어요"에 뜬다.
+      // 쓰면 **말한 적 없는 값이 기존 재고를 덮어써서** 냉동실 삼겹살이 냉장으로 둔갑한다.
       // "새로 넣은 값으로 갱신"은 실제로 값이 왔을 때 얘기지, 생략을 기본값으로 읽으라는 뜻이 아니다.
       const category = item.category ?? prev?.category ?? 'ETC';
       const storage = item.storage ?? prev?.storage ?? 'FRIDGE';
       const addedAt = new Date();
-      const userExpiry = item.expiresAt ? new Date(item.expiresAt) : null;
-      const hasUserExpiry = userExpiry !== null && !Number.isNaN(userExpiry.getTime());
-      const expiresAt = hasUserExpiry ? userExpiry : estimateExpiry(category, storage, addedAt);
       const quantityNote = item.quantityNote
         ? clip(item.quantityNote, LIMITS.quantityNoteMax)
         : null;
 
+      // 만료일: 값이 왔을 때만 쓰고, **안 왔으면 아예 건드리지 않는다**(빈 객체를 편다).
+      // 신규면 컬럼 기본값(null · NONE)이 그대로 들어가고, 병합이면 기존 값이 유지된다.
+      // ⚠️ 여기서 null 로 덮어쓰면, 채팅 툴이 날짜를 거의 안 실어 보내므로 **"계란 더 샀어"
+      //    한 마디에 애써 넣어둔 유통기한이 날아간다.** 조용한 데이터 손실이라 눈에 안 띈다.
+      const given = parseExpiry(item.expiresAt);
+      const expiry = given ? { expiresAt: given, expirySource: sourceOf(item.expirySource) } : {};
+
       if (prev) {
-        // 재입고 = 방금 산 게 주가 된다. 만료일은 **새로 넣은 값 기준으로 갱신**한다
-        // (수량을 개별 추적하지 않으므로 옛 재고 기준으로 잡을 근거가 없다 — 새 물건 기준이 직관적).
-        // 분류·보관·수량 메모는 이번에 안 알려줬으면 기존 값을 유지한다(위 폴백 참고).
+        // 재입고 = 방금 산 게 주가 된다. 분류·보관·수량 메모·만료일 모두 **이번에 값이 왔을 때만**
+        // 갱신하고, 안 왔으면 기존 값을 유지한다 — 분류·보관은 `?? prev` 폴백으로, 만료일은
+        // 아예 안 실어서(위 `expiry` 참고). 방식은 달라도 규칙은 하나다.
         const row = await this.prisma.ingredient.update({
           where: { id: prev.id },
           data: {
@@ -166,8 +191,7 @@ export class InventoryService {
             storage,
             quantityNote: quantityNote ?? prev.quantityNote,
             addedAt,
-            expiresAt,
-            expirySource: hasUserExpiry ? 'USER' : 'ESTIMATED',
+            ...expiry,
           },
           select: SELECT,
         });
@@ -184,8 +208,7 @@ export class InventoryService {
           quantityNote,
           storage,
           addedAt,
-          expiresAt,
-          expirySource: hasUserExpiry ? 'USER' : 'ESTIMATED',
+          ...expiry,
         },
         select: SELECT,
       });
@@ -241,39 +264,38 @@ export class InventoryService {
 
   /**
    * 교정용 부분 수정 (본인 것만).
-   * 만료일 갱신 규칙 (우선순위 순):
-   *  1. 유저가 `expiresAt` 을 직접 주면 그 값 + `USER` 승격.
-   *  2. 표기일이 없고 **분류·보관이 실제로 바뀌면** 재추정 — 냉장 두부를 냉동으로 옮기면 더 오래가야
-   *     하는데, 유통기한 직접 편집이 없는 v1 에선 이게 유일한 조정 수단이다. (이미 USER 로 확정한 값은 건드리지 않는다)
-   *  3. 그 외엔 만료일 유지.
+   *
+   * 만료일은 **세 갈래**다 — 생략(미변경) / 날짜(그 날로) / **`null`(미설정으로 되돌리기)**.
+   * 미설정이 정상 상태가 되면서 "정해둔 날짜를 지운다"는 조작이 생겼고, 그건 생략과 달라야 한다.
+   *
+   * ⚠️ **서버는 만료일을 추정하지 않는다 — 여기도 예외가 아니다.** 예전엔 사용자가 "기본값"에
+   * 맡겨둔 재료의 분류·보관이 바뀌면 서버가 추정치를 다시 계산했는데(`reEstimate`), 그건 **앱이
+   * 날짜를 안 보내던 시절의 보완 장치**였다. 지금은 폼이 분류·보관을 바꿀 때마다 추정일을 다시
+   * 계산해 **화면에 보여주고 그 값을 그대로 보내므로**, 서버가 한 번 더 계산할 자리가 없다
+   * (계산이 양쪽에 있으면 화면에 본 날짜와 저장된 날짜가 조용히 갈라질 수 있다).
    */
   async update(
     userId: string,
     id: string,
     patch: UpdateIngredientRequestType,
   ): Promise<IngredientType> {
+    // 소유권 확인만 하면 된다 — 만료일을 서버가 계산하지 않으므로 기존 분류·보관·등록일이 필요 없다.
     const owned = await this.prisma.ingredient.findFirst({
       where: { id, userId },
-      select: { category: true, storage: true, addedAt: true, expirySource: true },
+      select: { id: true },
     });
     if (!owned) {
       throw new NotFoundException('재료를 찾을 수 없습니다.');
     }
 
-    const userExpiry = patch.expiresAt ? new Date(patch.expiresAt) : null;
-    const hasUserExpiry = userExpiry !== null && !Number.isNaN(userExpiry.getTime());
+    const clearExpiry = patch.expiresAt === null;
+    const given = parseExpiry(patch.expiresAt);
 
-    const nextCategory = patch.category ?? owned.category;
-    const nextStorage = patch.storage ?? owned.storage;
-    const storageChanged = nextCategory !== owned.category || nextStorage !== owned.storage;
-    // 유저가 확정한 값(USER)은 존중하고, 추정치일 때만 분류·보관 변경에 맞춰 다시 추정한다.
-    const reEstimate = !hasUserExpiry && owned.expirySource !== 'USER' && storageChanged;
-
-    const expiryData = hasUserExpiry
-      ? { expiresAt: userExpiry, expirySource: 'USER' as const }
-      : reEstimate
-        ? { expiresAt: estimateExpiry(nextCategory, nextStorage, owned.addedAt) }
-        : {};
+    const expiryData: { expiresAt?: Date | null; expirySource?: ExpirySourceType } = clearExpiry
+      ? { expiresAt: null, expirySource: 'NONE' }
+      : given
+        ? { expiresAt: given, expirySource: sourceOf(patch.expirySource) }
+        : {}; // 생략 = 미변경
 
     const row = await this.prisma.ingredient.update({
       where: { id },
@@ -430,7 +452,7 @@ export class InventoryService {
   }
 
   /**
-   * 추가 "제안" 생성 — `add` 의 정규화(기본 분류·보관 + 만료일 추정)를 **쓰지 않고** 미리 계산만 한다.
+   * 추가 "제안" 생성 — `add` 의 정규화(기본 분류·보관 + 병합 판정)를 **쓰지 않고** 미리 계산만 한다.
    * 확인 카드에 보여줄 값이며, 실제 저장(병합 포함)은 확인 후 `add` 가 그대로 다시 계산해 처리한다.
    * DB 를 직접 안 보는 순수 함수라 동기다 — 기존 재고가 필요하면 **호출자가 읽어서 넘긴다**.
    *
@@ -450,9 +472,10 @@ export class InventoryService {
       category?: IngredientCategoryType;
       storage?: StorageAreaType;
       quantityNote: string | null;
+      expiresAt?: Date | null;
+      expirySource?: string;
     }[],
   ): AddProposalItemType[] {
-    const now = new Date();
     const clean = items
       .map((it) => ({ ...it, name: clip(it.name ?? '', LIMITS.nameMax) }))
       .filter((it) => it.name.length > 0);
@@ -476,12 +499,17 @@ export class InventoryService {
       // 보관은 폴백이 아니라 `pickStorage` 로 고른다 — 모델이 보낸 기본값(FRIDGE)을 의도로 읽으면
       // 재입고 때 냉동 재료가 냉장으로 뒤집힌다(위 함수 주석 참고).
       const storage = pickStorage(item.storage, prev?.storage);
-      const userExpiry = item.expiresAt ? new Date(item.expiresAt) : null;
-      const hasUserExpiry = userExpiry !== null && !Number.isNaN(userExpiry.getTime());
-      const expiresAt = hasUserExpiry ? userExpiry : estimateExpiry(category, storage, now);
       const quantityNote = item.quantityNote
         ? clip(item.quantityNote, LIMITS.quantityNoteMax)
         : undefined;
+
+      // 만료일은 **추정하지 않는다.** 온 값이 있으면 그 값, 없으면 기존 재고의 값을 이어받고,
+      // 신규면 미설정으로 둔다 — `add()` 가 저장할 때 하는 계산과 정확히 같아야, 카드에 보인 값과
+      // 실제 저장값이 어긋나지 않는다.
+      const given = parseExpiry(item.expiresAt);
+      const expiresAt = given ?? prev?.expiresAt ?? null;
+      const expirySource = given ? sourceOf(item.expirySource) : toSource(prev?.expirySource ?? '');
+
       // 이미 있는 재료면 기존 수량을 함께 싣는다 — 카드가 "기존 2개 → 추가 후 4개"로 설명한다.
       // 수량 메모가 없던 재고는 보여줄 근거가 없으므로 merge 를 붙이지 않는다(빈 칸이 더 혼란스럽다).
       return {
@@ -489,8 +517,8 @@ export class InventoryService {
         category,
         storage,
         ...(quantityNote ? { quantityNote } : {}),
-        estimatedExpiry: expiresAt.toISOString(),
-        expirySource: hasUserExpiry ? 'USER' : 'ESTIMATED',
+        expiresAt: expiresAt?.toISOString() ?? null,
+        expirySource,
         ...(prev?.quantityNote ? { merge: { existing: prev.quantityNote } } : {}),
       };
     });

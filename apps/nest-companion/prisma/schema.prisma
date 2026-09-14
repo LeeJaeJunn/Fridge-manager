@@ -254,11 +254,19 @@ enum StorageArea {
   PANTRY // 실온·찬장
 }
 
-// expiresAt 의 출처. 사용자가 알려준 표기일(USER)은 신뢰하고, 추정치(ESTIMATED)는 참고로만 보여준다.
-// UI 가 "8/12까지" 와 "8/12쯤" 을 가르는 근거.
+// expiresAt 이 **어떻게 정해졌는지**.
+//   USER      = 사용자가 날짜를 직접 골랐다
+//   ESTIMATED = 사용자가 "기본값"을 선택해서 카테고리×보관위치 추정치가 들어갔다
+//   NONE      = 아무것도 안 정했다 (expiresAt 은 null)
+//
+// ⚠️ **화면은 이 값을 읽지 않는다.** 예전엔 "8/12까지" vs "8/12쯤" 을 가르는 데 썼는데,
+// 이제 날짜는 사용자가 넣기로 한 것만 있으므로 표기를 흐릴 이유가 없다.
+// 남겨두는 건 **"사람들이 유통기한을 실제로 넣는가"를 나중에 재기 위한 기록**이다
+// (넣는다면 직접 고르는지 기본값에 맡기는지도 함께). 안 읽힌다고 죽은 컬럼으로 보고 지우지 말 것.
 enum ExpirySource {
   USER
   ESTIMATED
+  NONE
 }
 
 // 재료 분류 — 소비기한 추정 기준 + 냉장고 화면 그룹핑.
@@ -290,10 +298,19 @@ model Ingredient {
   quantityNote String? // "한 판", "반 팩", "개봉함" — 표시 전용, 계산하지 않는다
   storage      StorageArea        @default(FRIDGE)
   addedAt      DateTime           @default(now()) // 등록(구입) 시점 — 추정의 기준점
-  // 항상 채운다(nullable 아님). 유저가 알려주면 그 값, 모르면 카테고리×보관위치 추정치.
-  // 읽을 때 분기하면 "곧 상하는 것" 조회·정렬하는 모든 경로가 분기를 떠안으므로 쓸 때 폴백한다.
-  expiresAt    DateTime
-  expirySource ExpirySource       @default(ESTIMATED)
+  // **null = 미설정이고, 그게 기본값이다.** 서버가 추정해서 자동으로 채우지 않는다.
+  //
+  // 예전엔 항상 채웠다(모르면 카테고리×보관위치 추정치). 조회·정렬 경로가 null 분기를 안 떠안게
+  // 하려는 거였는데, 대가로 **우리가 지어낸 날짜가 화면에서 확정값과 구분되지 않았다.**
+  // 추정은 대체로 틀리고, 사용자는 사실 더 잘 알면서 입력이 귀찮아 안 넣을 뿐이다.
+  // 그래서 비워두고, 넣기로 한 것만 값이 생긴다(직접 고르거나 "기본값"을 선택하거나).
+  //
+  // 정렬·조회는 Postgres 기본 동작이 그대로 원하는 모양이라 거의 안 바뀌었다:
+  // `ORDER BY expiresAt ASC` 는 NULL 을 맨 뒤로 보내고(임박순에서 미설정이 아래),
+  // `expiresAt <= :until` 은 NULL 을 자동으로 제외한다("먼저 먹어요"에서 빠진다).
+  expiresAt    DateTime?
+  // ⚠️ expiresAt 과 **짝이다** — 날짜를 쓰는 곳에서 반드시 함께 쓴다. 따로 쓰면 두 기록이 어긋난다.
+  expirySource ExpirySource       @default(NONE)
   // soft delete — LLM 이 잘못 차감했을 때 되돌리기가 UPDATE 한 번이고, 나중에 "자주 사는 재료" 근거가 된다.
   consumedAt   DateTime?
   createdAt    DateTime           @default(now())
