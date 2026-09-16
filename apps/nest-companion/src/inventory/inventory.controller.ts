@@ -77,7 +77,7 @@ export class InventoryController {
     return this.inventory.list(userId);
   }
 
-  /** POST /inventory — 재료 추가 (여러 건). 만료일은 서버가 항상 채운다. */
+  /** POST /inventory — 재료 추가. 만료일 생략 시 신규는 미설정, 병합은 기존 값을 유지한다. */
   @Post()
   add(@CurrentUser() userId: string, @Body() dto: AddIngredientsDto): Promise<IngredientType[]> {
     return this.inventory.add(userId, dto.items);
