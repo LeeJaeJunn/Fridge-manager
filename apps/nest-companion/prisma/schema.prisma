@@ -51,6 +51,7 @@ model User {
   conversations   Conversation[]
   memories        Memory[]
   inventory       Ingredient[] // 냉장고 재고
+  savedDishes     SavedDish[] // 저장한 요리
   refreshSessions RefreshSession[]
   identities      AuthIdentity[] // 로그인 수단 (LOCAL/KAKAO/…)
   // ⚠️ 유일하게 cascade 가 **아닌** 관계다 — 탈퇴해도 원장은 남고 userId 만 끊긴다(LlmUsage 주석 참고).
@@ -319,6 +320,34 @@ model Ingredient {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, consumedAt, expiresAt]) // "안 먹은 것 중 임박순" 을 단일 인덱스로 커버
+}
+
+// 저장한 요리 한 건 = 행 한 개. **요리 카드(Message)의 스냅샷이다.**
+//
+// 카드를 참조로 읽지 않고 내용을 복사하는 이유: 대화·메시지를 지워도 저장한 요리는 남아야 한다
+// (그게 "저장"의 뜻이다). 그래서 sourceMessageId 에 FK 를 걸지 않는다 — 매달린 id 가 되는 게
+// 정상이고, 이건 `LlmUsage.conversationId` 와 같은 판단이다. 같은 카드를 두 번 저장하는 것만 막는다.
+model SavedDish {
+  id              String   @id @default(cuid())
+  userId          String
+  // 저장의 출처가 된 요리 카드의 Message.id. 별이 채워졌는지를 이 값으로 판정한다.
+  sourceMessageId String
+  dishName        String
+  servings        Int
+  cookMinutes     Int?
+  // 재료·순서는 **쿼리 대상이 아니라 Json** 이다(`Message.payload` 와 같은 판단).
+  // ⚠️ 카드의 `ingredientId`·`currentQuantityNote`(저장 시점 재고 매칭)는 **복사하지 않는다** —
+  // 시간이 지나면 냉장고와 어긋나고, 저장한 레시피는 재고와 무관한 기록이어야 한다.
+  // 저장한 요리를 나중에 만들 때는 그때의 재고와 다시 매칭한다.
+  ingredients     Json
+  steps           Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceMessageId]) // 같은 카드의 별을 두 번 눌러도 행은 하나
+  @@index([userId, updatedAt]) // "저장한 요리 최근순" 을 단일 인덱스로 커버
 }
 
 // LLM 호출 원장 — 호출 1건 = 행 1개. **append-only, 절대 수정하지 않는다**(집계는 여기서 파생).

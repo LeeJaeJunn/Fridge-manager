@@ -70,6 +70,13 @@ export type {
   UpdateIngredientRequestType,
 } from './ingredient';
 
+export type {
+  SaveDishRequestType,
+  SavedDishIngredientType,
+  SavedDishType,
+  UpdateSavedDishRequestType,
+} from './saved-dish';
+
 export type { MemoryCategoryType, MemoryType } from './memory';
 
 export type { RecipeSearchResultType, RecipeSourceType, RecipeType } from './recipe';

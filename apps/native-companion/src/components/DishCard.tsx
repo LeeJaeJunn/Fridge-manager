@@ -1,8 +1,13 @@
-import { Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Pressable, Text, View } from 'react-native';
 
 import type { DishIngredientType, DishProposalType } from '@companion/types';
 import { Button } from './Button';
 import { Card } from './Card';
+
+const STAR_ON = '#8B5CF6'; // lavender
+const STAR_OFF = '#A1A1AA'; // ink-faint
+// Ionicons 는 className 으로 색을 못 받으므로 디자인 토큰 값을 직접 넘긴다.
 
 /**
  * 재료 한 줄. **있는 것과 없는 것을 눈에 띄게 가르는 게 이 카드의 존재 이유 절반**이다 —
@@ -47,6 +52,8 @@ export function DishCard({
   dish,
   onSearchRecipes,
   onCook,
+  saved,
+  onPressStar,
   canSearch,
   searching,
   cooking,
@@ -54,6 +61,8 @@ export function DishCard({
   dish: DishProposalType;
   onSearchRecipes: () => void;
   onCook: () => void;
+  saved: boolean;
+  onPressStar: () => void;
   /** 소비 제안을 불러오는 중 (전용 LLM 호출이 끼어 1초쯤 걸린다) */
   cooking?: boolean;
   /**
@@ -68,12 +77,25 @@ export function DishCard({
 
   return (
     <Card radius="3xl" className="gap-3 px-5 py-4">
-      <View className="gap-0.5">
-        <Text className="text-base font-bold text-ink">🍲 {dish.dishName}</Text>
-        <Text className="text-xs text-ink-faint">
-          {dish.servings}인분
-          {dish.cookMinutes ? ` · 약 ${dish.cookMinutes}분` : ''}
-        </Text>
+      <View className="flex-row items-start justify-between gap-3">
+        <View className="flex-1 gap-0.5">
+          <Text className="text-base font-bold text-ink">🍲 {dish.dishName}</Text>
+          <Text className="text-xs text-ink-faint">
+            {dish.servings}인분
+            {dish.cookMinutes ? ` · 약 ${dish.cookMinutes}분` : ''}
+          </Text>
+        </View>
+        <Pressable
+          onPress={onPressStar}
+          hitSlop={8}
+          accessibilityLabel={saved ? '저장한 요리 보기' : '레시피 저장'}
+        >
+          <Ionicons
+            name={saved ? 'star' : 'star-outline'}
+            size={22}
+            color={saved ? STAR_ON : STAR_OFF}
+          />
+        </Pressable>
       </View>
 
       <View>

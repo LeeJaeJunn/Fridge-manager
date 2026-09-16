@@ -13,6 +13,7 @@ import { MemoryModule } from './memory/memory.module';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { RecipeModule } from './recipe/recipe.module';
+import { SavedDishModule } from './saved-dish/saved-dish.module';
 import { UsageModule } from './usage/usage.module';
 
 @Module({
@@ -30,6 +31,7 @@ import { UsageModule } from './usage/usage.module';
     InventoryModule,
     ConversationModule,
     RecipeModule,
+    SavedDishModule,
   ],
   controllers: [AppController],
   providers: [AppService],

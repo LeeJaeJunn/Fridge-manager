@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
+import { isUniqueViolation } from '../prisma/is-unique-violation';
 import { PrismaService } from '../prisma/prisma.service';
 import type { SocialIdentityType } from '../social/social.types';
 import { LoginDto } from './dto/login.dto';
@@ -37,11 +38,6 @@ const USER_SELECT = { id: true, email: true, name: true, createdAt: true } as co
 
 // 새로 발급할 refresh 토큰 한 벌 (원문 + 저장용 해시 + 만료)
 type NewRefresh = { raw: string; tokenHash: string; expiresAt: Date };
-
-/** Prisma unique 제약 위반(P2002) 인지 판별 */
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && 'code' in err && err.code === 'P2002';
-}
 
 /**
  * 회원가입/로그인으로 세션(access + refresh)을 발급하고, refresh 회전/폐기를 담당한다.

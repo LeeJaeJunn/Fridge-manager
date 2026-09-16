@@ -21,6 +21,7 @@ import {
   sendMessage,
   startConversation,
 } from '@/api/conversation';
+import { deleteSavedDish, fetchSavedDishes, saveDish, updateSavedDish } from '@/api/saved-dish';
 import {
   Bubble,
   Button,
@@ -28,6 +29,7 @@ import {
   DishCard,
   InventoryConfirmCard,
   RecipeResultCard,
+  SavedDishDialog,
   Screen,
 } from '@/components';
 import { useInventory } from '@/context/inventory';
@@ -39,11 +41,31 @@ import {
   toInventoryProposal,
   toRecipeResult,
 } from '@/lib/messages';
+import {
+  draftFromDish,
+  draftFromSaved,
+  toSaveRequest,
+  toUpdateRequest,
+  type SavedDishDraftType,
+} from '@/lib/saved-dish';
 import type {
   ApplyProposalRequestType,
+  DishProposalType,
   InventoryProposalType,
   MessageType,
+  SavedDishType,
 } from '@companion/types';
+
+/**
+ * `visible=false` 일 때만 쓰이는 자리표시 — 모달 내부는 `visible` 로 감싸 마운트되지 않는다.
+ */
+const EMPTY_DRAFT: SavedDishDraftType = {
+  dishName: '',
+  servings: 1,
+  cookMinutes: null,
+  ingredients: [],
+  steps: [],
+};
 
 export default function ConversationScreen() {
   const router = useRouter();
@@ -66,6 +88,14 @@ export default function ConversationScreen() {
     messageId: string;
     proposal: InventoryProposalType;
   } | null>(null);
+  /** 저장한 요리 — 출처 메시지 id → 저장본. 별을 채울지와 모달 초깃값을 둘 다 여기서 읽는다. */
+  const [savedDishes, setSavedDishes] = useState<Map<string, SavedDishType>>(new Map());
+  const [saveTarget, setSaveTarget] = useState<{
+    messageId: string;
+    draft: SavedDishDraftType;
+    savedId: string | null;
+  } | null>(null);
+  const [savingDish, setSavingDish] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   // 채팅으로 재료가 추가·차감됐을 수 있다(서버 tool-use). 화면을 나갈 때 한 번만 전역 재고를 새로고침한다
@@ -88,6 +118,14 @@ export default function ConversationScreen() {
       .finally(() => setLoading(false));
     // 마운트 시 1회만
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 새 대화도 첫 턴에 요리 카드가 나올 수 있으므로 대화 유무와 무관하게 저장 상태를 복원한다.
+  useEffect(() => {
+    fetchSavedDishes()
+      .then((list) => setSavedDishes(new Map(list.map((saved) => [saved.sourceMessageId, saved]))))
+      // 실패를 삼키면 "저장했는데 빈 별"이 원인 없이 보인다. 채팅 자체는 계속 쓸 수 있다.
+      .catch(() => setError('저장한 요리를 불러오지 못했어요'));
   }, []);
 
   // 임의 텍스트를 전송하는 코어. 지금은 입력창 전송만 쓰지만, 카드 안 버튼("다른 레시피 보여줘" 등)이
@@ -202,6 +240,49 @@ export default function ConversationScreen() {
     }
   }
 
+  function handlePressStar(messageId: string, dish: DishProposalType) {
+    const saved = savedDishes.get(messageId);
+    setSaveTarget({
+      messageId,
+      draft: saved ? draftFromSaved(saved) : draftFromDish(dish),
+      savedId: saved?.id ?? null,
+    });
+  }
+
+  async function handleSaveDish(draft: SavedDishDraftType) {
+    if (!saveTarget || savingDish) return;
+    setSavingDish(true);
+    try {
+      const saved = saveTarget.savedId
+        ? await updateSavedDish(saveTarget.savedId, toUpdateRequest(draft))
+        : await saveDish(toSaveRequest(draft, saveTarget.messageId));
+      setSavedDishes((prev) => new Map(prev).set(saved.sourceMessageId, saved));
+      setSaveTarget(null);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '저장에 실패했어요');
+    } finally {
+      setSavingDish(false);
+    }
+  }
+
+  async function handleUnsaveDish() {
+    if (!saveTarget?.savedId || savingDish) return;
+    setSavingDish(true);
+    try {
+      await deleteSavedDish(saveTarget.savedId);
+      setSavedDishes((prev) => {
+        const next = new Map(prev);
+        next.delete(saveTarget.messageId);
+        return next;
+      });
+      setSaveTarget(null);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '저장 해제에 실패했어요');
+    } finally {
+      setSavingDish(false);
+    }
+  }
+
   function handleSend() {
     const content = input.trim();
     if (!content || sending) return;
@@ -266,6 +347,8 @@ export default function ConversationScreen() {
                     <DishCard
                       key={m.id}
                       dish={dish}
+                      saved={savedDishes.has(m.id)}
+                      onPressStar={() => handlePressStar(m.id, dish)}
                       // 한 번 검색했거나 대화가 이미 넘어갔으면 버튼을 감춘다 —
                       // 같은 카드를 계속 눌러 네이버 쿼터를 태우는 걸 막는다.
                       canSearch={i > lastUserIdx && !searchedDishes.has(m.id)}
@@ -339,6 +422,16 @@ export default function ConversationScreen() {
           />
         )}
       </Dialog>
+
+      <SavedDishDialog
+        visible={saveTarget !== null}
+        initial={saveTarget?.draft ?? EMPTY_DRAFT}
+        savedId={saveTarget?.savedId ?? null}
+        busy={savingDish}
+        onClose={() => setSaveTarget(null)}
+        onSave={handleSaveDish}
+        onUnsave={handleUnsaveDish}
+      />
     </Screen>
   );
 }

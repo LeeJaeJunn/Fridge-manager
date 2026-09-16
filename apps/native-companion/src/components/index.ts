@@ -17,5 +17,6 @@ export {
 } from './IngredientForm';
 export { InventoryConfirmCard } from './InventoryConfirmCard';
 export { RecipeResultCard } from './RecipeResultCard';
+export { SavedDishDialog } from './SavedDishDialog';
 export { Screen } from './Screen';
 export { Sheet } from './Sheet';
