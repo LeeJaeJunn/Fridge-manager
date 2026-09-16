@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 
 import { Card, IngredientEditDialog, Screen, Sheet, toPatch, type FormValues } from '@/components';
 import { useInventory } from '@/context/inventory';
-import { ADD_METHODS } from '@/lib/addMethods';
+import { ADD_METHODS, type AddMethod } from '@/lib/addMethods';
 import { expiryLabel, freshness, FRESHNESS_STYLE } from '@/lib/expiry';
 import type { IngredientType } from '@companion/types';
 
@@ -154,16 +154,16 @@ function UndoBanner({ name, onUndo }: { name: string; onUndo: () => void }) {
 
 /**
  * 재고 추가 방법 선택 바텀시트. + 를 누르면 올라온다.
- * 지금은 "직접 입력"만 동작하고 사진·영수증은 자리만 잡아둔다(레이아웃 최종형 → 나중엔 핸들러만).
+ * 하단 중앙 FAB 와 같은 세 경로(사진·영수증·직접 입력)를 연다.
  */
 function AddMethodSheet({
   visible,
   onClose,
-  onManual,
+  onSelect,
 }: {
   visible: boolean;
   onClose: () => void;
-  onManual: () => void;
+  onSelect: (method: AddMethod) => void;
 }) {
   return (
     <Sheet visible={visible} onClose={onClose}>
@@ -177,9 +177,7 @@ function AddMethodSheet({
           <Pressable
             key={m.key}
             disabled={!m.ready}
-            onPress={() => {
-              if (m.key === 'manual') onManual();
-            }}
+            onPress={() => onSelect(m)}
             className={`flex-row items-center gap-3 rounded-2xl border border-line px-4 py-3.5 ${
               m.ready ? 'active:bg-sand' : 'opacity-55'
             }`}
@@ -270,13 +268,14 @@ export default function FridgeScreen() {
         ) : null}
       </View>
 
-      {/* 추가 방법 선택 시트 (+ 탭) → "직접 입력" 고르면 모달 라우트로 이동 */}
+      {/* 추가 방법 선택 시트 — 하단 중앙 FAB 와 같은 라우트로 이동 */}
       <AddMethodSheet
         visible={picking}
         onClose={() => setPicking(false)}
-        onManual={() => {
+        onSelect={(method) => {
           setPicking(false);
-          router.push('/inventory/add');
+          if (method.key === 'manual') router.push('/inventory/add');
+          else router.push(`/inventory/scan?kind=${method.key}`);
         }}
       />
 

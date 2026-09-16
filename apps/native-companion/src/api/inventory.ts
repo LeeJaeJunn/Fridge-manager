@@ -26,7 +26,7 @@ export function fetchExpiring(days = 3): Promise<IngredientType[]> {
   return apiFetch<IngredientType[]>(`/inventory/expiring?days=${days}`);
 }
 
-/** 재료 추가 (여러 건). 만료일은 서버가 채워 돌려준다 */
+/** 재료 추가. 만료일 생략 시 신규는 미설정, 병합은 기존 값을 유지한다. */
 export function addIngredients(items: AddIngredientInputType[]): Promise<IngredientType[]> {
   return apiFetch<IngredientType[]>('/inventory', {
     method: 'POST',
