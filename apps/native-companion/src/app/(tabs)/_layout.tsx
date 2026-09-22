@@ -64,8 +64,8 @@ export default function TabsLayout() {
           }}
         />
         <Tabs.Screen
-          name="profile"
-          options={{ title: '프로필', tabBarIcon: tabIcon('person', 'person-outline') }}
+          name="recipes"
+          options={{ title: '레시피', tabBarIcon: tabIcon('bookmark', 'bookmark-outline') }}
         />
       </Tabs>
 

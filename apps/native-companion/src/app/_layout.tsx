@@ -70,6 +70,7 @@ function RootNavigator() {
           name="settings/memory"
           options={{ ...THEMED_HEADER, title: 'AI가 기억하는 나' }}
         />
+        <Stack.Screen name="settings/profile" options={{ ...THEMED_HEADER, title: '프로필' }} />
       </Stack.Protected>
 
       <Stack.Protected guard={isAuthed && !character}>

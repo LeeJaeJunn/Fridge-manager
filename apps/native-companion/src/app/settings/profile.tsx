@@ -25,7 +25,7 @@ export default function ProfileScreen() {
   const name = user?.name ?? user?.email?.split('@')[0] ?? '사용자';
 
   return (
-    <Screen scroll contentClassName="gap-8 px-6 py-8">
+    <Screen scroll edges={['bottom']} contentClassName="gap-8 px-6 py-8">
       {/* 내 정보 */}
       <View className="items-center gap-3">
         <Avatar name={name} />

@@ -1,5 +1,8 @@
+import { Ionicons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
+
+const ICON_COLOR = '#6E6E78'; // ink-soft — Ionicons 는 className 으로 색을 못 받는다
 
 type Props = {
   visible: boolean;
@@ -37,10 +40,23 @@ export function Dialog({ visible, onClose, children }: Props) {
         className="flex-1 justify-center bg-black/40 px-6"
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {/* 배경 — 본체보다 먼저 그려서 뒤에 깔린다. 본체 탭은 여기 닿지 않아 전파 흡수가 필요 없다. */}
-        <Pressable className="absolute inset-0" onPress={onClose} accessibilityLabel="닫기" />
+        {/* 배경 — 본체보다 먼저 그려서 뒤에 깔린다. 본체 탭은 여기 닿지 않아 전파 흡수가 필요 없다.
+            명시적 닫기 버튼과 라벨이 겹치지 않도록 접근성 트리에서만 숨기며, 배경 탭 동작은 유지한다. */}
+        <Pressable className="absolute inset-0" onPress={onClose} accessible={false} />
 
         <View className="max-h-[85%] rounded-3xl bg-white px-5 py-5">
+          {/* 닫기는 ScrollView 밖이다 — 안에 두면 긴 폼(재료 수정)에서 함께 스크롤돼 사라지고,
+              절대 위치로 띄우면 내용이 아이콘 아래로 지나가며 겹쳐 읽힌다. */}
+          <View className="mb-1 flex-row justify-end">
+            <Pressable
+              onPress={onClose}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="닫기"
+            >
+              <Ionicons name="close" size={22} color={ICON_COLOR} />
+            </Pressable>
+          </View>
           <ScrollView
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}

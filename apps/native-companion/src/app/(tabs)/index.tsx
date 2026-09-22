@@ -5,7 +5,6 @@ import { Pressable, Text, View } from 'react-native';
 import { fetchConversations } from '@/api/conversation';
 import { Avatar, Card, Screen } from '@/components';
 import { useAuth } from '@/context/auth';
-import { useCharacter } from '@/context/character';
 import { useInventory } from '@/context/inventory';
 import { expiryLabel, freshness, FRESHNESS_STYLE, summarize } from '@/lib/expiry';
 import type { ConversationSummaryType, IngredientType } from '@companion/types';
@@ -162,9 +161,9 @@ function NudgeSection({ items }: { items: IngredientType[] }) {
 
 export default function HomeScreen() {
   const { user } = useAuth();
-  const { character } = useCharacter();
   const { items, expiring, isLoading } = useInventory();
-  const characterName = character?.name ?? '컴패니언';
+  // 이름을 안 정했으면 이메일 앞부분 (settings/profile.tsx 와 같은 폴백)
+  const displayName = user?.name ?? user?.email?.split('@')[0] ?? '사용자';
 
   // 최근 대화 — 채팅 후 반영되게 focus 마다 갱신. 홈의 부가 섹션이라 실패해도 조용히 숨긴다.
   const [recents, setRecents] = useState<ConversationSummaryType[]>([]);
@@ -183,25 +182,23 @@ export default function HomeScreen() {
   return (
     <Screen scroll contentClassName="gap-2 px-6 pb-10 pt-4">
       {/* 인사 */}
-      <View className="gap-1">
-        {/* 이름이 비어도 "님!" 만 남지 않게 폴백 (profile.tsx 와 같은 방식) */}
-        <Text className="text-xl font-bold text-ink">
-          안녕하세요, {user?.name ?? user?.email?.split('@')[0] ?? '사용자'}님!
-        </Text>
-        <Text className="text-bold text-ink-soft">{greeting()}</Text>
+      <View className="flex-row items-start justify-between gap-3">
+        <View className="flex-1 gap-1">
+          <Text className="text-xl font-bold text-ink">안녕하세요, {displayName}님!</Text>
+          <Text className="text-bold text-ink-soft">{greeting()}</Text>
+        </View>
+        {/* 프로필은 저빈도 설정이라 탭이 아니라 헤더 아바타로 들어간다 */}
+        <Link href="/settings/profile" asChild>
+          <Pressable
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="프로필 및 설정"
+            className="active:opacity-60"
+          >
+            <Avatar name={displayName} size={44} />
+          </Pressable>
+        </Link>
       </View>
-
-      {/* 컴패니언 — 슬림한 채팅 바로가기 (캐릭터챗이 아니라 조력자 톤이라 크게 두지 않는다) */}
-      <Link href="/chat" asChild>
-        <Card onPress={() => {}} className="flex-row items-center gap-3 px-5 py-3.5">
-          <Avatar name={characterName} size={44} />
-          <View className="flex-1">
-            <Text className="text-base font-bold text-ink">{characterName}</Text>
-            <Text className="text-xs text-ink-soft">냉장고를 같이 관리해요</Text>
-          </View>
-          <Text className="text-xl text-lavender">›</Text>
-        </Card>
-      </Link>
 
       {/* 냉장고 현황 요약 */}
       <FridgeStatus items={items} isLoading={isLoading} />
