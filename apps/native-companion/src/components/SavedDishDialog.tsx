@@ -16,6 +16,8 @@ type Props = {
   /** 이미 저장된 요리를 열었으면 그 id — null 이면 아직 저장 전이다. */
   savedId: string | null;
   busy?: boolean;
+  /** 저장·수정·저장 해제 실패 문구. 모달 안에서 보여 작업 맥락을 잃지 않는다. */
+  error?: string | null;
   onClose: () => void;
   onSave: (draft: SavedDishDraftType) => Promise<void>;
   onUnsave: () => Promise<void>;
@@ -25,6 +27,7 @@ function SavedDishDialogForm({
   initial,
   savedId,
   busy = false,
+  error = null,
   onSave,
   onUnsave,
 }: Omit<Props, 'visible' | 'onClose'>) {
@@ -92,6 +95,7 @@ function SavedDishDialogForm({
             ))}
           </View>
         ) : null}
+        {error ? <Text className="text-sm text-red-500">{error}</Text> : null}
 
         <View className="flex-row gap-2">
           {savedId === null ? (
@@ -263,6 +267,7 @@ function SavedDishDialogForm({
           ) : null}
         </View>
       </Field>
+      {error ? <Text className="text-sm text-red-500">{error}</Text> : null}
 
       <View className="flex-row gap-2">
         <View className="flex-1">

@@ -15,6 +15,15 @@ export type SavedDishDraftType = {
   steps: string[];
 };
 
+/** `SavedDishDialog` 가 `visible=false` 일 때 쓰는 자리표시 — 내부 폼은 그때 마운트되지 않는다. */
+export const EMPTY_SAVED_DISH_DRAFT: SavedDishDraftType = {
+  dishName: '',
+  servings: 1,
+  cookMinutes: null,
+  ingredients: [],
+  steps: [],
+};
+
 /**
  * 입력칸 `maxLength` 용. ⚠️ **권위는 서버 DTO(`saved-dish.limits.ts`)** 이고 여기는 미리 막는 UX 다 —
  * 값이 어긋나면 서버가 400 으로 거절한다. 서버 값을 바꾸면 여기도 함께 바꾼다.

@@ -42,6 +42,7 @@ import {
   toRecipeResult,
 } from '@/lib/messages';
 import {
+  EMPTY_SAVED_DISH_DRAFT,
   draftFromDish,
   draftFromSaved,
   toSaveRequest,
@@ -55,17 +56,6 @@ import type {
   MessageType,
   SavedDishType,
 } from '@companion/types';
-
-/**
- * `visible=false` 일 때만 쓰이는 자리표시 — 모달 내부는 `visible` 로 감싸 마운트되지 않는다.
- */
-const EMPTY_DRAFT: SavedDishDraftType = {
-  dishName: '',
-  servings: 1,
-  cookMinutes: null,
-  ingredients: [],
-  steps: [],
-};
 
 export default function ConversationScreen() {
   const router = useRouter();
@@ -96,6 +86,7 @@ export default function ConversationScreen() {
     savedId: string | null;
   } | null>(null);
   const [savingDish, setSavingDish] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   // 채팅으로 재료가 추가·차감됐을 수 있다(서버 tool-use). 화면을 나갈 때 한 번만 전역 재고를 새로고침한다
@@ -241,6 +232,7 @@ export default function ConversationScreen() {
   }
 
   function handlePressStar(messageId: string, dish: DishProposalType) {
+    setSaveError(null);
     const saved = savedDishes.get(messageId);
     setSaveTarget({
       messageId,
@@ -252,6 +244,7 @@ export default function ConversationScreen() {
   async function handleSaveDish(draft: SavedDishDraftType) {
     if (!saveTarget || savingDish) return;
     setSavingDish(true);
+    setSaveError(null);
     try {
       const saved = saveTarget.savedId
         ? await updateSavedDish(saveTarget.savedId, toUpdateRequest(draft))
@@ -259,7 +252,7 @@ export default function ConversationScreen() {
       setSavedDishes((prev) => new Map(prev).set(saved.sourceMessageId, saved));
       setSaveTarget(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : '저장에 실패했어요');
+      setSaveError(e instanceof Error ? e.message : '저장에 실패했어요');
     } finally {
       setSavingDish(false);
     }
@@ -268,6 +261,7 @@ export default function ConversationScreen() {
   async function handleUnsaveDish() {
     if (!saveTarget?.savedId || savingDish) return;
     setSavingDish(true);
+    setSaveError(null);
     try {
       await deleteSavedDish(saveTarget.savedId);
       setSavedDishes((prev) => {
@@ -277,7 +271,7 @@ export default function ConversationScreen() {
       });
       setSaveTarget(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : '저장 해제에 실패했어요');
+      setSaveError(e instanceof Error ? e.message : '저장 해제에 실패했어요');
     } finally {
       setSavingDish(false);
     }
@@ -425,10 +419,14 @@ export default function ConversationScreen() {
 
       <SavedDishDialog
         visible={saveTarget !== null}
-        initial={saveTarget?.draft ?? EMPTY_DRAFT}
+        initial={saveTarget?.draft ?? EMPTY_SAVED_DISH_DRAFT}
         savedId={saveTarget?.savedId ?? null}
         busy={savingDish}
-        onClose={() => setSaveTarget(null)}
+        error={saveError}
+        onClose={() => {
+          setSaveError(null);
+          setSaveTarget(null);
+        }}
         onSave={handleSaveDish}
         onUnsave={handleUnsaveDish}
       />
