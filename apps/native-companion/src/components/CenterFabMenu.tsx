@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ADD_METHODS, type AddMethod } from '@/lib/addMethods';
 
 const FAB_SHADOW = {
-  shadowColor: '#7C3AED',
+  shadowColor: '#B83E49',
   shadowOpacity: 0.35,
   shadowRadius: 10,
   shadowOffset: { width: 0, height: 4 },
@@ -104,7 +104,7 @@ export function CenterFabMenu({
         <Pressable
           onPress={onToggle}
           accessibilityLabel={open ? '닫기' : '재고 추가'}
-          className="h-14 w-14 items-center justify-center rounded-full bg-lavender"
+          className="h-14 w-14 items-center justify-center rounded-full bg-primary"
           style={FAB_SHADOW}
         >
           <Text className="text-3xl leading-none text-white">{open ? '×' : '+'}</Text>

@@ -51,8 +51,8 @@ const RADIUS: Record<Radius, string> = { full: 'rounded-full', soft: 'rounded-[5
 // 변종별 스타일 — 색을 바꿀 땐 여기 + tailwind 토큰만 고치면 된다.
 const VARIANTS: Record<Variant, { box: string; boxOff: string; text: string; spinner: string }> = {
   primary: {
-    box: 'bg-lavender active:bg-lavender-deep',
-    boxOff: 'bg-lavender/40',
+    box: 'bg-primary active:bg-primary-deep',
+    boxOff: 'bg-primary/40',
     text: 'text-white',
     spinner: '#ffffff',
   },
@@ -60,13 +60,13 @@ const VARIANTS: Record<Variant, { box: string; boxOff: string; text: string; spi
     box: 'bg-white border border-line active:bg-sand',
     boxOff: 'opacity-50',
     text: 'text-ink',
-    spinner: '#6E6E78',
+    spinner: '#716865',
   },
   danger: {
-    box: 'border border-blush active:bg-blush-soft',
+    box: 'border border-red-500 active:bg-red-50',
     boxOff: 'opacity-50',
-    text: 'text-blush',
-    spinner: '#F9A8D4',
+    text: 'text-red-600',
+    spinner: '#DC2626',
   },
   /**
    * 카카오 로그인 — 컨테이너 `#FEE500`, 라벨 검정 85%. 디자인 가이드가 지정한 값이다.

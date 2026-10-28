@@ -18,7 +18,7 @@ const RADIUS = {
 
 // 그림자는 className 으로 표현이 어려워 style 로 한 곳에 모아둔다.
 const SHADOW = {
-  shadowColor: '#27272A',
+  shadowColor: '#2B2726',
   shadowOpacity: 0.07,
   shadowRadius: 20,
   shadowOffset: { width: 0, height: 8 },

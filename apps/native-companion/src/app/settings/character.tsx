@@ -21,7 +21,7 @@ import type {
 } from '@companion/types';
 
 const INPUT = 'rounded-xl bg-sand px-4 py-3 text-base text-ink';
-const PLACEHOLDER = '#A1A1AA'; // ink-faint
+const PLACEHOLDER = '#A79C98'; // ink-faint
 
 export default function CharacterSettingsScreen() {
   const router = useRouter();
@@ -95,7 +95,7 @@ export default function CharacterSettingsScreen() {
   if (!options || !character) {
     return (
       <Screen edges={['bottom']} contentClassName="items-center justify-center">
-        <ActivityIndicator color="#8B5CF6" />
+        <ActivityIndicator color="#C94B55" />
       </Screen>
     );
   }

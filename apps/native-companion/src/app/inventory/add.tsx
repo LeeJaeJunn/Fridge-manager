@@ -17,7 +17,7 @@ export default function AddIngredientScreen() {
   if (!options) {
     return (
       <Screen edges={[]} contentClassName="flex-1 items-center justify-center">
-        <ActivityIndicator color="#8B5CF6" />
+        <ActivityIndicator color="#C94B55" />
       </Screen>
     );
   }

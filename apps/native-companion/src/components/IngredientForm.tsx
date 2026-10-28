@@ -14,9 +14,9 @@ import type {
 import { Button } from './Button';
 import { ChipGroup } from './ChipGroup';
 
-const PLACEHOLDER = '#A1A1AA'; // ink-faint
-const ICON_COLOR = '#6E6E78'; // ink-soft — Ionicons 는 className 으로 색을 못 받는다
-const INK = '#27272A'; // ink — 네이티브 휠도 className 을 못 받아 색을 직접 넘긴다
+const PLACEHOLDER = '#A79C98'; // ink-faint
+const ICON_COLOR = '#716865'; // ink-soft — Ionicons 는 className 으로 색을 못 받는다
+const INK = '#2B2726'; // ink — 네이티브 휠도 className 을 못 받아 색을 직접 넘긴다
 const MS_PER_DAY = 86_400_000;
 
 /**
@@ -340,12 +340,12 @@ export function IngredientForm({
         </Pressable>
       )}
 
-      {/* 설정 박스 — **면은 흰색이고 테두리에만 색이 있다.** 저장 버튼(`bg-lavender`)과 같은
+      {/* 설정 박스 — **면은 흰색이고 테두리에만 색이 있다.** 저장 버튼(`bg-primary`)과 같은
           계열을 40% 로 옅게 쓴 거라, 색이 하나 더 늘지 않으면서 이 묶음이 한 덩어리로 묶인다
           (기본 `border-line` 회색보다 이 폼이 "설정하는 곳"임을 조용히 말해준다).
           면을 채우지 않는 게 요점이다 — 값 네 줄을 읽는 곳이라 바탕이 조용해야 글자가 산다.
           구분선 대신 `gap` 으로 줄을 가르고, 좌우 여백은 여기가 소유한다(행·펼침 패널이 공유). */}
-      <View className="gap-2 rounded-2xl border border-lavender/40 bg-white px-4 py-3">
+      <View className="gap-2 rounded-2xl border border-primary/40 bg-white px-4 py-3">
         {/* 분류 — 선택지가 11개라 접는다. 고르면 바로 닫아서 "골랐다"가 값으로 확인된다. */}
         <View>
           <DisclosureRow

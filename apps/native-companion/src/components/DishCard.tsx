@@ -5,8 +5,8 @@ import type { DishIngredientType, DishProposalType } from '@companion/types';
 import { Button } from './Button';
 import { Card } from './Card';
 
-const STAR_ON = '#8B5CF6'; // lavender
-const STAR_OFF = '#A1A1AA'; // ink-faint
+const STAR_ON = '#F59E0B'; // amber-deep — 저장 상태는 브랜드색보다 금색 별이 즉시 읽힌다.
+const STAR_OFF = '#A79C98'; // ink-faint
 // Ionicons 는 className 으로 색을 못 받으므로 디자인 토큰 값을 직접 넘긴다.
 
 /**
@@ -17,7 +17,7 @@ function IngredientRow({ item }: { item: DishIngredientType }) {
   const have = item.ingredientId !== null;
   return (
     <View className="flex-row items-baseline gap-2 py-1">
-      <Text className={have ? 'text-xs text-lavender' : 'text-xs text-ink-faint'}>
+      <Text className={have ? 'text-xs text-emerald-700' : 'text-xs text-ink-faint'}>
         {have ? '✓' : '＋'}
       </Text>
       <Text className={`flex-1 text-[15px] ${have ? 'text-ink' : 'text-ink-soft'}`}>

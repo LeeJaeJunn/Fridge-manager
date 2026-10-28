@@ -34,10 +34,10 @@ export function Chip({ label, selected = false, disabled = false, size = 'md', o
       onPress={onPress}
       disabled={disabled}
       className={`rounded-xl border ${s.box} ${
-        selected ? 'border-lavender bg-lavender-soft' : 'border-line bg-sand active:bg-line'
+        selected ? 'border-primary bg-primary-soft' : 'border-line bg-sand active:bg-line'
       } ${disabled ? 'opacity-40' : ''}`}
     >
-      <Text className={`${s.text} ${selected ? 'font-semibold text-lavender-deep' : 'text-ink'}`}>
+      <Text className={`${s.text} ${selected ? 'font-semibold text-primary-deep' : 'text-ink'}`}>
         {label}
       </Text>
     </Pressable>

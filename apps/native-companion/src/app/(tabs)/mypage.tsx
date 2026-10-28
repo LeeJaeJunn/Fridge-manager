@@ -4,7 +4,8 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View, type GestureResponderEvent } from 'react-native';
 
 import { deleteSavedDish, fetchSavedDishes, saveDish, updateSavedDish } from '@/api/saved-dish';
-import { Button, Card, SavedDishDialog, Screen } from '@/components';
+import { Avatar, Button, Card, SavedDishDialog, Screen } from '@/components';
+import { useAuth } from '@/context/auth';
 import {
   draftFromSaved,
   EMPTY_SAVED_DISH_DRAFT,
@@ -14,7 +15,8 @@ import {
 } from '@/lib/saved-dish';
 import type { SavedDishIngredientType, SavedDishType } from '@companion/types';
 
-const SAVED_STAR = '#8B5CF6'; // lavender — Ionicons 는 className 으로 색을 못 받는다.
+const SAVED_STAR = '#F59E0B'; // amber-deep — 저장 상태는 금색 별로 구분한다.
+const ICON_COLOR = '#716865'; // ink-soft — Ionicons 는 className 으로 색을 못 받는다
 
 /** "김치, 밥, 계란 외 2개" — 3개까지 이름만, 나머지는 개수로. */
 function ingredientSummary(ingredients: SavedDishIngredientType[]): string {
@@ -39,7 +41,7 @@ function UndoBanner({ name, busy, onUndo }: { name: string; busy: boolean; onUnd
         accessibilityLabel={`${name} 저장 해제 되돌리기`}
         className={busy ? 'opacity-50' : 'active:opacity-60'}
       >
-        <Text className="text-sm font-semibold text-lavender-soft">
+        <Text className="text-sm font-semibold text-primary-soft">
           {busy ? '되돌리는 중…' : '되돌리기'}
         </Text>
       </Pressable>
@@ -47,8 +49,31 @@ function UndoBanner({ name, busy, onUndo }: { name: string; busy: boolean; onUnd
   );
 }
 
-export default function SavedDishesScreen() {
+/** 마이페이지 상단 — 닉네임 첫 글자 아바타와 설정 진입. */
+function ProfileHeader({ name, onOpenSettings }: { name: string; onOpenSettings: () => void }) {
+  return (
+    <View className="flex-row items-center gap-4">
+      <Avatar name={name} size={72} />
+      <Text numberOfLines={1} className="flex-1 text-xl font-bold text-ink">
+        {name}
+      </Text>
+      <Pressable
+        onPress={onOpenSettings}
+        hitSlop={10}
+        accessibilityRole="button"
+        accessibilityLabel="설정"
+        className="active:opacity-60"
+      >
+        <Ionicons name="settings-outline" size={24} color={ICON_COLOR} />
+      </Pressable>
+    </View>
+  );
+}
+
+export default function MyPageScreen() {
   const router = useRouter();
+  const { user } = useAuth();
+  const displayName = user?.name ?? user?.email?.split('@')[0] ?? '사용자';
   const [dishes, setDishes] = useState<SavedDishType[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -149,8 +174,9 @@ export default function SavedDishesScreen() {
 
   return (
     <Screen scroll edges={['top']} contentClassName="gap-4 px-6 py-6">
-      <View className="gap-1">
-        <Text className="text-2xl font-bold text-ink">저장한 레시피</Text>
+      <ProfileHeader name={displayName} onOpenSettings={() => router.push('/settings')} />
+      <View className="mt-4 gap-1">
+        <Text className="text-lg font-bold text-ink">저장한 레시피</Text>
         <Text className="text-sm text-ink-soft">
           채팅에서 저장한 요리예요. 눌러서 자세히 보거나 수정해요.
         </Text>
@@ -174,7 +200,7 @@ export default function SavedDishesScreen() {
       ) : null}
 
       {loading ? (
-        <ActivityIndicator color="#8B5CF6" className="mt-8" />
+        <ActivityIndicator color="#C94B55" className="mt-8" />
       ) : dishes.length === 0 && loadError === null ? (
         <Card radius="3xl" className="gap-4 px-5 py-5">
           <View className="gap-1">

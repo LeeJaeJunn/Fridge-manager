@@ -131,7 +131,7 @@ function FilterChip({
   return (
     <Pressable
       onPress={onPress}
-      className={`rounded-full px-4 py-2 ${active ? 'bg-lavender' : 'border border-line bg-white'}`}
+      className={`rounded-full px-4 py-2 ${active ? 'bg-primary' : 'border border-line bg-white'}`}
     >
       <Text className={`text-sm ${active ? 'font-semibold text-white' : 'text-ink-soft'}`}>
         {label}
@@ -146,7 +146,7 @@ function UndoBanner({ name, onUndo }: { name: string; onUndo: () => void }) {
     <View className="flex-row items-center justify-between rounded-2xl bg-ink px-5 py-3">
       <Text className="text-sm text-white">{name} 다 먹음 처리했어요</Text>
       <Pressable onPress={onUndo} hitSlop={8}>
-        <Text className="text-sm font-semibold text-lavender-soft">되돌리기</Text>
+        <Text className="text-sm font-semibold text-primary-soft">되돌리기</Text>
       </Pressable>
     </View>
   );
@@ -194,7 +194,7 @@ function AddMethodSheet({
               </View>
               <Text className="text-xs text-ink-faint">{m.desc}</Text>
             </View>
-            {m.ready ? <Text className="text-lg text-lavender">›</Text> : null}
+            {m.ready ? <Text className="text-lg text-primary">›</Text> : null}
           </Pressable>
         ))}
       </View>
@@ -260,7 +260,7 @@ export default function FridgeScreen() {
             onPress={() => setPicking(true)}
             hitSlop={8}
             accessibilityLabel="재고 추가"
-            // className="h-10 w-10 items-center justify-center rounded-full bg-lavender active:bg-lavender-deep"
+            // className="h-10 w-10 items-center justify-center rounded-full bg-primary active:bg-primary-deep"
             className="items-center justify-center"
           >
             <Text className="text-2xl leading-none text-ink">+</Text>
@@ -280,7 +280,7 @@ export default function FridgeScreen() {
       />
 
       {isLoading ? (
-        <ActivityIndicator color="#8B5CF6" className="mt-8" />
+        <ActivityIndicator color="#C94B55" className="mt-8" />
       ) : (
         <>
           {undo ? <UndoBanner name={undo.name} onUndo={handleUndo} /> : null}

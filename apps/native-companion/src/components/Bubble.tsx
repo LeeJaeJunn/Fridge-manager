@@ -13,11 +13,11 @@ export function Bubble({ role, content, pending = false }: Props) {
   return (
     <View
       className={`max-w-[80%] rounded-3xl px-4 py-2.5 ${
-        isUser ? 'self-end bg-lavender' : 'self-start bg-sand'
+        isUser ? 'self-end bg-primary' : 'self-start bg-sand'
       }`}
     >
       {pending ? (
-        <ActivityIndicator color="#8B5CF6" />
+        <ActivityIndicator color="#C94B55" />
       ) : (
         <Text className={`text-base ${isUser ? 'text-white' : 'text-ink'}`}>{content}</Text>
       )}

@@ -33,9 +33,9 @@ export default function TabsLayout() {
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: '#8B5CF6',
-          tabBarInactiveTintColor: '#A1A1AA',
-          tabBarStyle: { backgroundColor: '#FFFFFF', borderTopColor: '#E9E9EC' },
+          tabBarActiveTintColor: '#C94B55',
+          tabBarInactiveTintColor: '#A79C98',
+          tabBarStyle: { backgroundColor: '#FFFFFF', borderTopColor: '#EAE1DD' },
         }}
       >
         <Tabs.Screen
@@ -64,8 +64,8 @@ export default function TabsLayout() {
           }}
         />
         <Tabs.Screen
-          name="recipes"
-          options={{ title: '레시피', tabBarIcon: tabIcon('bookmark', 'bookmark-outline') }}
+          name="mypage"
+          options={{ title: '마이', tabBarIcon: tabIcon('person', 'person-outline') }}
         />
       </Tabs>
 

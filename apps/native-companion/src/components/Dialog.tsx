@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
 
-const ICON_COLOR = '#6E6E78'; // ink-soft — Ionicons 는 className 으로 색을 못 받는다
+const ICON_COLOR = '#716865'; // ink-soft — Ionicons 는 className 으로 색을 못 받는다
 
 type Props = {
   visible: boolean;

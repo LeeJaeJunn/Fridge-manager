@@ -83,7 +83,7 @@ export default function AccountSettingsScreen() {
               maxLength={20}
               autoFocus
               placeholder="이름"
-              placeholderTextColor="#A1A1AA"
+              placeholderTextColor="#A79C98"
               editable={!saving}
               returnKeyType="done"
               onSubmitEditing={handleSaveName}

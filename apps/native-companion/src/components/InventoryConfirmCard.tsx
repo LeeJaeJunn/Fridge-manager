@@ -15,7 +15,7 @@ import { Button } from './Button';
 import { Card } from './Card';
 import { IngredientEditDialog } from './IngredientEditDialog';
 
-const PLACEHOLDER = '#A1A1AA';
+const PLACEHOLDER = '#A79C98';
 
 /**
  * 소비 항목 한 줄 — "다 먹음" 토글 + 남은 양 편집.
@@ -65,12 +65,10 @@ function ConsumeRow({
         <Pressable
           onPress={() => onChange({ finished: !finished, remaining })}
           className={`rounded-xl border px-3 py-2 ${
-            usedUp ? 'border-lavender bg-lavender-soft' : 'border-line bg-white'
+            usedUp ? 'border-primary bg-primary-soft' : 'border-line bg-white'
           }`}
         >
-          <Text
-            className={`text-xs font-medium ${usedUp ? 'text-lavender-deep' : 'text-ink-soft'}`}
-          >
+          <Text className={`text-xs font-medium ${usedUp ? 'text-primary-deep' : 'text-ink-soft'}`}>
             다 먹음
           </Text>
         </Pressable>
@@ -113,7 +111,7 @@ function AddRow({
             ) : null}
           </Text>
           {existing ? (
-            <Text className="text-xs text-lavender">
+            <Text className="text-xs text-primary">
               기존 {existing}
               {item.quantityNote ? ` · 추가 후 ${item.quantityNote}` : ''}
             </Text>

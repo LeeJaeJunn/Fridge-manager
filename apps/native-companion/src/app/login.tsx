@@ -32,7 +32,7 @@ const KAKAO_SYMBOL = require('../../assets/images/kakao_login/kakao_symbol.png')
 const LANDING_BUTTON = 'py-3.5';
 
 /** 눈 아이콘 색 — `tailwind.config.js` 의 `ink.soft`. 아이콘은 className 으로 색을 못 받는다. */
-const ICON_COLOR = '#6E6E78';
+const ICON_COLOR = '#716865';
 
 /**
  * `landing` = 로그인 수단을 고르는 첫 화면.
@@ -373,7 +373,7 @@ export default function LoginScreen() {
                   이메일 다시 입력
                 </Text>
                 <Text
-                  className={cooldown > 0 ? 'text-sm text-ink-faint' : 'text-sm text-lavender'}
+                  className={cooldown > 0 ? 'text-sm text-ink-faint' : 'text-sm text-primary'}
                   onPress={cooldown > 0 || submitting ? undefined : requestCode}
                 >
                   {cooldown > 0 ? `${cooldown}초 후 재전송` : '인증번호 재전송'}
@@ -438,7 +438,7 @@ export default function LoginScreen() {
           </View>
         </View>
 
-        {notice && <Text className="text-sm text-lavender">{notice}</Text>}
+        {notice && <Text className="text-sm text-primary">{notice}</Text>}
         {error && <Text className="text-sm text-red-500">{error}</Text>}
 
         <Button
@@ -492,7 +492,7 @@ function Field({
       <View>
         <TextInput
           className={`rounded-xl bg-sand px-4 py-3 text-base text-ink ${onHoldReveal ? 'pr-12' : ''}`}
-          placeholderTextColor="#A1A1AA"
+          placeholderTextColor="#A79C98"
           {...props}
         />
         {onHoldReveal && (

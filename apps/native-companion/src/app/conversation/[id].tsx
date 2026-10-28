@@ -307,7 +307,7 @@ export default function ConversationScreen() {
 
         {loading ? (
           <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color="#8B5CF6" />
+            <ActivityIndicator color="#C94B55" />
           </View>
         ) : (
           <ScrollView
@@ -383,7 +383,7 @@ export default function ConversationScreen() {
           <TextInput
             className="flex-1 rounded-full bg-sand px-4 py-2 text-ink"
             placeholder="메시지를 입력하세요"
-            placeholderTextColor="#A1A1AA"
+            placeholderTextColor="#A79C98"
             value={input}
             onChangeText={setInput}
             onSubmitEditing={handleSend}

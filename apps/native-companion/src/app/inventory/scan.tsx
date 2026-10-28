@@ -102,7 +102,7 @@ function ProposalRow({
               <Text className="font-normal text-ink-faint"> {purchasedLabel(item)}</Text>
             ) : null}
           </Text>
-          {merge ? <Text className="text-xs text-lavender">{merge}</Text> : null}
+          {merge ? <Text className="text-xs text-primary">{merge}</Text> : null}
           {/* 미설정이면 줄 자체를 안 그린다 — 영수증엔 유통기한이 거의 없어서 이게 대부분이다. */}
           {expiry ? <Text className="text-xs text-ink-faint">{expiry}</Text> : null}
         </View>
@@ -220,7 +220,7 @@ export default function ScanScreen() {
 
       {busy ? (
         <Card className="items-center gap-2 py-8">
-          <ActivityIndicator color="#8B5CF6" />
+          <ActivityIndicator color="#C94B55" />
           <Text className="text-sm text-ink-soft">재료를 읽는 중이에요…</Text>
         </Card>
       ) : null}

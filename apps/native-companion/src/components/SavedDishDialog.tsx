@@ -7,7 +7,7 @@ import { Button } from './Button';
 import { Dialog } from './Dialog';
 import { Field } from './Field';
 
-const PLACEHOLDER = '#A1A1AA'; // ink-faint — TextInput 은 className 으로 placeholder 색을 못 받는다
+const PLACEHOLDER = '#A79C98'; // ink-faint — TextInput 은 className 으로 placeholder 색을 못 받는다
 const INPUT = 'rounded-xl bg-sand px-4 py-3 text-base text-ink';
 
 type Props = {
@@ -89,7 +89,7 @@ function SavedDishDialogForm({
             <Text className="text-sm font-bold text-ink">만드는 법</Text>
             {steps.map((step, index) => (
               <View key={`${step}-${index}`} className="flex-row gap-2">
-                <Text className="w-5 text-sm font-semibold text-lavender-deep">{index + 1}.</Text>
+                <Text className="w-5 text-sm font-semibold text-primary-deep">{index + 1}.</Text>
                 <Text className="flex-1 text-sm leading-5 text-ink">{step}</Text>
               </View>
             ))}
@@ -220,7 +220,7 @@ function SavedDishDialogForm({
               onPress={() => setIngredients((current) => [...current, { name: '', amount: '' }])}
               className="self-start py-1"
             >
-              <Text className="text-sm font-semibold text-lavender-deep">+ 재료 추가</Text>
+              <Text className="text-sm font-semibold text-primary-deep">+ 재료 추가</Text>
             </Pressable>
           ) : null}
         </View>
@@ -230,9 +230,7 @@ function SavedDishDialogForm({
         <View className="gap-2">
           {steps.map((step, index) => (
             <View key={index} className="flex-row items-start gap-2">
-              <Text className="w-5 pt-3 text-sm font-semibold text-lavender-deep">
-                {index + 1}.
-              </Text>
+              <Text className="w-5 pt-3 text-sm font-semibold text-primary-deep">{index + 1}.</Text>
               <TextInput
                 value={step}
                 onChangeText={(value) =>
@@ -262,7 +260,7 @@ function SavedDishDialogForm({
               onPress={() => setSteps((current) => [...current, ''])}
               className="self-start py-1"
             >
-              <Text className="text-sm font-semibold text-lavender-deep">+ 순서 추가</Text>
+              <Text className="text-sm font-semibold text-primary-deep">+ 순서 추가</Text>
             </Pressable>
           ) : null}
         </View>

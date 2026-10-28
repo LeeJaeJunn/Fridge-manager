@@ -46,7 +46,7 @@ const EMPTY: Form = {
 };
 
 const INPUT = 'rounded-xl bg-sand px-4 py-3 text-base text-ink';
-const PLACEHOLDER = '#A1A1AA'; // ink-faint
+const PLACEHOLDER = '#A79C98'; // ink-faint
 
 /** 문자열 목록 → 칩 옵션 (태그는 한국어 라벨 자체가 값이다) */
 const toOptions = (xs: string[]) => xs.map((x) => ({ value: x, label: x }));
@@ -124,7 +124,7 @@ export default function OnboardingScreen() {
   if (!options) {
     return (
       <Screen edges={['top', 'bottom']} contentClassName="items-center justify-center">
-        <ActivityIndicator color="#8B5CF6" />
+        <ActivityIndicator color="#C94B55" />
       </Screen>
     );
   }
@@ -158,7 +158,7 @@ export default function OnboardingScreen() {
             {STEPS.map((s, i) => (
               <View
                 key={s.title}
-                className={`h-1.5 rounded-full ${i === step ? 'w-5 bg-lavender' : 'w-1.5 bg-line'}`}
+                className={`h-1.5 rounded-full ${i === step ? 'w-5 bg-primary' : 'w-1.5 bg-line'}`}
               />
             ))}
           </View>

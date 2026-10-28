@@ -10,8 +10,8 @@ src/
 │  ├─ _layout.tsx            # 루트: SplashScreen + Auth→Character 3단 Stack.Protected 게이트
 │  ├─ login.tsx              # 미인증 (로그인 / 회원가입 3단계: 이메일→인증번호→비밀번호)
 │  ├─ onboarding.tsx         # 캐릭터 없을 때 (캐릭터 이름·내 이름·말투 + 식성/알레르기/조리도구 태그 → 생성)
-│  ├─ (tabs)/                # 홈 / 냉장고 / [FAB] / 채팅(대화 목록) / 프로필(허브)
-│  ├─ settings/             # 프로필 하위 페이지: character(설정) · memory(AI가 기억하는 나) · account
+│  ├─ (tabs)/                # 홈 / 냉장고 / [FAB] / 채팅(대화 목록) / 마이(내 정보 + 저장 레시피)
+│  ├─ settings/             # index(설정 허브) · character(설정) · memory(AI가 기억하는 나) · account
 │  ├─ inventory/add.tsx      # 재료 직접 추가 (FAB 메뉴에서 진입)
 │  ├─ inventory/scan.tsx     # 영수증·사진 인식 → 확인·수정 후 저장
 │  └─ conversation/[id].tsx  # 채팅 창 (id="new" 면 새 대화)
@@ -28,7 +28,7 @@ src/
 - **effect 본문에서 동기 `setState` 를 하지 않는다**(이 레포는 cascading-render 를 lint error 로 막는다). 대신 `void Promise.resolve().then(...)` 로 미루거나(Provider 초기 로드) **파생값을 렌더 중 계산**한다(예: 냉장고 필터가 무효가 되면 `activeFilter` 로 보정 — 상태를 되돌리지 않는다). 같은 이유로 **렌더 중 ref 접근도 금지**라, effect 에서 부를 콜백은 `useCallback` 으로 안정화한다.
 - 화면 분기는 `_layout.tsx` 의 `Stack.Protected guard={...}` **3단**으로 한다: 미인증 → `login`, 인증+캐릭터 없음 → `onboarding`, 인증+캐릭터 → `(tabs)`(+하위 stack). 화면 안에서 `router.replace` 로 수동 리다이렉트하지 않는다.
 - ⚠️ **`app/` 에 라우트 파일을 새로 만들면 항상 두 가지가 따라온다** — ① `_layout.tsx` 의 해당 가드 블록에 `Stack.Screen` 등록, ② typedRoutes 재생성(`expo start` 가 `.expo/types` 갱신). ①을 빠뜨리면 그 화면이 **어느 가드에도 안 묶여** 스택 순서가 꼬이고, 앱을 열자마자 엉뚱하게 그 화면이 뜬다(실제로 겪음).
-- **탭은 4개 + 가운데 FAB**: 홈(`index` — 인사 + "먼저 먹어요" 임박 재료 + 히어로 카드 + 대화 시작 문구) / 냉장고(`fridge`) / 채팅(`chat` — 대화 목록) / 프로필(`profile` — 허브). 가운데 자리는 **더미 탭 `quickadd`** 가 잡고 있고(`tabBarButton` 이 빈 View 를 그림), 실제 버튼·스피드다이얼은 그 위에 겹치는 `CenterFabMenu` 오버레이가 그린다 — 그래야 위치가 정확히 맞는다. `quickadd` 라우트로는 이동하지 않는다. 새 탭·라우트 추가 시 typedRoutes 재생성 필요(`expo start` 가 `.expo/types` 갱신).
+- **탭은 4개 + 가운데 FAB**: 홈(`index` — 인사 + 냉장고 현황 + "먼저 먹어요" 임박 재료 + 최근 대화 + 대화 시작 문구) / 냉장고(`fridge`) / 채팅(`chat` — 대화 목록) / 마이(`mypage` — 내 정보 + 저장한 레시피). 가운데 자리는 **더미 탭 `quickadd`** 가 잡고 있고(`tabBarButton` 이 빈 View 를 그림), 실제 버튼·스피드다이얼은 그 위에 겹치는 `CenterFabMenu` 오버레이가 그린다 — 그래야 위치가 정확히 맞는다. `quickadd` 라우트로는 이동하지 않는다. 새 탭·라우트 추가 시 typedRoutes 재생성 필요(`expo start` 가 `.expo/types` 갱신).
 - **떠오르는 표면은 둘이고 역할이 다르다** — `Sheet`(바텀시트) = "무엇을 할지 고르는" 목록(아래에서 올라와 손가락 가까이 붙는다, 예: 추가 방법 선택). `Dialog`(가운데 모달) = **하던 것을 멈추고 한 건을 고칠 때**. 편집을 인라인으로 펼치면 원래 화면의 스크롤이 흔들리는데, 특히 채팅 스트림 한복판에선 카드가 부풀며 스크롤이 튄다. 둘 다 **폼을 담을 수 있어야 해서** `KeyboardAvoidingView`(시트·모달은 화면 아래·가운데라 키보드에 가려진다) + `ScrollView`(칩·날짜 피커까지 들어가면 화면을 넘긴다) + `keyboardShouldPersistTaps="handled"`(없으면 키보드가 떠 있을 때 첫 탭이 버튼에 안 닿아 "저장이 한 번에 안 눌린다")를 컴포넌트가 떠안는다.
   - **재료 편집은 `IngredientEditDialog` 한 곳**이다(`Dialog` + `IngredientForm`). 냉장고 탭이 쓰고, 채팅 확인 카드의 `add` 줄도 이걸 열 예정이다. ⚠️ 폼은 `initial` 을 useState **초기값으로만** 읽으므로 `visible` 로 감싸 **열 때마다 새로 마운트**한다 — 안 그러면 다른 재료를 열었을 때 이전 편집값이 남는다.
 - **재료 입력 필드는 `IngredientForm` 한 벌뿐이고, 껍데기만 다르다** — 추가는 전체 화면 라우트(`inventory/add`), 수정은 모달(`IngredientEditDialog`), 스캔 확인은 인라인. 예전엔 `showExpiry` 로 유통기한 섹션을 추가 경로에서만 켰는데, 그러면 같은 "재료 한 건"인데 화면마다 고칠 수 있는 게 달라지고 필드를 하나 늘릴 때 두 곳을 고쳐야 했다. 지금은 **항상 노출**하고 수정 경로가 현재 값으로 시작한다.
@@ -76,12 +76,12 @@ src/
   - 각 줄은 **외부 브라우저로 나간다**(`Linking.openURL`, 웹뷰 아님). v1.1 이 검증하려는 건 "검색으로 붙인 상세 레시피가 쓸모 있나"이고 웹뷰냐 링크냐는 그 답을 바꾸지 않는다. 네이버 블로그·레시피 사이트는 자체 리다이렉트가 있어 임베디드 웹뷰에서 깨지기 쉽다 — 이탈이 실제로 관측되면 그때 승격한다.
   - **출처 도메인을 항상 노출한다.** 우리가 검증한 레시피가 아니라 외부 글이라는 표시다.
 - 메시지 전송·확인·취소 응답은 전부 `{ messages: [...] }`(이번에 새로 생긴 아이템들)라 화면은 **뒤에 이어붙이기만** 한다. 한 턴에 말풍선과 카드가 함께 올 수 있다.
-- 스타일은 **NativeWind**(`className`) + **클린 중립 디자인 토큰**(`tailwind.config.js` theme.extend): 배경 `cream`(=연한 쿨그레이 캔버스 `#F7F8FC`, 토큰명 유지) · 들어간/독립 회색면 `sand`(입력·회색 말풍선·비선택 칩) · 보더/구분선 `line` · 텍스트 `ink`(쿨 뉴트럴) · 포인트 `lavender` · 보조 `peach`/`blush` · 카테고리 틴트 `mint`/`sky`/`amber`. 배경 기본 `bg-cream`, 상태바는 `style="dark"`. **3단 엘리베이션**(틴트 캔버스 < 흰 카드): 카드는 `Card` 가 `bg-white`+`border-line` 로 캔버스 위에서 떠 보이게 하고, `sand` 는 캔버스보다 살짝 진해 그 위 독립 회색면(말풍선 등)이 묻히지 않는다. **색을 하드코딩하지 말고 토큰**을 쓰고, 반복 UI는 `src/components/` 공통 컴포넌트(`Screen`/`Button`/`Card`/`Avatar`/`Bubble`)로 뽑는다 — 디자인 변경은 토큰·컴포넌트 한 곳만 고치면 전 화면 반영.
+- 스타일은 **NativeWind**(`className`) + **따뜻한 뉴트럴 디자인 토큰**(`tailwind.config.js` theme.extend): 배경 `cream`(=웜 뉴트럴 캔버스 `#FAF8F6`, 토큰명 유지) · 들어간/독립 회색면 `sand`(입력·회색 말풍선·비선택 칩) · 보더/구분선 `line` · 텍스트 `ink`(웜 뉴트럴) · 포인트 `primary`(로즈 코랄) · 보조 `peach`/`blush` · 카테고리 틴트 `mint`/`sky`/`amber`. 배경 기본 `bg-cream`, 상태바는 `style="dark"`. **3단 엘리베이션**(뉴트럴 캔버스 < 흰 카드): 카드는 `Card` 가 `bg-white`+`border-line` 로 캔버스 위에서 떠 보이게 하고, `sand` 는 캔버스보다 살짝 진해 그 위 독립 회색면(말풍선 등)이 묻히지 않는다. **색을 하드코딩하지 말고 토큰**을 쓰고, 반복 UI는 `src/components/` 공통 컴포넌트(`Screen`/`Button`/`Card`/`Avatar`/`Bubble`)로 뽑는다 — 디자인 변경은 토큰·컴포넌트 한 곳만 고치면 전 화면 반영.
 - **`Button` 의 축은 셋이다**: `variant`(강조 — primary/secondary/danger, **+ 브랜드** `kakao`) · `size`(md/sm) · `radius`(full/soft). `icon` 을 주면 라벨 왼쪽에 붙는다(정사각 박스 + `contain` 이라 정사각이 아닌 심볼도 안 찌그러진다).
   - ⚠️ `variant` 에 **두 종류가 섞여 있다**(강조 정도 vs 브랜드). 소셜 로그인 버튼이 우리 버튼과 여백·글꼴·모서리가 완전히 같아서 합쳤다 — 따로 두면 크기를 한쪽만 바꿨을 때 나란히 선 둘이 어긋난다(실제로 겪었다). 네이버·구글은 `VARIANTS` 에 한 줄씩 늘리면 된다.
   - ⚠️ **없는 유틸리티 클래스는 조용히 무시된다.** NativeWind 는 소스에서 발견한 클래스만 CSS 로 만들어서, 레포에서 처음 쓰는 값(`pt-6` 등)은 Metro 가 다시 스캔하기 전까지 **아무 효과가 없다**(에러도 안 난다). "패딩이 씹힌다" 싶으면 먼저 `expo start -c` 를 의심하고, 다른 화면이 이미 쓰는 값으로 바꿔 확인한다.
 - 탭 아이콘은 Ionicons 로 **선택 시 채운 모양 / 아닐 때 외곽선**이다(`(tabs)/_layout.tsx` 의 `tabIcon`). 색은 `Tabs` 의 tint 가 넘겨주므로 아이콘 쪽에 하드코딩하지 않는다. ⚠️ Ionicons 에 **냉장고 아이콘이 없어** `nutrition` 으로 대신한다(`basket` 은 장보기로 읽혀서 뺐다 — 이 탭은 사는 곳이 아니라 갖고 있는 곳이다).
-- 프로필 탭은 **허브**다: 상단 내 정보 + 섹션 행(캐릭터 설정 → `settings/character`, AI 메모리 관리 → `settings/memory`). 하위 페이지는 캐릭터 가드 블록의 `Stack.Screen`(파스텔 테마 네이티브 헤더 = 뒤로가기 자동). 새 라우트 추가 시 typedRoutes 재생성 필요(`expo start` 가 `.expo/types` 갱신).
+- **마이 탭**(`mypage`): 상단 첫 글자 아바타 + 닉네임 + 설정 버튼, 아래 저장한 레시피 카드 목록(수정·저장 해제·되돌리기). 설정 버튼은 `/settings` 허브(`settings/index`)로 이동하고, 허브에는 계정·캐릭터 설정·AI 메모리 관리 행만 둔다. 하위 페이지는 캐릭터 가드 블록의 `Stack.Screen`(네이티브 헤더 = 뒤로가기 자동). 새 라우트 추가 시 typedRoutes 재생성 필요(`expo start` 가 `.expo/types` 갱신).
 - **로그인 화면은 4상태**다(`login.tsx` 의 `Mode`): `landing`(수단 고르기 — 이메일 / 카카오) → `login` ⇄ `signup`, 그리고 `reset`. 이메일 폼을 첫 화면으로 두면 **이메일이 기본이고 카카오는 곁다리**로 보여서 고르는 단계를 앞에 뒀고, 소셜이 늘어도 여기만 늘어난다.
   - 카카오 버튼은 **landing 에만** 둔다 — 인증번호 기다리는 중에 다른 수단이 보이면 "하던 걸 버려라"로 읽힌다. 되돌아가는 길은 **좌상단 뒤로가기**이고, 그때 입력·증표를 **전부 버린다**(옛 증표가 남으면 이메일과 어긋난다).
   - ⚠️ **안드로이드 하드웨어 뒤로가기를 직접 처리한다**(`BackHandler`). 단계 이동을 라우터가 아니라 화면 안 상태로 하고 있어서, 라우트가 하나뿐인 이 화면에선 기본 동작이 **앱 종료**다(실제로 겪었다).

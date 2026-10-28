@@ -53,7 +53,7 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
   return (
     <Pressable
       onPress={onPress}
-      className={`rounded-full px-4 py-2 ${active ? 'bg-lavender' : 'border border-line bg-white'}`}
+      className={`rounded-full px-4 py-2 ${active ? 'bg-primary' : 'border border-line bg-white'}`}
     >
       <Text className={`text-sm ${active ? 'font-semibold text-white' : 'text-ink-soft'}`}>
         {label}
@@ -148,7 +148,7 @@ export default function MemoryScreen() {
       )}
 
       {loading ? (
-        <ActivityIndicator color="#8B5CF6" />
+        <ActivityIndicator color="#C94B55" />
       ) : memories.length === 0 ? (
         <Text className="mt-8 text-center text-ink-faint">
           아직 기억하는 게 없어요.{'\n'}대화를 나누면 조금씩 알아가요.
