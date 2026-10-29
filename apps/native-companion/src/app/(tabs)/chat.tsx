@@ -51,12 +51,15 @@ export default function ConversationListScreen() {
           <ActivityIndicator color="#C94B55" />
         </View>
       ) : conversations.length === 0 ? (
-        <View className="flex-1 items-center justify-center gap-4 px-6">
+        <ScrollView
+          overScrollMode="always"
+          contentContainerClassName="grow items-center justify-center gap-4 px-6"
+        >
           <Text className="text-ink-faint">아직 대화가 없어요.</Text>
           <Button label="새 채팅 시작" onPress={() => router.push('/conversation/new')} />
-        </View>
+        </ScrollView>
       ) : (
-        <ScrollView contentContainerClassName="gap-2 px-4 pb-6">
+        <ScrollView overScrollMode="always" contentContainerClassName="gap-2 px-4 pb-6">
           {conversations.map((c) => (
             <Card
               key={c.id}

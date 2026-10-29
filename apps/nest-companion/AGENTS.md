@@ -134,8 +134,8 @@
 - **주입(recall)과 표시(list)를 분리한다**:
   - `recall(userId)` = "프롬프트에 넣을 메모리 선택" — **벡터 교체 seam**이다. 지금은 오래된 순 전부. 수가 많아지면 이 메서드 **내부만** 카테고리별 top-N → 유사도 top-k(pgvector `vector` 컬럼 추가)로 바꾼다. 호출자(Conversation)는 안 바뀐다. ⚠️ 그때도 **`ALLERGY` 는 자르지 말 것** — 안전 정보라 하나 빠지면 사람이 다친다.
   - `list(userId)` = "AI가 기억하는 나" 화면용 — 항상 전부(+`id` 포함, 삭제용).
-- **추출(extractMemory)**: `ConversationService` 가 N메시지마다 **fire-and-forget** 호출(응답 지연 0). 최근 window개 메시지 → 기존 메모리와 함께 LLM 구조화 추출(`structured`) → 새 사실만 저장.
-  - 방침: **지속적 사실만**(일회성 이벤트/약속 제외), **추가만**(갱신·모순 해결 안 함 — 사용자가 삭제로 교정), 중복은 **LLM(의미) + 코드(정확일치) 2중** 제거.
+- **자동 추출은 임시 중단 상태**: `conversation.service.ts`의 `MEMORY_AUTO_EXTRACTION_ENABLED = false`가 트리거를 차단한다. 추출 코드는 유지하며 재개하려면 이 상수를 `true`로 바꾼다. 기존 기억의 recall과 수동 추가·수정·삭제는 유지한다. 재개 시 `ConversationService`가 N메시지마다 **fire-and-forget** 호출하여 최근 window개 메시지에서 새 사실만 저장한다.
+  - 방침: **지속적 사실만**(일회성 이벤트/약속 제외), **추출은 추가만**(자동 갱신·모순 해결 안 함 — 사용자가 화면에서 수정·삭제로 교정), 중복은 **LLM(의미) + 코드(정확일치) 2중** 제거.
   - ⚠️ **재료 재고는 뽑지 않는다** — "계란 있음"은 냉장고(`Ingredient`)가 관리하고 메모리에 또 저장하면 두 기록이 어긋난다. 추출 지침 맨 앞에서 `"계란 알레르기가 있음"`(사람) vs `"계란 있음"`(재고)을 구분하라고 못박는다.
   - ⚠️ **과추출 경향이 있다.** 프롬프트가 "이런 걸 뽑아라"로 가득해서 모델이 빈 배열을 실패로 느낀다. 미추출은 사용자가 눈치채지 못한 채 간판 기능이 조용히 죽고, 과추출은 화면에서 보이고 삭제할 수 있다 — **비대칭이 과추출 쪽에 유리**해서 이 방식을 유지하되, "빈 배열이 정상"을 프롬프트 앞쪽으로 올리는 게 남은 개선이다.
   - **툴콜로 바꾸지 않은 이유**: `remember` 툴을 붙이면 `update_inventory`(종결 툴)와 같은 턴에 불렸을 때 **종결 분기가 먼저 반환해 실행되지 않고 버려진다**("계란 샀어, 나 계란 알레르기 있는데" 같은 문장이 정확히 그 케이스). 그리고 채팅 모델은 "기억하기" 같은 부드러운 툴을 잘 안 불러 미추출로 기운다.
@@ -153,7 +153,7 @@
   - Postgres 는 `ADD VALUE` 를 enum **끝에** 붙이므로, schema.prisma 선언 순서와 무관하게 `ALLERGY` 가 `category asc` 정렬에서 마지막이다(메모리 목록 화면 순서에 영향).
 - **벡터는 지금 안 넣는다**: 메모리 소수라 전부 주입이 더 싸고 정확. recall seam + 루트 AGENTS.md 방침 덕에 나중에 컬럼 추가 + recall 내부 교체로 붙는다.
 - 튜닝 env(나중에 Settings 테이블로 이전): `MEMORY_EXTRACT_WINDOW`, `MEMORY_EXTRACT_EVERY_N`, `MEMORY_EXTRACT_MODEL`(비우면 `LLM_MODEL`). 읽는 곳은 서비스 생성자 **1곳**(env→DB 전환 seam).
-- API(`MemoryModule`): `GET /memories`(내 전체), `DELETE /memories/:id`(교정용, 본인 것만 멱등). 전부 현재 유저 기준.
+- API(`MemoryModule`): `GET /memories`(내 전체), `GET /memories/options`(예시·입력 제한), `POST /memories`(직접 추가), `PATCH /memories/:id`(본인 기억의 보낸 필드만 수정), `DELETE /memories/:id`(본인 것만 멱등). 모두 JWT 가드·현재 유저 기준. 직접 입력은 최대 40자이며 공백만 정리하고 AI를 호출하지 않는다. 중복은 동일 유저 내 카테고리 무관 공백 정규화·대소문자 무시 비교로 409, 없는/남의 기억 수정은 404. 온보딩 예시는 `TAG_GROUPS`를 재사용한다.
 
 ## 냉장고 재고 (Inventory)
 

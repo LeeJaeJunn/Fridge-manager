@@ -164,7 +164,11 @@ export default function OnboardingScreen() {
           </View>
         </View>
 
-        <ScrollView contentContainerClassName="gap-6 px-6 pb-6" keyboardShouldPersistTaps="handled">
+        <ScrollView
+          overScrollMode="always"
+          contentContainerClassName="gap-6 px-6 pb-6"
+          keyboardShouldPersistTaps="handled"
+        >
           <View className="gap-1">
             <Text className="text-2xl font-bold text-ink">{STEPS[step].title}</Text>
             <Text className="text-ink-soft">{STEPS[step].subtitle}</Text>

@@ -77,6 +77,12 @@ export type {
   UpdateSavedDishRequestType,
 } from './saved-dish';
 
-export type { MemoryCategoryType, MemoryType } from './memory';
+export type {
+  CreateMemoryRequestType,
+  MemoryCategoryType,
+  MemoryOptionsType,
+  MemoryType,
+  UpdateMemoryRequestType,
+} from './memory';
 
 export type { RecipeSearchResultType, RecipeSourceType, RecipeType } from './recipe';

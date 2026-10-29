@@ -276,7 +276,7 @@ export default function LoginScreen() {
   // 겹겹이 쌓이므로 여기서 끊는다. (훅은 위에서 전부 호출된 뒤라 조건부 훅이 아니다)
   if (mode === 'landing') {
     return (
-      <Screen contentClassName="justify-center gap-10 px-6">
+      <Screen scroll contentClassName="justify-center gap-10 px-6">
         <View className="items-center gap-2">
           <Text className="text-3xl font-bold text-ink">Companion</Text>
           <Text className="text-center text-ink-soft">냉장고에 뭐가 있는지 기억해 드릴게요.</Text>
@@ -310,7 +310,7 @@ export default function LoginScreen() {
   const steppedMode: SteppedMode = isReset ? 'reset' : 'signup';
 
   return (
-    <Screen>
+    <Screen scroll>
       {/* 헤더 — 채팅 화면(`conversation/[id]`)과 같은 자리·같은 높이지만 **제목이 가운데**다.
           제목이 여기 올라오면서 본문은 위에서부터 흐른다(예전엔 세로 중앙 정렬이었다). */}
 

@@ -1,8 +1,21 @@
-import type { MemoryCategoryType, MemoryType } from '@companion/types';
-import { Injectable, Logger } from '@nestjs/common';
+import type {
+  CreateMemoryRequestType,
+  MemoryCategoryType,
+  MemoryOptionsType,
+  MemoryType,
+  UpdateMemoryRequestType,
+} from '@companion/types';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { LlmService } from '../llm/llm.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { MEMORY_CATEGORIES, memoryOptions } from './memory.options';
 import {
   buildExtractionInstruction,
   EXTRACTION_SCHEMA_NAME,
@@ -72,6 +85,72 @@ export class MemoryService {
       select: { id: true, category: true, content: true, createdAt: true },
     });
     return rows.map(toDto);
+  }
+
+  options(): MemoryOptionsType {
+    return memoryOptions();
+  }
+
+  /** 직접 입력은 AI 가공 없이 공백만 정리해 저장한다. */
+  async create(userId: string, req: CreateMemoryRequestType): Promise<MemoryType> {
+    if (!MEMORY_CATEGORIES.includes(req.category)) {
+      throw new BadRequestException('기억의 분류를 선택해 주세요.');
+    }
+    const content = this.cleanContent(req.content);
+    await this.checkDuplicate(userId, content);
+    const row = await this.prisma.memory.create({
+      data: { userId, category: req.category, content },
+      select: { id: true, category: true, content: true, createdAt: true },
+    });
+    return toDto(row);
+  }
+
+  async update(userId: string, id: string, patch: UpdateMemoryRequestType): Promise<MemoryType> {
+    const existing = await this.prisma.memory.findFirst({
+      where: { id, userId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('기억을 찾을 수 없어요.');
+    if (typeof patch.category !== 'undefined' && !MEMORY_CATEGORIES.includes(patch.category)) {
+      throw new BadRequestException('기억의 분류를 선택해 주세요.');
+    }
+    let content: string | undefined;
+    if (typeof patch.content !== 'undefined') {
+      content = this.cleanContent(patch.content);
+      await this.checkDuplicate(userId, content, id);
+    }
+    const row = await this.prisma.memory.update({
+      where: { id, userId },
+      data: { category: patch.category, content },
+      select: { id: true, category: true, content: true, createdAt: true },
+    });
+    return toDto(row);
+  }
+
+  private cleanContent(value: unknown): string {
+    if (typeof value !== 'string') {
+      throw new BadRequestException('기억할 내용을 입력해 주세요.');
+    }
+    const content = value.trim().replace(/\s+/g, ' ');
+    if (!content) throw new BadRequestException('기억할 내용을 입력해 주세요.');
+    return content;
+  }
+
+  private async checkDuplicate(userId: string, content: string, excludeId?: string): Promise<void> {
+    const existing = await this.prisma.memory.findMany({
+      where: { userId },
+      select: { id: true, content: true },
+    });
+    const normalized = normalize(content);
+    if (
+      existing.some(
+        (memory) =>
+          (typeof excludeId === 'undefined' || memory.id !== excludeId) &&
+          normalize(memory.content) === normalized,
+      )
+    ) {
+      throw new ConflictException('이미 기억하고 있는 내용이에요.');
+    }
   }
 
   /** 메모리 삭제 (본인 것만, 멱등). */

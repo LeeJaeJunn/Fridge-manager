@@ -61,6 +61,7 @@ export function Dialog({ visible, onClose, children }: Props) {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             bounces={false}
+            overScrollMode="always"
           >
             {children}
           </ScrollView>

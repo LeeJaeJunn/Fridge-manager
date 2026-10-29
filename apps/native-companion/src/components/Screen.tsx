@@ -12,7 +12,11 @@ type Props = {
   contentClassName?: string;
 };
 
-/** 모든 화면의 공통 바깥 래퍼 — 크림 배경 + SafeArea를 한 곳에서 관리한다. */
+/**
+ * 모든 화면의 공통 바깥 래퍼 — 크림 배경 + SafeArea를 한 곳에서 관리한다.
+ * 세로 스크롤은 Android에서 `overScrollMode="always"` — 내용이 짧아도 끝에서 늘어나는 탄성을 준다.
+ * `grow` 로 본문이 화면 높이를 채워 `justify-center`·`mt-auto` 배치를 스크롤 화면에서도 쓸 수 있다.
+ */
 export function Screen({
   children,
   scroll = false,
@@ -22,7 +26,13 @@ export function Screen({
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={edges}>
       {scroll ? (
-        <ScrollView contentContainerClassName={contentClassName}>{children}</ScrollView>
+        <ScrollView
+          overScrollMode="always"
+          keyboardShouldPersistTaps="handled"
+          contentContainerClassName={`grow ${contentClassName}`}
+        >
+          {children}
+        </ScrollView>
       ) : (
         <View className={`flex-1 ${contentClassName}`}>{children}</View>
       )}

@@ -365,6 +365,9 @@ function toLlmItems(rows: MessageRow[]): LlmInputItemType[] {
   return items;
 }
 
+// 자동 추출은 제품 방향 검토 동안 임시 중단한다. 수동 기억 관리·recall은 유지한다.
+const MEMORY_AUTO_EXTRACTION_ENABLED = false;
+
 @Injectable()
 export class ConversationService {
   private readonly logger = new Logger(ConversationService.name);
@@ -1033,6 +1036,7 @@ export class ConversationService {
    * messageCount 는 exchange 가 이미 계산한 `TEXT` 개수 — 별도 count 쿼리를 하지 않는다(`countText` 참고).
    */
   private triggerExtraction(userId: string, conversationId: string, messageCount: number): void {
+    if (!MEMORY_AUTO_EXTRACTION_ENABLED) return;
     if (messageCount % this.extractEveryN !== 0) return;
     void this.memory
       .extractMemory(userId, conversationId)

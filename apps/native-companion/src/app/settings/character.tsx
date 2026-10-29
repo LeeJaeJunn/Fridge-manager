@@ -112,7 +112,11 @@ export default function CharacterSettingsScreen() {
         className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerClassName="gap-6 px-6 py-6" keyboardShouldPersistTaps="handled">
+        <ScrollView
+          overScrollMode="always"
+          contentContainerClassName="gap-6 px-6 py-6"
+          keyboardShouldPersistTaps="handled"
+        >
           <Field label="이름">
             <TextInput
               className={INPUT}

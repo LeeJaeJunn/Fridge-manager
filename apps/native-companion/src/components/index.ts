@@ -16,6 +16,7 @@ export {
   type FormValues,
 } from './IngredientForm';
 export { InventoryConfirmCard } from './InventoryConfirmCard';
+export { MemoryEditDialog } from './MemoryEditDialog';
 export { RecipeResultCard } from './RecipeResultCard';
 export { SavedDishDialog } from './SavedDishDialog';
 export { Screen } from './Screen';

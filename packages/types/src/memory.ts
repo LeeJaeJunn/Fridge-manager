@@ -17,3 +17,21 @@ export interface MemoryType {
   content: string;
   createdAt: string;
 }
+
+/** POST /memories — 사용자가 직접 알려준 기억 */
+export interface CreateMemoryRequestType {
+  category: MemoryCategoryType;
+  content: string;
+}
+
+/** PATCH /memories/:id — 보낸 필드만 갱신 */
+export interface UpdateMemoryRequestType {
+  category?: MemoryCategoryType;
+  content?: string;
+}
+
+/** GET /memories/options — 서버 소유 예시와 입력 제한 */
+export interface MemoryOptionsType {
+  examples: Record<MemoryCategoryType, string[]>;
+  limits: { contentMax: number };
+}

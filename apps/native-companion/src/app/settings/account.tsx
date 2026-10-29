@@ -69,7 +69,7 @@ export default function AccountSettingsScreen() {
   }
 
   return (
-    <Screen edges={['bottom']} contentClassName="gap-6 px-6 py-8">
+    <Screen scroll edges={['bottom']} contentClassName="gap-6 px-6 py-8">
       {/* 이름 */}
       <View className="gap-2">
         <Text className="text-ink-soft">이름</Text>

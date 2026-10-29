@@ -312,6 +312,7 @@ export default function ConversationScreen() {
         ) : (
           <ScrollView
             ref={scrollRef}
+            overScrollMode="always"
             className="flex-1 px-4"
             contentContainerClassName="gap-3 py-4"
             onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
